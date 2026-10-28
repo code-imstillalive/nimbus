@@ -127,6 +127,14 @@ def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, capl
     ):
         shown |= set(_hub_options._effective_schema_keys(schema))
     assert sorted(shown - set(_hub_options._SOLVER_WIZARD_SCHEMA_KEYS)) == []
+    # The same for Configure -> Forecaster settings, whose merge keeps only
+    # _FORECASTER_SCHEMA_KEYS: home / away (#1847) was shown and dropped
+    # (TD944, 29 Oct 2026: "If I open up the settings again all they have all
+    # reset to blank").
+    shown = set(
+        _hub_options._effective_schema_keys(_hub_options._forecaster_schema({}))
+    )
+    assert sorted(shown - set(_hub_options._FORECASTER_SCHEMA_KEYS)) == []
 
     # test_without_a_geocoded_sensor_the_postcode_setting_gives_the_region
     # nimbus #2133: the reference household has no Companion App geocoded
