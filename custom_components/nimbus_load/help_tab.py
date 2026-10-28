@@ -215,6 +215,21 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.496",
+        "28 Oct 2026",
+        (
+            (
+                "**Price blend:** its own accuracy is now measured against "
+                "the price that settles, so you can see whether it beats your "
+                "provider before turning *Blend drives plan* on."
+            ),
+            (
+                "**Device setup:** its check now names each problem it "
+                "finds, and the setup also covers your summed load circuits."
+            ),
+        ),
+    ),
+    (
         "0.94.495",
         "28 Oct 2026",
         (
