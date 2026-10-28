@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The price blend's own error is measured** (#1786). Each price source has been scored against the price that settles, but the blend itself wasn't, so the documented test for switching *Blend drives plan* on ("the blend closer to the settled price than the provider at every lead") couldn't be checked. The blend is now scored beside the sources as `consolidated`: on its raw error, since it enters the plan as it is, and it never takes a share of the blend itself. The Solver tab's price table is unchanged.
+
 ## [0.94.495] - 2026-10-28
 
 **The site postcode now saves, a stopped AC is forecast as stopped, and the midday solar-charge hint holds steady.**
