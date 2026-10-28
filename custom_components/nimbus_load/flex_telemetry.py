@@ -113,13 +113,13 @@ VALID_REGIONS = frozenset({"NSW1", "QLD1", "VIC1", "SA1", "TAS1"})
 # `"pattern": "^[0-9]{3}$"`.
 _POSTCODE_PREFIX_RE = re.compile(r"^[0-9]{3}$")
 
-# `"enum": ["stationary_battery", "ev"]`. Every Nimbus battery emits
-# `stationary_battery` today: `BatteryConfig` has no EV flag at all
-# (checked, not assumed -- there is no `is_ev`/`vehicle`/`kind` field on
-# it), and #495's own field table already gates the EV entries on #467
-# stage 2. Guessing "ev" from a participant's name is the
-# name-shaped inference @purcell-lab rejected on #768.
+# `"enum": ["stationary_battery", "ev"]`. Guessing "ev" from a
+# participant's name is the name-shaped inference @purcell-lab rejected on
+# #768. #2140: a Battery Participant with a departure hour or a trip
+# calendar configured is a vehicle by its own settings (only a vehicle
+# leaves), so it is `ev`; every other battery is `stationary_battery`.
 ASSET_KIND_STATIONARY = "stationary_battery"
+ASSET_KIND_EV = "ev"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -238,8 +238,9 @@ def build_asset(
     available_down_kw: float,
     shadow_power_balance_price: float | None,
     clamped: list[str],
+    vehicle: bool = False,
 ) -> dict[str, Any]:
-    """One `assets[]` entry.
+    """One `assets[]` entry. `vehicle`: an EV by its own settings (#2140).
 
     `setpoint_kw` is signed with the schema's convention (*"Positive =
     charging, negative = discharging"*), which is the opposite of this
@@ -256,7 +257,7 @@ def build_asset(
     soc_pct = 0.0 if capacity <= 0.0 else 100.0 * _nonneg(soc_kwh) / capacity
     return {
         "asset_id": asset_id_for(name),
-        "kind": ASSET_KIND_STATIONARY,
+        "kind": ASSET_KIND_EV if vehicle else ASSET_KIND_STATIONARY,
         "bidirectional_capable": float(max_discharge_kw) > 0.0,
         "capacity_kwh": round(capacity, 3),
         "soc_pct": round(min(100.0, max(0.0, soc_pct)), 3),

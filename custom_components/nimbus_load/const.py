@@ -497,6 +497,15 @@ DEFAULT_PARTICIPANT_KWH_PER_100KM: Final = 18.0
 # is conservative in the right direction -- the pack ends up fuller than
 # strictly needed, never emptier.
 CONF_BATTERY_PARTICIPANT_ODOMETER_ENTITY: Final = "battery_participant_odometer_entity"
+# #2140 (Mark Purcell, 28 Oct 2026: "do both"): what flex telemetry reports
+# this participant as. `auto` (the default) is a vehicle when a departure
+# hour or a trip calendar is set; `vehicle` and `stationary` override that
+# either way, for a car without departure settings or a house battery given
+# a departure deadline for another reason.
+CONF_BATTERY_PARTICIPANT_ASSET_KIND: Final = "battery_participant_asset_kind"
+PARTICIPANT_ASSET_KIND_AUTO: Final = "auto"
+PARTICIPANT_ASSET_KIND_VEHICLE: Final = "vehicle"
+PARTICIPANT_ASSET_KIND_STATIONARY: Final = "stationary"
 
 # #563 item 3 (2026-09-08): the shared-charger power constraint, the
 # other half deferred out of #566. An optional free-text group name --
