@@ -118,7 +118,25 @@ def snapshot(hass: Any, entry: Any) -> dict[str, Any]:
         "known_sources": _known_sources(hass),
         # The price sensors' unit and provider (DC-006 slice 4).
         "price_sources": _price_sources(hass, entry.options),
+        # Which subentry publishes each forecast (DC-006 slice 3, the load
+        # half): a summed circuit binds on its own load's device.
+        "forecast_publishers": _forecast_publishers(hass, entry),
     }
+
+
+def _forecast_publishers(hass: Any, entry: Any) -> dict[str, str]:
+    """{forecast entity id: subentry id} for this hub's Load and Power Signal
+    forecasts, by their unique_id (`<subentry_id>_load_forecast`), so a
+    renamed entity is still found."""
+    out: dict[str, str] = {}
+    for e in er.async_get(hass).entities.values():
+        if e.platform != DOMAIN or e.config_entry_id != entry.entry_id:
+            continue
+        uid = str(e.unique_id)
+        for suffix in ("_load_forecast", "_signal_forecast"):
+            if uid.endswith(suffix):
+                out[e.entity_id] = uid[: -len(suffix)]
+    return out
 
 
 def _price_sources(hass: Any, options: Any) -> dict[str, dict[str, Any]]:

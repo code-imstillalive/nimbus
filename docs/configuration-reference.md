@@ -363,7 +363,10 @@ dashboard rows say so:
   stochastic solve the same way, and the main plan drives that cycle.
 - **Blend drives plan (experimental)**, on the Solver tab
   (`switch.nimbus_solver_price_consolidation_live`): every price source,
-  combined, prices the plan instead of your provider alone.
+  combined, prices the plan instead of your provider alone. The blend's own
+  error is scored beside each source's, under `consolidated` in the plan
+  sensor's `price_consolidation` → `mae_by_source_and_lead`, so you can see
+  whether it beats your provider at each lead before switching it on.
 
 Their names and settings won't change, but what they do when switched on may
 still change until each has a measured verdict.

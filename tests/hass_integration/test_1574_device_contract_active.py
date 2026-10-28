@@ -157,6 +157,10 @@ def _settings(hass: HomeAssistant, entry) -> dict:
     }
 
 
+def snap_publishers(hass, entry):
+    return device_contract_ha.snapshot(hass, entry)["forecast_publishers"]
+
+
 def _store(hass, entry):
     return device_storage.ContractStore(device_storage.ha_backend(hass, entry.entry_id))
 
@@ -629,6 +633,16 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     hass.states.async_set("sensor.buy", "0.30", {"unit_of_measurement": "$/kWh"})
     snap = device_contract_ha.snapshot(hass, entry)
     assert snap["price_sources"]["sensor.buy"] == {"unit": "$/kWh", "profile": False}
+    # test_a_summed_circuit_is_found_by_the_load_that_publishes_it
+    # DC-006 slice 3, the load half: by unique_id, so a rename doesn't lose it.
+    published = er.async_get(hass).async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "sub_pool_load_forecast",
+        config_entry=entry,
+        suggested_object_id="renamed_pool_forecast",
+    )
+    assert snap_publishers(hass, entry)[published.entity_id] == "sub_pool"
     # A sensor in a provider's shape (here OpenADR's) is read by that
     # provider's rows, so it counts as a provider's.
     hass.states.async_set(
