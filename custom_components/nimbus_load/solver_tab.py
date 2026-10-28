@@ -412,12 +412,20 @@ _CONSOLIDATION_SOURCES = {
         "{% set pc = state_attr('${@nimbus_solver_battery_forecast}', 'price_consolidation') or {} %}"
         "{% set imp = pc.get('import') or {} %}"
         "{% set names = imp.get('sources') or [] %}"
-        "{% set prov = '${@option:solver_import_price_sensor}' %}"
-        "{% set prov_name = state_attr(prov, 'friendly_name') or 'Your provider' %}"
+        # Household, 29 Oct 2026: the names read the settings live from the
+        # Solver config sensor, so changing a source (a new tariff) renames
+        # its row without rebuilding the tab; `@option:` was fixed when the
+        # tab was made.
+        "{% set cfg = '${@solver_config}' %}"
+        "{% set prov = state_attr(cfg, 'solver_import_price_sensor') %}"
+        "{% set prov_name = state_attr(prov, 'friendly_name') if prov else none %}"
+        "{% set prov_name = prov_name or 'Your provider' %}"
         # Household, 20 Oct 2026: the extra sources by their own names, not
         # "Second"/"Third" (the provider and AEMO already come first).
-        "{% set name_2 = state_attr('${@option:solver_import_price_sensor_2}', 'friendly_name') or 'Extra source 1' %}"
-        "{% set name_3 = state_attr('${@option:solver_import_price_sensor_3}', 'friendly_name') or 'Extra source 2' %}"
+        "{% set s2 = state_attr(cfg, 'solver_import_price_sensor_2') %}"
+        "{% set s3 = state_attr(cfg, 'solver_import_price_sensor_3') %}"
+        "{% set name_2 = (state_attr(s2, 'friendly_name') if s2 else none) or 'Extra source 1' %}"
+        "{% set name_3 = (state_attr(s3, 'friendly_name') if s3 else none) or 'Extra source 2' %}"
         "{% set label = {'primary': prov_name, 'aemo_markup': 'AEMO + markup', 'retail_from_rrp': 'Retail from AEMO RRP', 'secondary_2': name_2, 'secondary_3': name_3} %}"
         "{% set spread = imp.get('spread_now') %}"
         "{% if names | length < 2 %}**Price sources**: one source, nothing to blend."

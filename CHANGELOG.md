@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Solver tab's price-source names follow your settings.** The Price sources table named each source from a copy of the setting taken when the tab was made, so a changed source kept its old name until the tab was rebuilt. The names now read the settings live. A Solver tab made before this release still holds the old copy: remove the tab and add it again once to pick this up.
 - **Downloading diagnostics while Nimbus reloads works.** A diagnostics download made while the hub was reloading (for example just after saving its settings) returned a server error. It now returns the settings and parts as usual.
 
 ## [0.94.497] - 2026-10-29
