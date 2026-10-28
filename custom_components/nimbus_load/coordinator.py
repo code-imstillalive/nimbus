@@ -97,6 +97,7 @@ from .const import (
 from .ml import occupancy as occupancy_model
 from .ml.features import FEATURE_NAMES
 from .ml.model import (
+    DEFAULT_RUN_HOURS,
     MAX_RESIDUALS_STORED,
     TRAINED_MODEL_SCHEMA_VERSION,
     PredictionResult,
@@ -106,6 +107,7 @@ from .ml.model import (
     deterministic_values,
     predict,
     resample_last_value,
+    run_started_at,
     train_model,
 )
 from .power_input_check import energy_unit_of, is_energy_unit, warn_ignored_once
@@ -504,6 +506,40 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def _expected_load_kw(self) -> float | None:
         return self.subentry.data.get(CONF_EXPECTED_LOAD_KW)
+
+    async def _async_run_started(
+        self, recent: list[tuple[datetime, float]], now_utc: datetime
+    ) -> datetime | None:
+        """nimbus #2129: when a bursty load's current run started, for
+        predict()'s learned run length; None when it isn't running, has a
+        threshold of its own (#1703), was never learned as bursty, or is a
+        power signal or the whole house. The
+        lag window is too short to see a long run's start, so while it runs
+        the recorder is read back as far as its longest past run, up to a
+        day."""
+        trained = self._trained
+        threshold = getattr(trained, "run_threshold_kw", None)
+        # An appliance or circuit only: never a power signal or the whole
+        # house (the seasonal-anchored ones), whose forecast the Solver reads.
+        if threshold is None or self._running_threshold_kw is not None:
+            return None
+        if self._seasonal_anchor or self._allow_negative:
+            return None
+        if run_started_at(recent, threshold) is None:
+            return None
+        longest = max((*getattr(trained, "run_hours", ()), DEFAULT_RUN_HOURS))
+        back = timedelta(hours=min(24.0, longest + 1.0))
+        try:
+            readings = await self._async_fetch_recorder_history(
+                self._load_sensor,
+                now_utc - back,
+                now_utc,
+                convert_power=self._convert_power_for_target,
+            )
+        except Exception:  # the short window still answers
+            _LOGGER.debug("Nimbus #2129: run-start read failed", exc_info=True)
+            readings = []
+        return run_started_at(readings or recent, threshold)
 
     # nimbus #1703: the per-load "running" hold -- see const.py.
     @property
@@ -2282,6 +2318,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._check_residual_drift()
             self._last_step_prediction = None
 
+        run_started = await self._async_run_started(recent_load_values, now_utc)
+
         timestamps: list[datetime] = []
         temps: list[float] = []
         humidities: list[float] = []
@@ -2326,6 +2364,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._running_threshold_kw,
                 self._run_hold_hours,
                 self._run_hold_learned_when_off,
+                run_started,
             )
 
         result: PredictionResult = await self.hass.async_add_executor_job(
@@ -2451,6 +2490,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "mase_scale_points": getattr(self._trained, "mase_scale_points", 0),
             "resample_minutes": getattr(self._trained, "resample_minutes", 0),
             "training_span_days": getattr(self._trained, "training_span_days", 0.0),
+            # nimbus #2129: the runs a bursty load was learned to make.
+            "run_profile": _run_profile_attr(self._trained),
             "residual_drift_status": asdict(self._residual_drift_status),
             # nimbus issue #373 (Mark Purcell, codebase review): operator-
             # visible signal that this is an older-schema model being
@@ -2562,6 +2603,22 @@ def _forecast_grid_utc(start: datetime, end: datetime) -> list[datetime]:
         grid.append(t)
         t += step
     return grid
+
+
+def _run_profile_attr(trained: Any) -> dict[str, Any] | None:
+    """nimbus #2129: the learned running level, how many runs, and their
+    median and longest length in hours; None for a load not learned as
+    bursty."""
+    threshold = getattr(trained, "run_threshold_kw", None)
+    runs = getattr(trained, "run_hours", ())
+    if threshold is None:
+        return None
+    return {
+        "running_at_kw": threshold,
+        "runs": len(runs),
+        "median_hours": round(float(np.median(runs)), 2) if runs else None,
+        "longest_hours": round(max(runs), 2) if runs else None,
+    }
 
 
 def _predict_now_then_clock(

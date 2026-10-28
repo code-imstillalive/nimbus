@@ -126,6 +126,56 @@ def test_no_history_or_too_little_is_no_model(caplog, house):
     running = _hold(house, [(0, 3.0)], run_hold_hours=1.0, learned_when_off=True)
     assert running[:4] == [3.0] * 4 and any(v > 0.0 for v in running[4:])
 
+    # test_a_burst_load_is_held_for_as_long_as_its_runs_last
+    # #2129 (household, 28 Oct 2026: an AC forecast to run until midnight,
+    # "its not run that long in years"). An AC that sits at 0.02 kW and runs
+    # at 1.2 kW for 3 to 6 hours learns those runs; past the halfway level.
+    ac = [0.02] * (96 * 21)
+    for day, hours in ((2, 4), (5, 4), (9, 3), (12, 4), (15, 3), (18, 6)):
+        for k in range(hours * 4):
+            ac[day * 96 + 36 + k] = 1.2
+    threshold, runs = model.learn_run_profile(ac, STEP)
+    assert threshold == pytest.approx(0.61)
+    assert runs == (3.0, 3.0, 4.0, 4.0, 4.0, 6.0)
+    assert model.learn_run_profile([1.0] * 2000, STEP) == (None, ())
+    assert model.learn_run_profile([0.02] * 50, STEP) == (None, ())
+    # A run lasts the median of the past runs longer than it already has; one
+    # past them all runs a quarter-hour more; too little history, 2 hours.
+    assert model.expected_run_hours(runs, 1.0) == 4.0
+    assert model.expected_run_hours(runs, 4.5) == 6.0
+    assert model.expected_run_hours(runs, 7.0) == 7.25
+    assert model.expected_run_hours((4.0,), 0.5) == model.DEFAULT_RUN_HOURS
+    # The run going on now started at its first reading; a 5-minute dip
+    # doesn't break it, and 10 minutes off ends it.
+    t0 = END - timedelta(hours=3)
+    readings = [
+        (t0 - timedelta(hours=1), 0.02),
+        (t0, 1.2),
+        (t0 + timedelta(hours=1), 0.3),
+        (t0 + timedelta(hours=1, minutes=5), 1.2),
+        (END, 1.2),
+    ]
+    assert model.run_started_at(readings, threshold) == t0
+    off = [(END - timedelta(minutes=30), 1.2), (END - timedelta(minutes=20), 0.02)]
+    assert model.run_started_at(off, threshold) is None
+    # Running for an hour: the learned forecast to the usual 4 hours (3 more),
+    # then its usual pattern, never chained on to midnight. Only the end
+    # moves: inside the run the forecast is the model's own, so a fixed
+    # daily schedule the rule also admits keeps it (Mark Purcell's review).
+    bursty = dataclasses.replace(house, run_threshold_kw=threshold, run_hours=runs)
+    stamps = [END + timedelta(minutes=STEP * i) for i in range(32)]
+    recent = [(END - timedelta(hours=1), 1.2), (END, 1.2)]
+
+    def forecast(times, **kw):
+        n = len(times)
+        return model.predict(
+            bursty, times, [20.0] * n, [0.0] * n, recent, STEP, **kw
+        ).values
+
+    ended = forecast(stamps, run_started=END - timedelta(hours=1))
+    assert ended[:12] == forecast(stamps[:12])
+    assert ended[12:] == forecast(stamps[12:], seasonal_anchor=True)
+
     # test_a_sensor_too_sparse_for_recursive_validation_is_named_as_such
     caplog.clear()
     trained, line = _selection_log(caplog, _sparse(5), max_staleness_minutes=600)
