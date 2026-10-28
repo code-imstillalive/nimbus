@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A controllable load's "day's price" is the install's own day.** `cost_avoided_today` measures against the mean import price over today's periods of the plan (#591). That "today" was the UTC date, which in Brisbane runs 10:00 to 10:00, so every morning it averaged in the previous evening. It is now the install's time zone.
 - **A load that runs in bursts is forecast to stop when its runs usually stop** (#2129). An AC running since 08:00 was forecast to run until midnight, though its runs last 3 to 8 hours: the forecast fed "it was just running" into itself every step. Training now learns, for a load that is mostly off and clearly higher when running, how long its past runs lasted. While one runs, its learned forecast stands to the usual length of runs that got that far, then its usual pattern takes over: only the run's end changes, so a load on a fixed daily schedule keeps its schedule-aware forecast. With fewer than 3 past runs a run is expected to last 2 hours. A load with its own running threshold (#1703) keeps it; power signals and the whole house are unchanged. The forecast sensor shows the learned `run_profile`.
 
 ## [0.94.494] - 2026-10-28
