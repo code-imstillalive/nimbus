@@ -399,6 +399,12 @@ class NimbusDeviceSetupModeSelect(SelectEntity):
             "dry_run_changes": len(preview["effective_diff"]),
             "dry_run_conflicts": len(preview["conflicts"]),
             "dry_run_problems": len(preview["problems"]),
+            # Which problems, not just how many: a count alone left one on a
+            # test install undiagnosable for hours (28 Oct 2026).
+            "dry_run_problem_list": [
+                {"code": p.get("code"), "path": p.get("path")}
+                for p in preview["problems"]
+            ],
             "devices": len(preview["devices"]),
             "drift_repairs": drift,
         }
