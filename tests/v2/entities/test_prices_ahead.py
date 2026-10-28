@@ -29,3 +29,12 @@ def _prices_section():
     titles = [s["cards"][0].get("header", {}).get("title") for s in sections]
     i = titles.index("Prices ahead")
     return sections, i
+
+
+def test_source_names_read_the_settings_live():
+    # Household, 29 Oct 2026: a changed source renames its row without
+    # rebuilding the tab (the `@option:` copy was fixed at build time).
+    text = solver_tab._CONSOLIDATION_SOURCES["content"]
+    assert "@option:solver_import_price_sensor" not in text
+    for key in ("", "_2", "_3"):
+        assert f"state_attr(cfg, 'solver_import_price_sensor{key}')" in text

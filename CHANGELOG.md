@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Solver tab's price-source names follow your settings.** The Price sources table named each source from a copy of the setting taken when the tab was made, so a changed source kept its old name until the tab was rebuilt. The names now read the settings live. A Solver tab made before this release still holds the old copy: remove the tab and add it again once to pick this up.
+
 ## [0.94.497] - 2026-10-29
 
 **Home / away settings are saved, a restart no longer shows a false device-setup problem, flex telemetry tells an EV from a house battery, and a changed price source starts fresh in the blend.**
