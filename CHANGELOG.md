@@ -9,6 +9,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - **Home / away settings are saved** (#1847, reported by TD944). Configure -> Forecaster settings showed Home / away, Planned departure and Planned return, but the final save kept only a fixed list of keys and these weren't on it, so they reset to blank (the same bug as the site postcode in #2136). They're on it now, and a test fails if any field the Forecaster or Solver screens show is missing from its list.
+- **No false device-setup problem after a restart.** The dry run's first check ran before the battery's capacity number was restored, so for five minutes after every restart it reported `capacity_missing` (the unexplained problem on the test install on 28 Oct, named once #2145 shipped). The first check now waits until the hub's numbers are back, retrying every 15 s for up to 5 minutes.
 
 ## [0.94.496] - 2026-10-28
 
