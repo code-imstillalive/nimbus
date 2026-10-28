@@ -329,6 +329,24 @@ def test_the_solar_forecast_imports_as_the_members_the_solver_reads():
     )
     assert di.preview(snap).effective_diff == []
     assert di.drift(res.document, snap) == []
+    # Three circuits, the middle one's binding then removed: the rest keep
+    # their order, with no gap (Mark Purcell's review of #2151).
+    three = [*circuits, "sensor.nimbus_spa_forecast"]
+    snap["options"]["solver_load_forecast_entities"] = three
+    doc = di.import_legacy(snap).document
+    middle = next(
+        d
+        for d in doc["devices"]
+        if (d["bindings"].get("demand_forecast") or {})
+        .get("source", {})
+        .get("entity_id")
+        == three[1]
+    )
+    del middle["bindings"]["demand_forecast"]
+    assert di.legacy_view(doc)["options"]["solver_load_forecast_entities"] == [
+        three[0],
+        three[2],
+    ]
     # A document imported before this (no circuit bindings) owns no list.
     old = di.import_legacy(_snapshot())
     assert (
