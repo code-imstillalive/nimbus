@@ -215,6 +215,27 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.494",
+        "28 Oct 2026",
+        (
+            (
+                "**No plan meets your settings?** The Repair now names the "
+                "settings in the way, such as Max Discharge Power or Grid Max "
+                "Import, instead of a list of things to check."
+            ),
+            (
+                "**Faster dispatch:** the plan is published before the offer "
+                "curve is worked out, so an EV on a shared charger no longer "
+                "slows the battery's decision."
+            ),
+            (
+                "**Each controllable load** now shows what its plan adds up to: "
+                "energy, cost, runtime and average price, for the next 24 hours "
+                "and the whole plan."
+            ),
+        ),
+    ),
+    (
         "0.94.493",
         "27 Oct 2026",
         (
