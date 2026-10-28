@@ -507,6 +507,17 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _expected_load_kw(self) -> float | None:
         return self.subentry.data.get(CONF_EXPECTED_LOAD_KW)
 
+    def _burst_eligible(self) -> bool:
+        """nimbus #2129/#2137: a load learned as running in bursts, with no
+        threshold of its own, that is neither a power signal nor the whole
+        house -- the loads whose runs are forecast by their usual length."""
+        return (
+            getattr(self._trained, "run_threshold_kw", None) is not None
+            and self._running_threshold_kw is None
+            and not self._seasonal_anchor
+            and not self._allow_negative
+        )
+
     async def _async_run_started(
         self, recent: list[tuple[datetime, float]], now_utc: datetime
     ) -> datetime | None:
@@ -521,9 +532,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         threshold = getattr(trained, "run_threshold_kw", None)
         # An appliance or circuit only: never a power signal or the whole
         # house (the seasonal-anchored ones), whose forecast the Solver reads.
-        if threshold is None or self._running_threshold_kw is not None:
-            return None
-        if self._seasonal_anchor or self._allow_negative:
+        if threshold is None or not self._burst_eligible():
             return None
         if run_started_at(recent, threshold) is None:
             return None
@@ -2319,6 +2328,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_step_prediction = None
 
         run_started = await self._async_run_started(recent_load_values, now_utc)
+        burst_stopped = run_started is None and self._burst_eligible()
 
         timestamps: list[datetime] = []
         temps: list[float] = []
@@ -2365,6 +2375,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._run_hold_hours,
                 self._run_hold_learned_when_off,
                 run_started,
+                burst_stopped,
             )
 
         result: PredictionResult = await self.hass.async_add_executor_job(

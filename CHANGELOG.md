@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A burst load that has just stopped is forecast as stopped** (#2137). #2129 ends a run that is still going at its usual length, but once the load switched off its forecast was chained from the run's recent readings and still looked like it was running: an AC off at 13:46 was forecast to run until 17:00. A load learned as running in bursts that is off now takes its usual pattern straight away.
 ## [0.94.494] - 2026-10-28
 
 **The plan no longer waits for the offer curve, an impossible plan names the settings in the way, and an AC's forecast stops when its runs usually stop.**
