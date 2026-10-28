@@ -254,6 +254,8 @@ class SourceErrorTracker:
         self.samples: dict[str, dict[str, int]] = {}
         self.last_interval: int | None = None
         self.last_settled: float | None = None
+        #: The sensor each source slot was scored on (follow_sources).
+        self.sources: dict[str, str] = {}
 
     # -- recording -----------------------------------------------------
 
@@ -427,6 +429,30 @@ class SourceErrorTracker:
             out.append(cache[b])
         return out
 
+    # -- the sensor behind each slot -----------------------------------
+
+    def follow_sources(self, current: dict[str, str | None]) -> list[str]:
+        """Forget a slot whose sensor has changed, so a new sensor starts with
+        no score and no offset (29 Oct 2026: price source 3 moved from one
+        PD7DAY tariff to another and kept the old one's share and offset).
+        `current` maps a slot to the sensor configured for it now; a slot not
+        recorded yet (older state) is only recorded. Returns the slots
+        forgotten."""
+        forgotten: list[str] = []
+        for slot, sensor in current.items():
+            if not sensor:
+                continue
+            was = self.sources.get(slot)
+            if was is not None and was != sensor:
+                self.mae.pop(slot, None)
+                self.bias.pop(slot, None)
+                self.samples.pop(slot, None)
+                for by_source in self.pending.values():
+                    by_source.pop(slot, None)
+                forgotten.append(slot)
+            self.sources[slot] = sensor
+        return forgotten
+
     # -- persistence ---------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
@@ -440,6 +466,7 @@ class SourceErrorTracker:
             "samples": {s: dict(b) for s, b in self.samples.items()},
             "last_interval": self.last_interval,
             "last_settled": self.last_settled,
+            "sources": dict(self.sources),
         }
 
     @classmethod
@@ -468,6 +495,7 @@ class SourceErrorTracker:
             }
             li = data.get("last_interval")
             t.last_interval = int(li) if li is not None else None
+            t.sources = {str(k): str(v) for k, v in (data.get("sources") or {}).items()}
             ls = data.get("last_settled")
             t.last_settled = float(ls) if ls is not None else None
         except (TypeError, ValueError, AttributeError, IndexError):

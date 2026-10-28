@@ -90,6 +90,27 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none(monkeypatch):
     tr.samples[pc.BLEND_SOURCE]["0-5 min"] = 500
     assert set(tr.weights("0-5 min")) == {"primary", "amber"}
 
+    # test_a_source_whose_sensor_changed_starts_fresh
+    # 29 Oct 2026, the reference household: price source 3 moved from one
+    # tariff's sensor to another and kept the old one's share and offset. A
+    # slot is forgotten when its sensor changes; a slot not yet recorded
+    # (older state) is only recorded; an unchanged slot keeps its score.
+    tr = pc.SourceErrorTracker()
+    _train(tr, {"primary": 0.14, "secondary_3": 0.18}, 0.14, 60)
+    assert tr.follow_sources({"primary": "s.buy", "secondary_3": "s.tou"}) == []
+    assert tr.follow_sources({"primary": "s.buy", "secondary_3": "s.tou"}) == []
+    tr.record("secondary_3", now, now + timedelta(minutes=10), 0.2)
+    assert tr.follow_sources({"primary": "s.buy", "secondary_3": "s.two_way"}) == [
+        "secondary_3"
+    ]
+    assert "secondary_3" not in tr.mae and "secondary_3" not in tr.bias
+    assert all("secondary_3" not in v for v in tr.pending.values())
+    assert tr.samples["primary"]["0-5 min"] == 60
+    assert pc.SourceErrorTracker.from_dict(tr.to_dict()).sources == {
+        "primary": "s.buy",
+        "secondary_3": "s.two_way",
+    }
+
     # test_the_tracker_round_trips_and_a_damaged_or_older_state_loads
     tr = _tracker_with(60, 70)
     _train(tr, {"amber": 0.16}, 0.14, 3)

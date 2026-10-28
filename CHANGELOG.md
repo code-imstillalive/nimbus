@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A price source changed to another sensor starts fresh in the blend.** The blend kept each source slot's accuracy score and learned offset, so a sensor moved into a slot (the reference household moved price source 3 from one PD7DAY tariff to the two-way trial) inherited the old sensor's share and had the old offset subtracted from its prices. A slot whose sensor changes now forgets its score and offset and is scored again from scratch.
+
 ## [0.94.497] - 2026-10-29
 
 **Home / away settings are saved, a restart no longer shows a false device-setup problem, and flex telemetry tells an EV from a house battery.**

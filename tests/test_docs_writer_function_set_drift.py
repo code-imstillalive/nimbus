@@ -830,6 +830,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_load_price_trackers",
         "_price_consolidation_attribute",
         "_save_price_trackers",
+        "_follow_price_sources",
         "aemo_markup_series",
         "apply_price_consolidation",
         "consolidate",

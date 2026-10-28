@@ -5499,6 +5499,20 @@ def _save_price_trackers(
         pass
 
 
+def _follow_price_sources(trackers: dict, cfg: dict) -> bool:
+    """Each side's tracker forgets a slot whose sensor has changed, so the new
+    sensor starts with no score or offset. True when any slot was forgotten."""
+    forgotten = False
+    for side, tracker in trackers.items():
+        current = {
+            "primary": cfg.get(f"solver_{side}_price_sensor"),
+            "secondary_2": cfg.get(f"solver_{side}_price_sensor_2"),
+            "secondary_3": cfg.get(f"solver_{side}_price_sensor_3"),
+        }
+        forgotten = bool(tracker.follow_sources(current)) or forgotten
+    return forgotten
+
+
 def _consolidation_sources(
     cfg: dict,
     grid_times: list[datetime],
@@ -5567,7 +5581,7 @@ def apply_price_consolidation(
         trackers = _load_price_trackers()
         spike = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)  # #1786: keep spikes
         result: dict = {"mode": "live" if live else "shadow", **_loss_factor(prices)}
-        scored = False
+        scored = _follow_price_sources(trackers, cfg)  # True: save below
         series_by_side: dict[str, dict[str, list[float | None]]] = {}
         for side, primary, settled in (
             ("import", spot_import_source, settled_import),
