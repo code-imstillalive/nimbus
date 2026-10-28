@@ -171,6 +171,31 @@ async def async_active_solar_forecast(hass: Any, entry: Any) -> dict[str, Any] |
     return None
 
 
+async def async_active_price_forecasts(hass: Any, entry: Any) -> dict[str, Any]:
+    """{role: {"site", "binding"}} for the grid's `import_price_forecast` and
+    `export_price_forecast` imported from a generic price sensor, while the
+    device setup is `active` (DC-006 slice 4): the Solver reads those prices
+    through the contract's adapter. Empty in every other mode, and for a
+    provider's forecast, which the Solver's own provider paths read."""
+    state = await _store(hass, entry).async_read()
+    document = state.get("document")
+    if state.get("mode") != "active" or document is None:
+        return {}
+    out: dict[str, Any] = {}
+    for device in document.get("devices") or ():
+        if device.get("kind") != "grid":
+            continue
+        for role in device_import.PRICE_FORECAST_ROLES:
+            binding = (device.get("bindings") or {}).get(f"{role}_forecast")
+            adapter = ((binding or {}).get("source") or {}).get("adapter") or {}
+            if adapter.get("name") == "generic_price_forecast":
+                out[f"{role}_forecast"] = {
+                    "site": dict(document.get("site") or {}),
+                    "binding": binding,
+                }
+    return out
+
+
 async def async_active_load_forecast(hass: Any, entry: Any) -> dict[str, Any] | None:
     """The committed document's whole-house `demand_forecast` binding while
     the device setup is `active` (DC-006 slice 3, the load total); None in

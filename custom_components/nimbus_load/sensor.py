@@ -2603,6 +2603,18 @@ class NimbusSolverConfigSensor(SensorEntity):
         except Exception:  # never block the Solver's config on the setup
             _LOGGER.debug("Device setup unreadable; legacy load", exc_info=True)
             self._load_forecast_binding = None
+        # DC-006 slice 4: a generic sensor's import and export price forecasts.
+        try:
+            from . import device_contract_ha
+
+            self._price_forecast_bindings = (
+                await device_contract_ha.async_active_price_forecasts(
+                    self.hass, self._entry
+                )
+            )
+        except Exception:  # never block the Solver's config on the setup
+            _LOGGER.debug("Device setup unreadable; legacy prices", exc_info=True)
+            self._price_forecast_bindings = {}
 
         unresolved = self._unresolved_required_keys()
         new_state = "configured" if not unresolved else "unconfigured"
@@ -2694,6 +2706,10 @@ class NimbusSolverConfigSensor(SensorEntity):
         # ...and the whole-house load forecast binding, the same way.
         attrs["device_contract_load_forecast"] = getattr(
             self, "_load_forecast_binding", None
+        )
+        # ...and a generic sensor's price forecasts (DC-006 slice 4).
+        attrs["device_contract_price_forecasts"] = getattr(
+            self, "_price_forecast_bindings", {}
         )
         return attrs
 

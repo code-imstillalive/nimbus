@@ -46,6 +46,11 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver_inputs import price_freshness  # type: ignore[no-redef]
 
+try:
+    from .. import device_bindings
+except ImportError:  # pragma: no cover - standalone/cron path
+    import device_bindings  # type: ignore[no-redef]
+
 from . import loss_factors, price_consolidation
 
 
@@ -105,6 +110,81 @@ class PriceArrays:
     # offset, as before); and the factor, for `price_consolidation.loss_factor`.
     aemo_source: str = "aemo_markup"
     loss_factor: dict | None = None
+
+
+def _contract_price_forecast(cfg, role, grid_times, now):
+    """(values, real_mask) for `role` read through the device contract while
+    the device setup is `active` (DC-006 slice 4, #1574), or None to read as
+    today: not handed one, or the contract refuses it this cycle (no unit,
+    overlapping points, unreadable).
+
+    Read as the Solver's own reader, except where #2119 pins a difference:
+    a period that straddles a price change takes the time-weighted mean,
+    not the value at its start. Before the first point and past the last,
+    where the contract has a gap, the nearest point is held with
+    `real_mask` False, exactly as today, so the LP never lacks a price.
+    A period is real when it starts inside a published price, today's rule;
+    the last point's own interval (one step) is published, so it is real."""
+    handed = (cfg.get("device_contract_price_forecasts") or {}).get(role)
+    if not handed or not grid_times:
+        return None
+    document = {
+        "schema_version": 1,
+        "site": handed.get("site") or {},
+        "devices": [
+            {"id": "grid", "kind": "grid", "bindings": {role: handed.get("binding")}}
+        ],
+    }
+    tail = (
+        grid_times[-1] - grid_times[-2] if len(grid_times) > 1 else timedelta(minutes=5)
+    )
+    ends = [*grid_times[1:], grid_times[-1] + tail]
+    sw = _solver_writer()
+
+    def state(entity_id):
+        try:
+            return sw.ha_get(entity_id)
+        except Exception:  # noqa: BLE001 -- an unreadable sensor is a refusal
+            return None
+
+    try:
+        series = device_bindings.resolve(
+            document,
+            "grid",
+            role,
+            device_bindings.Readers(state=state),
+            now,
+            window=(grid_times[0], ends[-1]),
+        )
+    except Exception:  # noqa: BLE001 -- the contract must never break a solve
+        solver_shared._LOGGER.debug("Nimbus #1574: %s unreadable", role, exc_info=True)
+        return None
+    intervals = getattr(series, "intervals", ())
+    # `stale` (no update for five minutes) is read as today's reader reads it,
+    # which has no age rule: refusing it would switch readers every cycle on
+    # a sensor that updates half-hourly.
+    readable = (device_bindings.VALID, device_bindings.STALE)
+    if getattr(series, "state", None) not in readable or not intervals:
+        solver_shared._LOGGER.debug(
+            "Nimbus #1574: %s refused (%s); read as today",
+            role,
+            getattr(series, "reason", None),
+        )
+        return None
+    values: list[float] = []
+    real: list[bool] = []
+    held = intervals[0].value
+    for start, end in zip(grid_times, ends, strict=True):
+        value, _covered = device_bindings.value_over(series, start, end)
+        if value is None:
+            values.append(held)
+            real.append(False)
+            continue
+        values.append(value)
+        held = value
+        # Real, as today, when the period starts inside a published price.
+        real.append(any(i.start <= start < i.end for i in intervals))
+    return values, real
 
 
 def build_price_arrays(
@@ -463,7 +543,10 @@ def build_price_arrays(
         # household/Australian-NEM-specific and have no portable
         # equivalent yet (a real, honest, separately-tracked gap, not
         # pretended away).
-        _import_fc = sw.resample_generic_price_forecast_with_coverage(
+        # DC-006 slice 4 (#1574): in `active`, through the device contract.
+        _import_fc = _contract_price_forecast(
+            cfg, "import_price_forecast", grid_times, now
+        ) or sw.resample_generic_price_forecast_with_coverage(
             cfg["solver_import_price_sensor"], grid_times
         )
         # Real fee breakdown DOES apply to a generic install too, same
@@ -478,7 +561,9 @@ def build_price_arrays(
                 sw.price_now(cfg["solver_import_price_sensor"])
             ] * n_periods
             import_real_mask = [True] * n_periods
-        _export_fc = sw.resample_generic_price_forecast_with_coverage(
+        _export_fc = _contract_price_forecast(
+            cfg, "export_price_forecast", grid_times, now
+        ) or sw.resample_generic_price_forecast_with_coverage(
             cfg["solver_export_price_sensor"], grid_times
         )
         if _export_fc is not None:

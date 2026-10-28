@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 import solver_writer as sw
 from golden.fake_ha import BASE, FakeHA, HistoryPoint
+from solver_inputs import prices
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)  # 16:00 Brisbane
 
@@ -75,6 +76,45 @@ def test_instant_readings_edge_shapes(ha, monkeypatch):
         )
         assert values == pytest.approx([20.0 * scale, 40.0 * scale])
         assert real == [True, True]
+
+    # test_in_active_a_generic_price_is_read_through_the_device_contract
+    # DC-006 slice 4 (#1574): the import's `import_price_forecast`, handed
+    # over in `active`. Against today's reader (0.30, 0.30, 0.25, 0.40, 0.40;
+    # real F T T F F) only #2119's pinned differences move: a straddling
+    # period is the time-weighted mean, and the last point's own interval is
+    # real. Before the first point and past the last, the nearest is held,
+    # not real. Not handed one, or one without a unit, reads as today.
+    ha.states["sensor.p"] = _price([0.30, 0.25, 0.40])
+    binding = {
+        "source": {
+            "kind": "entity_attribute",
+            "entity_id": "sensor.p",
+            "attribute_path": "forecast",
+            "adapter": {"name": "generic_price_forecast", "version": 1},
+        },
+        "normalization": {"quality": "forecast", "native_unit": "$/kWh"},
+    }
+    handed = {"site": {"currency": "AUD"}, "binding": binding}
+    cfg = {"device_contract_price_forecasts": {"import_price_forecast": handed}}
+    grid = [T0 + timedelta(minutes=m) for m in (-15, 15, 45, 75, 105)]
+    values, real = prices._contract_price_forecast(
+        cfg, "import_price_forecast", grid, T0
+    )
+    assert values == pytest.approx([0.30, 0.275, 0.325, 0.40, 0.40])
+    assert real == [False, True, True, True, False]
+    today = sw.resample_generic_price_forecast_with_coverage("sensor.p", grid)
+    assert today == ([0.30, 0.30, 0.25, 0.40, 0.40], [False, True, True, False, False])
+    assert (
+        prices._contract_price_forecast({}, "import_price_forecast", grid, T0) is None
+    )
+    unitless = {**binding, "normalization": {"quality": "forecast"}}
+    cfg["device_contract_price_forecasts"]["import_price_forecast"] = {
+        **handed,
+        "binding": unitless,
+    }
+    assert (
+        prices._contract_price_forecast(cfg, "import_price_forecast", grid, T0) is None
+    )
 
     # test_with_no_secondary_source_the_primary_passes_through_untouched
     primary = [0.1, 0.2]
