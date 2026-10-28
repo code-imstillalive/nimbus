@@ -2416,7 +2416,9 @@ def _flex_telemetry_measured(
     }
 
 
-def _flex_telemetry_assets(plan, batteries, household_lambda, clamped) -> list[dict]:
+def _flex_telemetry_assets(
+    plan, batteries, household_lambda, clamped, vehicles=frozenset()
+) -> list[dict]:
     """One `assets[]` entry per battery the LP actually planned for.
 
     Three sources joined by `name`, which is the key `BatteryPlan`/
@@ -2456,6 +2458,7 @@ def _flex_telemetry_assets(plan, batteries, household_lambda, clamped) -> list[d
                 ),
                 shadow_power_balance_price=household_lambda,
                 clamped=clamped,
+                vehicle=bp.name in vehicles,
             )
         )
     return assets
@@ -2544,7 +2547,14 @@ def build_flex_telemetry_record(
         shadow_envelope_export_price=(
             float(gs.forced_export_cost[0]) if gs is not None else None
         ),
-        assets=_flex_telemetry_assets(plan, batteries, household_lambda, clamped),
+        assets=_flex_telemetry_assets(
+            plan,
+            batteries,
+            household_lambda,
+            clamped,
+            # #2140: the participants the config sensor names as vehicles.
+            frozenset(cfg.get("flex_vehicle_participants") or ()),
+        ),
         clamped_in=clamped,
         net_import_source=measured["net_import_source"],
     )

@@ -33,11 +33,12 @@ class Registry:
         return self.renamed.get(unique_id)
 
 
-def _sensor(monkeypatch, states, *, options=None, renamed=None):
+def _sensor(monkeypatch, states, *, options=None, renamed=None, subentries=None):
     monkeypatch.setattr(sm.er, "async_get", lambda hass: Registry(renamed))
     entry = SimpleNamespace(
         entry_id="hub1",
         options={key: f"sensor.{key}" for key in OPTIONS} | (options or {}),
+        subentries=subentries or {},
     )
     s = sm.NimbusSolverConfigSensor(entry, "0.94.485")
     s.hass = SimpleNamespace(
@@ -139,6 +140,28 @@ def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, capl
         assert (attrs["region"], attrs["postcode_prefix"]) == ("QLD1", "400")
         attrs = _sensor(mp, _numbers()).extra_state_attributes
         assert (attrs["region"], attrs["postcode_prefix"]) == (None, None)
+
+    # test_a_participant_that_departs_or_takes_trips_is_named_a_vehicle
+    # #2140: flex telemetry marks these `ev`. A departure hour (0 counts) or a
+    # trip calendar makes one; the per-100 km figure, which has a default,
+    # does not, and neither does a participant with neither.
+    def participant(name, **data):
+        return SimpleNamespace(
+            subentry_type=sm.SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+            data={sm.CONF_BATTERY_PARTICIPANT_NAME: name, **data},
+        )
+
+    subs = {
+        "s1": participant("Car", **{sm.CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR: 0}),
+        "s2": participant(
+            "Van", **{sm.CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY: "calendar.van"}
+        ),
+        "s3": participant("Shed battery", battery_participant_kwh_per_100km=18.0),
+        "s4": SimpleNamespace(subentry_type=sm.SUBENTRY_TYPE_LOAD, data={}),
+    }
+    with monkeypatch.context() as mp:
+        attrs = _sensor(mp, _numbers(), subentries=subs).extra_state_attributes
+        assert attrs["flex_vehicle_participants"] == ["Car", "Van"]
 
     # test_every_number_entity_is_read_live_not_from_saved_options
     keys = [d.key for d in _number._DESCRIPTIONS]

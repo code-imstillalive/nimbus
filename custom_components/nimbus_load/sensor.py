@@ -77,10 +77,12 @@ from .const import (
     ATTR_VALIDATION_RECURSIVE_MAE,
     ATTR_VALIDATION_RECURSIVE_MAE_BY_HORIZON,
     CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
+    CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
     CONF_BATTERY_PARTICIPANT_NAME,
     CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
     CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
     CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+    CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY,
     CONF_BATTERY_SENSOR,
     CONF_BATTERY_TOWER_POWER_SOURCE,
     CONF_BATTERY_TOWER_SOC_SENSOR,
@@ -2675,6 +2677,17 @@ class NimbusSolverConfigSensor(SensorEntity):
         region, prefix = self._resolve_geocoded_region_and_prefix()
         attrs["region"] = region
         attrs["postcode_prefix"] = prefix
+        # #2140: Battery Participants that are vehicles by their own settings
+        # (a departure hour or a trip calendar), for flex telemetry's `kind`.
+        attrs["flex_vehicle_participants"] = sorted(
+            str(sub.data.get(CONF_BATTERY_PARTICIPANT_NAME) or sid)
+            for sid, sub in self._entry.subentries.items()
+            if sub.subentry_type == SUBENTRY_TYPE_BATTERY_PARTICIPANT
+            and (
+                sub.data.get(CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR) is not None
+                or sub.data.get(CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY)
+            )
+        )
         attrs["aemo_30min_forecast_sensor"] = (
             self._discover_aemo_30min_forecast_sensor()
         )

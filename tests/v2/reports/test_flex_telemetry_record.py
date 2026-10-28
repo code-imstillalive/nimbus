@@ -199,6 +199,34 @@ class TestAssets:
         assert any("shadow_power_balance_price" in f for f in build.clamped_fields)
         _validate(build.record)
 
+        # test_a_participant_with_a_departure_or_trips_is_an_ev
+        # #2140: the config sensor names the Battery Participants that are
+        # vehicles by their own settings; their asset is `ev`, every other
+        # battery `stationary_battery`, and the record still validates.
+        plan, batteries = _real_synthetic_plan()
+
+        def kinds(cfg):
+            build = solver_writer.build_flex_telemetry_record(
+                cfg,
+                plan,
+                datetime(2026, 9, 27, 14, 37, tzinfo=UTC),
+                batteries=batteries,
+                import_price=0.3,
+                export_price=0.09,
+                import_limit_kw=20.0,
+                export_limit_kw=15.0,
+                period_hours=1.0,
+                house_load_kw=3.0,
+            )
+            _validate(build.record)
+            return [a["kind"] for a in build.record["assets"]]
+
+        assert kinds(dict(_CFG)) == ["stationary_battery"]
+        assert kinds(dict(_CFG, flex_vehicle_participants=["home"])) == ["ev"]
+        assert kinds(dict(_CFG, flex_vehicle_participants=["car"])) == [
+            "stationary_battery"
+        ]
+
 
 def _period_grid(n: int):
     return solver_writer.elements.PeriodGrid(hours=np.full(n, 1.0), start=None)
