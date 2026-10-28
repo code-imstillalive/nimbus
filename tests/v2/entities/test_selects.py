@@ -215,8 +215,33 @@ def setup_mode(monkeypatch):
     return s, world, dc
 
 
-def test_choosing_a_mode_switches_it_or_says_why_not(setup_mode):
-    s, world, _ = setup_mode
+def test_choosing_a_mode_switches_it_or_says_why_not(setup_mode, monkeypatch):
+    s, world, dc = setup_mode
+    # test_the_first_dry_run_waits_for_the_numbers_to_be_restored
+    # 28 Oct 2026, the test install: at startup the dry run ran before the
+    # battery's capacity number was restored and reported `capacity_missing`
+    # for five minutes. It now retries every 15 s until the numbers are back,
+    # at most 20 times, and only then reports.
+    ready = {"now": False}
+    retries: list[float] = []
+    monkeypatch.setattr(dc, "numbers_ready", lambda hass, entry: ready["now"])
+    monkeypatch.setattr(
+        sys.modules["homeassistant.helpers.event"],
+        "async_call_later",
+        lambda hass, delay, action: retries.append(delay) or (lambda: None),
+        raising=False,
+    )
+    s.async_on_remove = lambda remove: None
+    _run(s._async_first_refresh())
+    assert retries == [sel._FIRST_REFRESH_RETRY_S] and s.writes == []
+    _run(s._async_first_refresh(tries=sel._FIRST_REFRESH_TRIES))
+    assert s.writes == ["legacy"]  # after 20 tries it reports anyway
+    ready["now"] = True
+    s.writes.clear()
+    _run(s._async_first_refresh())
+    assert s.writes == ["legacy"] and len(retries) == 1
+
+    s.writes.clear()
     _run(s._async_refresh())
     # test_the_dry_run_names_its_problems_not_only_counts_them
     assert s._attr_extra_state_attributes["dry_run_problem_list"] == []

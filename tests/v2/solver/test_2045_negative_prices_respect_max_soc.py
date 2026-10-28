@@ -70,8 +70,7 @@ def test_the_reported_case_stays_at_max_soc():
     for b in plan.batteries:
         assert max(b.soc_kwh) <= MAX_SOC + 1e-6, (b.name, list(b.soc_kwh))
 
-
-def test_the_penalty_is_sized_on_magnitude():
+    # test_the_penalty_is_sized_on_magnitude
     assert soft_soc_penalty([-1.0], [-2.0]) == pytest.approx(
         2.0 * DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER
     )
@@ -87,9 +86,8 @@ def test_the_penalty_is_sized_on_magnitude():
         0.01 * DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER
     )
 
-
-def test_no_price_at_all_is_the_floor():
-    """Empty price arrays and no other rate: the floor, not a TypeError."""
+    # test_no_price_at_all_is_the_floor
+    # Empty price arrays and no other rate: the floor, not a TypeError.
     assert soft_soc_penalty([], []) == pytest.approx(
         0.01 * DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER
     )
