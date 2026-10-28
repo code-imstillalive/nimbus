@@ -215,6 +215,25 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.495",
+        "28 Oct 2026",
+        (
+            (
+                "**Site postcode:** Configure -> Grid Prices -> Advanced -> Site "
+                "postcode is now saved, so flex telemetry knows your region."
+            ),
+            (
+                "**A load that runs in bursts,** such as an AC, is forecast as "
+                "off as soon as it switches off, not as still running."
+            ),
+            (
+                "**Steadier midday hint:** when solar is about equal to the "
+                "house, the solar-charge hint no longer flips to hold every "
+                "minute."
+            ),
+        ),
+    ),
+    (
         "0.94.494",
         "28 Oct 2026",
         (

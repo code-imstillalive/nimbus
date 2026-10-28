@@ -158,6 +158,19 @@ They read the forecast the way the Solver does: each point holds until the
 next, the past does not count, and a point with no value is skipped, never
 read as zero. Temperature and humidity forecasts do not carry them.
 
+### Loads that run in bursts
+
+A load that sits near zero and runs in clear blocks, such as an air conditioner, learns how long its runs usually last. Its power forecast carries `run_profile`:
+
+| key | meaning |
+|---|---|
+| `running_at_kw` | the draw above which it counts as running, halfway between its off and on levels |
+| `runs` | how many past runs it learned from |
+| `median_hours` | the middle run length |
+| `longest_hours` | the longest run |
+
+While it runs, the forecast follows the learned model until the run reaches its usual length, then its usual pattern. The usual length is the middle length of the past runs longer than this one has lasted so far. A run longer than all of them is given a quarter-hour more, and with too little history a run is given 2 hours. Once it switches off, the forecast is its usual pattern straight away, not a run that's still going. A load with a *Running above* threshold set, a seasonal-anchor forecast or a signed signal keeps its own rule instead. It is learned at each retrain, so a new install or a newly added load needs one first.
+
 ## Attribute history: the parent sensors store none
 
 **`state_attr()` works live, but returns nothing for any past timestamp** on the large parent sensors (`sensor.nimbus_solver_battery_forecast`, `sensor.nimbus_health_report`). If you are writing a template, automation, or chart that looks back in time, read the flattened child sensors instead — they are ordinary sensors with ordinary history and long-term statistics.
