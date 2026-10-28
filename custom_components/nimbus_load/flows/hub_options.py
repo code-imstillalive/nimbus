@@ -1276,6 +1276,11 @@ _FORECASTER_SCHEMA_KEYS = (
     CONF_TEMPERATURE_SENSOR,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_HUMIDITY_SENSOR,
+    # nimbus #1847 (TD944, 29 Oct 2026): shown on the step since 0.94.493 but
+    # missing here, so the final merge dropped them -- "they don't stick".
+    CONF_OCCUPANCY_ENTITY,
+    CONF_OCCUPANCY_DEPARTURE,
+    CONF_OCCUPANCY_RETURN,
     CONF_CURTAILMENT_SENSOR,
     CONF_BATTERY_SENSOR,
     CONF_GRID_SENSOR,
