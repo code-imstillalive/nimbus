@@ -8,6 +8,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **A steady solar-charge hint when solar is about equal to the load.** Around midday the plan could flip between charging from solar and holding every minute, and an automation following the hint switched the inverter mode each time. Now, within 5 minutes of a solar-charge hint, a hold that is short by at most 2 kW is still published as solar charge. A bigger shortfall, or a longer gap, publishes the plan's own hint as before. The plan itself is unchanged.
+
 ## [0.94.494] - 2026-10-28
 
 **The plan no longer waits for the offer curve, an impossible plan names the settings in the way, and an AC's forecast stops when its runs usually stop.**
