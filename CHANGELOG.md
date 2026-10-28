@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Home / away settings are saved** (#1847, reported by TD944). Configure -> Forecaster settings showed Home / away, Planned departure and Planned return, but the final save kept only a fixed list of keys and these weren't on it, so they reset to blank (the same bug as the site postcode in #2136). They're on it now, and a test fails if any field the Forecaster or Solver screens show is missing from its list.
+
 ## [0.94.496] - 2026-10-28
 
 **The device setup names what its dry run finds, the price blend's own accuracy is measured, and in `active` the setup now covers summed load circuits and generic price sensors.**
