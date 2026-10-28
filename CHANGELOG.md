@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The device setup's dry run names its problems** (`select.nimbus_device_setup_mode`'s `dry_run_problem_list`: each problem's code and path), not only how many. A count alone left one on a test install unexplained for hours.
+
 ## [0.94.495] - 2026-10-28
 
 **The site postcode now saves, a stopped AC is forecast as stopped, and the midday solar-charge hint holds steady.**
