@@ -373,6 +373,16 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
     authorised = _map_subentries(
         snapshot.get("subentries") or (), devices, conflicts, unmapped
     )
+    relationships: list[dict[str, Any]] = [
+        {"kind": "supplies", "from": "grid", "to": "load_house"}
+    ]
+    _map_summed_circuits(
+        options,
+        snapshot.get("forecast_publishers") or {},
+        devices,
+        relationships,
+        confirmed_keys,
+    )
 
     document: dict[str, Any] = {
         "schema_version": dc.SCHEMA_VERSION,
@@ -387,7 +397,7 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
             "control_policy": "authorised" if authorised else "observation_only",
         },
         "devices": devices,
-        "relationships": [{"kind": "supplies", "from": "grid", "to": "load_house"}],
+        "relationships": relationships,
         "accounting": {
             "demand": {
                 "mode": "inclusive",
@@ -406,6 +416,73 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
 
 
 # --- step 2: subentries ------------------------------------------------------
+
+
+#: The Solver's summed circuit forecasts (DC-006 slice 3, the load half).
+LOAD_CIRCUITS_KEY = "solver_load_forecast_entities"
+
+
+def _map_summed_circuits(
+    options: dict[str, Any],
+    publishers: dict[str, str],
+    devices: list[dict[str, Any]],
+    relationships: list[dict[str, Any]],
+    confirmed_keys: set[str],
+) -> None:
+    """Each forecast the Solver sums (`solver_load_forecast_entities`) as the
+    `demand_forecast` of a load inside the whole house (#1574, DC-006 slice 3).
+
+    A forecast a Load subentry publishes (`publishers`: entity id -> subentry
+    id) binds on that load's device; any other becomes a `circuit` device of
+    its own, so a working setup is never left unconverted. Each is the child
+    of an `included_in_measurement` relationship under `load_house`: listing
+    it in that setting is the household's confirmation that it is inside the
+    total (DC-003, "inclusion is not assumed"). Each binding keeps its place
+    in the list (`[i]` on its settings path), so the view writes the list
+    back exactly as it was."""
+    circuits = options.get(LOAD_CIRCUITS_KEY)
+    if not isinstance(circuits, list):
+        return
+    taken = {d["id"] for d in devices} | {"site"}
+    by_subentry = {
+        d["history_subentry_id"]: d
+        for d in devices
+        if d.get("kind") == "load" and d.get("history_subentry_id")
+    }
+    for i, raw in enumerate(circuits):
+        entity = _text(raw)
+        if not entity:
+            continue
+        device = by_subentry.get(publishers.get(entity))
+        if device is None or "demand_forecast" in device["bindings"]:
+            ident = _unique(_slug(entity.split(".", 1)[-1], "circuit"), taken)
+            device = {
+                "id": ident,
+                "kind": "load",
+                "name": entity,
+                "load_class": "circuit",
+                "bindings": {},
+                "flexibility": {"mode": "none"},
+                "constraints": {},
+            }
+            devices.append(device)
+        device["bindings"]["demand_forecast"] = {
+            "source": device_forecasts.forecast_source([entity], "nimbus_forecast"),
+            "provenance": {
+                "origin": "legacy_import",
+                "source_path": f"options.{LOAD_CIRCUITS_KEY}[{i}]",
+                "confirmed": LOAD_CIRCUITS_KEY in confirmed_keys,
+            },
+        }
+        relationships.append(
+            {
+                "kind": "included_in_measurement",
+                "child": device["id"],
+                "parent": "load_house",
+                "quantity": "consumption",
+                "confirmed": True,
+            }
+        )
 
 
 def _slug(text: Any, fallback: str) -> str:
@@ -645,9 +722,17 @@ _PARTICIPANT_KEYS = {
 
 
 def _write(view: dict[str, Any], path: str, value: Any) -> None:
-    """Put `value` at a provenance path: options.<key> or subentry:<id>.<key>."""
+    """Put `value` at a provenance path: options.<key> or subentry:<id>.<key>.
+    `options.<key>[i]` is item i of a list setting (the summed circuits)."""
     if path.startswith("options."):
-        view["options"][path.split(".", 1)[1]] = value
+        key = path.split(".", 1)[1]
+        if key.endswith("]") and "[" in key:
+            name, index = key[:-1].split("[", 1)
+            items = view["options"].setdefault(name, [])
+            items.extend([None] * (int(index) + 1 - len(items)))
+            items[int(index)] = value
+            return
+        view["options"][key] = value
     elif path.startswith("subentry:"):
         sid, key = path[len("subentry:") :].split(".", 1)
         view["subentries"].setdefault(sid, {})[key] = value
@@ -750,6 +835,11 @@ def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
                 control.get("entity_id") if control.get("authorised", True) else ""
             )
     view["subentries"] = {k: v for k, v in view["subentries"].items() if v}
+    # A list setting keeps its order; a binding removed since leaves no gap.
+    if isinstance(view["options"].get(LOAD_CIRCUITS_KEY), list):
+        view["options"][LOAD_CIRCUITS_KEY] = [
+            e for e in view["options"][LOAD_CIRCUITS_KEY] if e is not None
+        ]
     return view
 
 
@@ -998,6 +1088,7 @@ def owned_keys(snapshot: dict[str, Any]) -> list[str]:
     (tunables, unmapped subentries) are never touched."""
     paths = {f"options.{k}" for _d, _r, keys in _ROLE_SOURCES for k in keys}
     paths |= {f"options.{k}" for k in _SOLAR_FORECAST_KEYS}
+    paths.add(f"options.{LOAD_CIRCUITS_KEY}")
     paths.add("options.solver_battery_power_positive_is_charge")
     paths |= {f"numbers.{k}" for _d, _c, k in _CONSTRAINTS}
     paths.add("numbers.solver_battery_capacity_kwh")
