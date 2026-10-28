@@ -9,8 +9,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - **Device setup `active`: a generic price sensor is read through the device setup** (#1574, DC-006 slice 4). For an import or export price sensor that isn't a recognised provider's, the Solver reads its forecast through the device setup's own adapter. A period that straddles a price change now takes the time-weighted price over the period, not the price at its start. The price is still held past the forecast's end (marked not real), and a forecast the setup refuses (no unit, overlapping points) is read as before. In `legacy` and `shadow`, and for LocalVolts, Amber, AEMO, PD7DAY and OpenADR prices, nothing changes.
+
+## [0.94.495] - 2026-10-28
+
+**The site postcode now saves, a stopped AC is forecast as stopped, and the midday solar-charge hint holds steady.**
+
 - **The site postcode is saved** (#2136). 0.94.494's new Configure -> Grid Prices -> Advanced -> Site postcode was shown and accepted, then dropped by the wizard's final save, which keeps only the keys it lists, and the postcode wasn't listed. It is now, and every field a Solver step shows is checked against that list.
 - **A burst load that has just stopped is forecast as stopped** (#2137). #2129 ends a run that is still going at its usual length, but once the load switched off its forecast was chained from the run's recent readings and still looked like it was running: an AC off at 13:46 was forecast to run until 17:00. A load learned as running in bursts that is off now takes its usual pattern straight away.
+- **A steady solar-charge hint when solar is about equal to the load** (#2138). Around midday the plan could flip between charging from solar and holding every minute, and an automation following the hint switched the inverter mode each time. Now, within 5 minutes of a solar-charge hint, a hold that is short by at most 2 kW is still published as solar charge. A bigger shortfall, or a longer gap, publishes the plan's own hint as before. The plan itself is unchanged.
 
 ## [0.94.494] - 2026-10-28
 

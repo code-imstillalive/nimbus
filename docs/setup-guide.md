@@ -299,6 +299,11 @@ ending `_house_total_power_forecast`.
 
 ### Find the forecast you just created
 
+**Skip this on a new install.** When this Power Signal is your only Load or
+Power Signal (other than Battery, Solar or Grid ones), screen 3 of the Solver
+wizard arrives with its forecast already chosen. You need these steps only if
+you have several, so the wizard can't tell which is the whole house:
+
 1. Open **Settings → Devices & Services → Entities**.
 2. Filter the list to the Nimbus integration.
 3. Find the forecast whose name matches your selected source.
@@ -473,7 +478,7 @@ Leave the remaining fields blank initially.
 | **🔴 Live export (sell) price sensor ($/kWh)** | What you are paid to export, right now. It must follow the live price; on LocalVolts, Sell Flex Up, not Sell Rate All Var. |
 | Source 2, AEMO (regional forecast, price now, TNI and DLF code sensors) | NEM sites: your region's forecast and 5-minute price, and your provider's TNI and DLF code sensors if it has them. Otherwise **leave blank.** [§18](#18-optional-inputs) |
 | Sources 3 and 4 (other price forecasts) | **Leave blank** to start. Add another forecast later to compare; it counts in the blend only once it has been scored. |
-| Advanced (price-event simulation, DNSP envelopes) | **Leave blank.** [§18](#18-optional-inputs) |
+| Advanced (site postcode, price-event simulation, DNSP envelopes) | **Leave blank**, except **Site postcode** if you'd like Nimbus's flex telemetry to know your region and Home Assistant has no single phone location (see [Configuration reference](configuration-reference.md)). The rest: [§18](#18-optional-inputs) |
 
 ![Solver Grid Prices, screen 2 of 3, with the two required price sensors set](images/setup/solver-wizard-2-prices.png)
 
@@ -526,7 +531,7 @@ The UI helper route requires Home Assistant's `default_config` integration.
 | Field | What to put |
 |---|---|
 | **🔴 Solar generation forecast sensor** | Your Solcast / Open-Meteo / Forecast.Solar sensor. |
-| **🔴 Household load forecast sensor** | **The Power Signal you made in [§5](#5-create-the-forecast-the-solver-needs)**: `sensor.nimbus_<your_sensor>_forecast`. |
+| **🔴 Household load forecast sensor** | **The Power Signal you made in [§5](#5-create-the-forecast-the-solver-needs)**: `sensor.nimbus_<your_sensor>_forecast`. Already chosen when it's your only one; otherwise pick it from the list, which offers only Nimbus's own forecasts. |
 | Optional: individual circuit forecast sensors | **Leave completely blank.** See the warning below. |
 | Everything else | **Leave blank.** [§15](#15-the-daily-quality-score) and [§18](#18-optional-inputs) cover them. |
 

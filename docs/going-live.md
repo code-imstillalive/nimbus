@@ -81,7 +81,7 @@ something looks wrong.
 | … attribute `absorb_surplus` (`absorb_surplus_reason`) | True when there is spare solar the plan did not count on, and exporting it pays less than your *Don't sell below* price: put the inverter in self-consumption so the spare goes into the battery. See [Configuration reference](configuration-reference.md). |
 | … attribute `price_spike_active` | A price spike is on. Never delay acting on it. |
 | `sensor.nimbus_solver_current_dispatch_hold` | True when the plan keeps the battery idle **while the grid supplies the house** (self-consumption would drain the battery instead). |
-| `sensor.nimbus_solver_current_dispatch_solar_charge` | True when the plan charges the battery **from solar alone** and sells nothing: self-consumption does what the plan wants, and on a duller morning than forecast it charges from the sun there is instead of the grid. |
+| `sensor.nimbus_solver_current_dispatch_solar_charge` | True when the plan charges the battery **from solar alone** and sells nothing: self-consumption does what the plan wants, and on a duller morning than forecast it charges from the sun there is instead of the grid. Within 5 minutes of a solar charge, a hold that is short by at most 2 kW stays a solar charge, so the inverter doesn't switch modes every minute while solar is about equal to the load. |
 | `sensor.nimbus_solver_current_dispatch_direction` | The plan's direction now, in words: handy for dashboards. |
 | `switch.nimbus_solver_dispatch_dry_run` | Records what would have been dispatched, as history, without commanding anything. |
 
