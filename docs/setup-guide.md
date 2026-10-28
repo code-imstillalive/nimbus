@@ -299,6 +299,11 @@ ending `_house_total_power_forecast`.
 
 ### Find the forecast you just created
 
+**Skip this on a new install.** When this Power Signal is your only Load or
+Power Signal (other than Battery, Solar or Grid ones), screen 3 of the Solver
+wizard arrives with its forecast already chosen. You need these steps only if
+you have several, so the wizard can't tell which is the whole house:
+
 1. Open **Settings → Devices & Services → Entities**.
 2. Filter the list to the Nimbus integration.
 3. Find the forecast whose name matches your selected source.
@@ -526,7 +531,7 @@ The UI helper route requires Home Assistant's `default_config` integration.
 | Field | What to put |
 |---|---|
 | **🔴 Solar generation forecast sensor** | Your Solcast / Open-Meteo / Forecast.Solar sensor. |
-| **🔴 Household load forecast sensor** | **The Power Signal you made in [§5](#5-create-the-forecast-the-solver-needs)**: `sensor.nimbus_<your_sensor>_forecast`. |
+| **🔴 Household load forecast sensor** | **The Power Signal you made in [§5](#5-create-the-forecast-the-solver-needs)**: `sensor.nimbus_<your_sensor>_forecast`. Already chosen when it's your only one; otherwise pick it from the list, which offers only Nimbus's own forecasts. |
 | Optional: individual circuit forecast sensors | **Leave completely blank.** See the warning below. |
 | Everything else | **Leave blank.** [§15](#15-the-daily-quality-score) and [§18](#18-optional-inputs) cover them. |
 
