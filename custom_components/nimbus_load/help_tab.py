@@ -232,6 +232,10 @@ WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
                 "telemetry reports a car (one with a departure time or trip "
                 "calendar) as an EV."
             ),
+            (
+                "**Price sources:** a source you switch to another sensor (a "
+                "new tariff, say) is scored afresh, not on the old one's record."
+            ),
         ),
     ),
     (
