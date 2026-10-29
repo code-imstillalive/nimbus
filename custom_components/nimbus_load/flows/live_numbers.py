@@ -70,6 +70,21 @@ def current_value(hass: Any, entry_id: str, key: str) -> float | None:
     return value
 
 
+def restoring(hass: Any, entry_id: str) -> bool:
+    """True while any of these numbers exists but has no value yet: Home
+    Assistant is still restoring it after a start or reload, and the wizard
+    would show it blank (29 Oct 2026)."""
+    for keys in STEP_NUMBERS.values():
+        for key, *_ in keys:
+            eid = _entity_id(hass, entry_id, key)
+            if not eid:
+                continue
+            state = hass.states.get(eid)
+            if state is None or state.state in ("unknown", "unavailable"):
+                return True
+    return False
+
+
 def schema_fields(hass: Any, entry_id: str | None, step: str) -> dict[Any, Any]:
     """The extra fields for `step`, each pre-filled from its live entity.
     None without an entry id (a flow built without one): no fields."""

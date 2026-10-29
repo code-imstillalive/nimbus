@@ -1523,6 +1523,11 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
         )
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
+        # 29 Oct 2026: opened in the minute after a start or reload, the
+        # wizard showed blank battery numbers (still being restored), which
+        # read as lost settings. Say so instead.
+        if live_numbers.restoring(self.hass, self.config_entry.entry_id):
+            return self.async_abort(reason="still_starting")
         # nimbus #1686: the review step is offered only when it has something
         # to show, so the menu never leads to an empty page.
         if await self._pricing_suggestions():

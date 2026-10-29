@@ -309,7 +309,8 @@
       "site_postcode_invalid": "The site postcode is four digits, for example 4000."
     },
     "abort": {
-      "no_pricing_suggestions": "There are no pricing suggestions: every price field Nimbus can fill already has a value."
+      "no_pricing_suggestions": "There are no pricing suggestions: every price field Nimbus can fill already has a value.",
+      "still_starting": "Nimbus is still starting and restoring its settings. Try again in a minute."
     }
   },
   "config_subentries": {

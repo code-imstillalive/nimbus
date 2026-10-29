@@ -273,6 +273,13 @@ def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
         "pricing_suggestions",
         "device_setup",
     ]
+    # 29 Oct 2026: in the minute after a start the battery numbers are
+    # still being restored; the wizard says so instead of showing blanks.
+    from custom_components.nimbus_load.flows import live_numbers
+
+    with patch.object(live_numbers, "restoring", lambda hass, entry_id: True):
+        result = asyncio.run(flow.async_step_init(None))
+    assert result == {"type": "abort", "reason": "still_starting"}
 
     # test_solver_sources_schema_keeps_saved_multi_values_selectable
     schema = _solver_sources_schema(
