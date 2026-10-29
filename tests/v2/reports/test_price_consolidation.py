@@ -87,6 +87,11 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none(monkeypatch):
     assert tr.samples[pc.BLEND_SOURCE]["0-5 min"] == 1
     assert pc.BLEND_SOURCE in tr.summary()["mae_by_source_and_lead"]
     assert set(tr.summary()["weights"]["0-5 min"]) == {"primary", "amber"}
+    # 29 Oct 2026: a source removed from the settings has no share.
+    _, shown, _ = pc.consolidate_side(
+        tr, {"primary": [0.15]}, now, grid, [1 / 12], 0, None
+    )
+    assert set(shown["weights"]["0-5 min"]) == {"primary"}
     tr.samples[pc.BLEND_SOURCE]["0-5 min"] = 500
     assert set(tr.weights("0-5 min")) == {"primary", "amber"}
 
