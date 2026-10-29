@@ -966,7 +966,9 @@ EXPECTED_SPLIT = {
     # to zone.home (every install has it), but a pre-filled value is saved
     # by the next submit of this form and would turn the feature on for an
     # install that never asked for it, so it stays opt-in.
-    "_forecaster_schema": (0, 15),
+    # 15 -> 16 (TD944, 30 Oct 2026): "on while away", a boolean defaulting
+    # off, so a presence sensor reads as before.
+    "_forecaster_schema": (0, 16),
     "_solver_battery_schema": (1, 1),
     # nimbus issue #1213: 6 -> 7 optional. The two Required price fields
     # are unchanged, which is the property this row exists to watch.
