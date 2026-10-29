@@ -413,7 +413,7 @@ class _Writer:
         self.scales.append(kwargs["wholesale_scale"])
         return {}
 
-    def price_now(self, entity_id, fallback=0.0):
+    def price_now(self, entity_id, fallback=0.0, *, quiet=False):
         return 0.08
 
 
