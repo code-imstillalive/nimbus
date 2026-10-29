@@ -215,6 +215,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.500",
+        "29 Oct 2026",
+        (
+            (
+                "**Offer curve:** a point it cannot work out keeps the last "
+                "curve instead of failing the whole solve (which showed "
+                "Needs attention)."
+            ),
+        ),
+    ),
+    (
         "0.94.499",
         "29 Oct 2026",
         (
