@@ -1015,6 +1015,17 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
         sw.release_lock()
 
 
+def request_follow_up_if_running() -> bool:
+    """True when a cycle is running now: it is asked for one follow-up when
+    it finishes (the same request a tick that finds it running leaves), so
+    the caller need not start another. False when nothing is running."""
+    global _rerun_requested
+    if _in_flight_future is None or _in_flight_future.done():
+        return False
+    _rerun_requested = True
+    return True
+
+
 def _take_rerun_request() -> bool:
     global _rerun_requested
     requested, _rerun_requested = _rerun_requested, False

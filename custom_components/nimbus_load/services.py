@@ -456,6 +456,15 @@ async def _async_handle_solve_now(hass: HomeAssistant, call: ServiceCall) -> Non
     concurrency guard (see its own docstring), so a service call landing
     while a periodic solve is mid-flight is a safe no-op, not a race.
     """
+    # 29 Oct 2026, the reference household: a solve_now every minute that
+    # met a running cycle logged "did not produce a successful solve" each
+    # time, and counted as a tick overrun. The running cycle re-plans once
+    # it finishes instead.
+    if solver_runtime.request_follow_up_if_running():
+        _LOGGER.debug(
+            "Nimbus: solve_now found a cycle running; it re-plans when it ends"
+        )
+        return
     ok = await solver_runtime.async_run_solve(hass)
     if ok:
         # nimbus #1678: count it, so the cron and the in-block re-plan see
