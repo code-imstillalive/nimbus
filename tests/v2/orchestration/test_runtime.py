@@ -210,6 +210,7 @@ def test_a_held_lock_skips_quietly_once_then_warns_and_asks_for_a_rerun(
     assert rt.request_follow_up_if_running() is False
     monkeypatch.setattr(rt, "_cycle_running", True)
     assert rt.request_follow_up_if_running() is True
+    assert rt._take_rerun_request() is True
     # The flag is the lock: set while main() runs, clear once it is released.
     seen = []
     sw = FakeSW(main=lambda: seen.append(rt._cycle_running))
@@ -217,7 +218,6 @@ def test_a_held_lock_skips_quietly_once_then_warns_and_asks_for_a_rerun(
     monkeypatch.setattr(rt, "_cycle_running", False)
     rt._run_one_cycle(FakeHass())
     assert seen == [True] and rt._cycle_running is False
-    assert rt._take_rerun_request() is True
 
 
 def test_every_25th_single_overlap_is_summarised(monkeypatch, caplog):
