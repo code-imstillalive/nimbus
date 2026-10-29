@@ -94,6 +94,11 @@ def test_a_fresh_install_says_each_part_is_not_configured_yet(registry, run_stat
         and out["flex"]["signals_entity_found"] is False
     )
     assert all(v is None for v in out["flex"]["signals"].values())
+    # An entry that is reloading has no runtime_data at all.
+    reloading = _entry()
+    del reloading.runtime_data
+    out = asyncio.run(dg.async_get_config_entry_diagnostics(_hass({}), reloading))
+    assert out["subentries"] == []
 
     # test_every_part_of_a_running_install_is_reported
     forecast = [{"time": "a", "value": 1}, {"time": "b", "value": 2}]
