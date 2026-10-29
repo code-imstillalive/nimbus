@@ -910,7 +910,9 @@ _HUB_OPTIONS = (
 # Per-form totals, from each form's own key tuple.
 EXPECTED_KEY_COUNTS = {
     "_SWITCHBOARD_SCHEMA_KEYS": 8,
-    "_FORECASTER_SCHEMA_KEYS": 15,
+    # nimbus #1847 (TD944, 30 Oct 2026): 15 -> 16, one optional field,
+    # `occupancy_on_means_away` (an away switch is on while away).
+    "_FORECASTER_SCHEMA_KEYS": 16,
     # nimbus issue #1213 (Mark Purcell): 26 -> 27, one OPTIONAL field,
     # `solver_price_event_sensor`. #449's standing question was asked
     # before adding it, and the answer is in the commit: the field names

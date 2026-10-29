@@ -549,6 +549,9 @@ CONF_TEMPERATURE_FORECAST_SENSOR: Final = "temperature_forecast_sensor"
 CONF_OCCUPANCY_ENTITY: Final = "occupancy_entity"
 CONF_OCCUPANCY_DEPARTURE: Final = "occupancy_departure"
 CONF_OCCUPANCY_RETURN: Final = "occupancy_return"
+# nimbus #1847 (TD944, 30 Oct 2026): an "away" switch is on while away, the
+# reverse of a presence sensor. Off (default): on / home means home.
+CONF_OCCUPANCY_ON_MEANS_AWAY: Final = "occupancy_on_means_away"
 CONF_HUMIDITY_SENSOR: Final = "humidity_sensor"
 # Shared, hub-level -- HAEO's own solar-curtailment status entity
 # (switch.solar_curtailment on the real system this was built against),

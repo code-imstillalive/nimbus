@@ -262,6 +262,12 @@ async def test_a_commit_outside_active_is_refused(hass: HomeAssistant, hass_stor
     assert value("work") == 0.0  # a person in another zone
     assert value("2") == 1.0 and value("0") == 0.0  # a zone's count
     assert math.isnan(value("unavailable")) and math.isnan(value(None))
+    # An away switch (TD944, 30 Oct): on while away, off at home. Person and
+    # zone states read the same either way.
+    assert value("on", on_means_away=True) == 0.0
+    assert value("off", on_means_away=True) == 1.0
+    assert value("home", on_means_away=True) == 1.0
+    assert value("not_home", on_means_away=True) == 0.0
 
     parse = coord.parse_occupancy_datetime
     local = dt_util.get_default_time_zone()

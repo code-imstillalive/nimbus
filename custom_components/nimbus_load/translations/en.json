@@ -65,6 +65,7 @@
           "training_source": "Training data source",
           "hybrid_recent_days": "Hybrid mode: recent days from full-resolution history",
           "occupancy_entity": "Home / away (optional): who is home",
+          "occupancy_on_means_away": "The home / away entity is on while away",
           "occupancy_departure": "Planned departure (optional)",
           "occupancy_return": "Planned return (optional)"
         },
@@ -82,6 +83,7 @@
           "training_source": "Recorder history (default) reads full-resolution states but is bounded by your own Recorder purge_keep_days -- fine for most installs, but a low purge setting can leave far less history than train_days requests. Long-term statistics reads hour-bucketed data the Recorder keeps indefinitely, so a 30/90/365-day retrain is always possible, at the cost of hourly-only resolution (blurs a load switching on/off within an hour). Hybrid combines both: recent days at full resolution plus the remainder from long-term statistics, gracefully degrading to whichever source is actually available.",
           "hybrid_recent_days": "Only used when Training data source is set to Hybrid -- how many of the most recent days come from full-resolution Recorder history; the remainder of train_days is filled from long-term statistics instead.",
           "occupancy_entity": "An entity that says whether anyone is home: a person, a zone (home when it counts anyone), a group of people, or a presence binary_sensor or input_boolean. While away, each load's forecast falls to the house's own base load at that time of day, and after a few away days to its own away pattern; away periods are left out of training, so the home forecast is not flattened by them. A load keeps it only where it forecasts better.",
+          "occupancy_on_means_away": "Turn on when the entity above is an away switch: on while you are away, off while you are home. Leave off for a presence sensor (on while someone is home). Person and zone entities read the same either way.",
           "occupancy_departure": "When the next trip starts (an input_datetime, a datetime, or a timestamp sensor). From then the forecast is the away one, so it falls when you leave rather than hours later.",
           "occupancy_return": "When you are back. Away until then, home from then, so the forecast climbs before you walk in. Works with or without a departure: set only this while you are already away."
         }

@@ -52,6 +52,7 @@ from .const import (
     CONF_LOAD_SENSOR,
     CONF_OCCUPANCY_DEPARTURE,
     CONF_OCCUPANCY_ENTITY,
+    CONF_OCCUPANCY_ON_MEANS_AWAY,
     CONF_OCCUPANCY_RETURN,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_RUN_HOLD_HOURS,
@@ -430,6 +431,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _occupancy_entity(self) -> str | None:
         """nimbus #1847: the hub's home / away entity, if configured."""
         return self._feature_or_none(self.entry.options.get(CONF_OCCUPANCY_ENTITY))
+
+    @property
+    def _occupancy_on_means_away(self) -> bool:
+        return bool(self.entry.options.get(CONF_OCCUPANCY_ON_MEANS_AWAY, False))
 
     # Real measured power sensors only -- never an optimizer's own plan/
     # forecast entity, see this repo's own CLAUDE.md PRIME DIRECTIVE.
@@ -1072,6 +1077,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """The occupancy entity's history as (local time, 1.0 home / 0.0 away
         / NaN unknown), from the recorder."""
 
+        on_means_away = self._occupancy_on_means_away
+
         def _fetch() -> list[tuple[datetime, float]]:
             states = get_significant_states(
                 self.hass,
@@ -1082,7 +1089,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 significant_changes_only=False,
             ).get(entity_id, [])
             return [
-                (dt_util.as_local(s.last_changed), occupancy_value(s.state))
+                (
+                    dt_util.as_local(s.last_changed),
+                    occupancy_value(s.state, on_means_away=on_means_away),
+                )
                 for s in states
             ]
 
@@ -1177,7 +1187,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if occ is None or not occ["kept"] or occ["profile"] is None or not timestamps:
             return preds, home
         state = self.hass.states.get(occ["entity_id"])
-        away_now = state is not None and occupancy_value(state.state) == 0.0
+        away_now = (
+            state is not None
+            and occupancy_value(
+                state.state, on_means_away=self._occupancy_on_means_away
+            )
+            == 0.0
+        )
         away = occupancy_model.forward_away(
             timestamps,
             away_now=away_now,
@@ -2565,15 +2581,19 @@ def forecast_provenance(
     return None, FORECAST_NOT_TRAINED
 
 
-def occupancy_value(state: str | None) -> float:
+def occupancy_value(state: str | None, *, on_means_away: bool = False) -> float:
     """nimbus #1847: 1.0 home, 0.0 away, NaN unknown, from an occupancy
     entity's state. `home` / `on` is home; `not_home`, `off` or another
-    zone's name is away; a zone's count is home above zero."""
+    zone's name is away; a zone's count is home above zero. With
+    `on_means_away` (an "away" switch), `on` is away and `off` is home;
+    person and zone states read the same either way."""
     if state is None or state in ("unavailable", "unknown", ""):
         return math.nan
-    if state in ("home", "on"):
+    if state in ("on", "off"):
+        return 0.0 if (state == "on") == on_means_away else 1.0
+    if state == "home":
         return 1.0
-    if state in ("not_home", "off"):
+    if state == "not_home":
         return 0.0
     try:
         return 1.0 if float(state) > 0 else 0.0
