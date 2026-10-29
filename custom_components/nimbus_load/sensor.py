@@ -747,6 +747,14 @@ _SOLVER_SELECT_ENTITY_KEYS = (
     CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
 )
 
+#: Each setting kept on its own entity, by that entity's domain.
+_SOLVER_ENTITY_KEYS_BY_DOMAIN = (
+    ("number", _SOLVER_NUMBER_ENTITY_KEYS),
+    ("time", _SOLVER_TIME_ENTITY_KEYS),
+    ("switch", _SOLVER_SWITCH_ENTITY_KEYS),
+    ("select", _SOLVER_SELECT_ENTITY_KEYS),
+)
+
 
 def _slug_for_entity_id(title: str) -> str:
     """A plain, predictable slug for a human-typed title -- lowercase,
@@ -2579,6 +2587,30 @@ class NimbusSolverConfigSensor(SensorEntity):
         """
         return [k for k in _SOLVER_REQUIRED_KEYS if self._resolve(k) in (None, "")]
 
+    def _restoring_keys(self, unresolved: list[str]) -> bool:
+        """True when every unresolved key is a setting entity that exists but
+        has no value yet: Home Assistant is still restoring it after a start
+        or reload, not a field the household has left blank (29 Oct 2026:
+        the hub's status read "Not yet configured" for a minute after every
+        reload)."""
+        if not unresolved:
+            return False
+        registry = er.async_get(self.hass)
+        for key in unresolved:
+            domain = next(
+                (d for d, keys in _SOLVER_ENTITY_KEYS_BY_DOMAIN if key in keys), None
+            )
+            if domain is None:
+                return False
+            unique_id = f"{self._entry.entry_id}_{key}"
+            eid = registry.async_get_entity_id(domain, DOMAIN, unique_id)
+            state = self.hass.states.get(eid) if isinstance(eid, str) else None
+            if not isinstance(eid, str) or (
+                state is not None and state.state not in ("unknown", "unavailable")
+            ):
+                return False
+        return True
+
     async def async_update(self) -> None:
         """Detects and logs a REAL transition (configured <-> unconfigured)
         exactly once per HA poll cycle -- native_value used to do this
@@ -2692,6 +2724,7 @@ class NimbusSolverConfigSensor(SensorEntity):
         # settling -- see this class's own docstring for the full flap
         # story.
         attrs["unresolved_required_keys"] = self._unresolved_required_keys()
+        attrs["restoring"] = self._restoring_keys(attrs["unresolved_required_keys"])
         # nimbus issue #495 (Signals 6/7 of #489): `region` and
         # `postcode_prefix` are both in the telemetry schema's own
         # top-level `required` array and neither existed anywhere in
@@ -3343,6 +3376,17 @@ class NimbusStatusSensor(SensorEntity):
         mechanism.
         """
         config_state = self.hass.states.get("sensor.nimbus_solver_config")
+        if config_state is not None and (
+            config_state.state in ("unknown", "unavailable")
+            or config_state.attributes.get("restoring")
+        ):
+            return (
+                "Starting",
+                (
+                    "Nimbus is starting and restoring its settings; this takes "
+                    "up to a minute."
+                ),
+            )
         if config_state is None or config_state.state != "configured":
             return (
                 "Not yet configured",

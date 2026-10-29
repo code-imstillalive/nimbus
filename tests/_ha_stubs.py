@@ -142,6 +142,9 @@ class _StubFlowBase:
     def async_update_and_abort(self, entry, subentry, *, title: str, data: dict):
         return {"type": "update_and_abort", "title": title, "data": data}
 
+    def async_abort(self, *, reason: str, description_placeholders=None):
+        return {"type": "abort", "reason": reason}
+
     def async_show_form(
         self,
         *,

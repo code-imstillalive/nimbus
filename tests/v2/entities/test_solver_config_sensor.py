@@ -65,6 +65,15 @@ def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, capl
                 assert s.extra_state_attributes["unresolved_required_keys"] == [
                     NUMBERS[0]
                 ]
+                # Not registered here, so not "restoring".
+                assert s.extra_state_attributes["restoring"] is False
+                # 29 Oct 2026: a registered number with no value yet is
+                # being restored; one holding junk is not.
+                uid = f"hub1_{NUMBERS[0]}"
+                eid = f"number.nimbus_{NUMBERS[0]}"
+                s = _sensor(mp, states, renamed={uid: eid})
+                restoring = s.extra_state_attributes["restoring"]
+                assert restoring is (value != "lots")
 
     # test_each_kind_of_setting_reads_in_the_form_the_solve_uses
     with monkeypatch.context() as mp:

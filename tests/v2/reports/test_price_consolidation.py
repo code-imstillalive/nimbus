@@ -115,6 +115,16 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none(monkeypatch):
         "primary": "s.buy",
         "secondary_3": "s.two_way",
     }
+    # A state saved before the slots were checked (0.94.497 and older)
+    # scores the extra sources again, once; the provider keeps its score.
+    _train(tr, {"secondary_3": 0.18}, 0.14, 5)
+    old = tr.to_dict()
+    del old["sources_checked"]
+    upgraded = pc.SourceErrorTracker.from_dict(old)
+    assert "secondary_3" not in upgraded.mae and "secondary_3" not in upgraded.bias
+    assert upgraded.samples["primary"]["0-5 min"] == 60
+    again = pc.SourceErrorTracker.from_dict(tr.to_dict())
+    assert again.samples["secondary_3"]["0-5 min"] == 5
 
     # test_the_tracker_round_trips_and_a_damaged_or_older_state_loads
     tr = _tracker_with(60, 70)

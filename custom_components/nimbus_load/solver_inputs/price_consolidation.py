@@ -58,6 +58,9 @@ EWMA_ALPHA = 0.05
 MIN_SAMPLES = 50
 #: Pending forecasts are never kept further ahead than this.
 MAX_PENDING_AHEAD_HOURS = 48.0
+#: The extra price sources the household can point at any sensor.
+_EXTRA_SLOTS = ("secondary_2", "secondary_3")
+
 #: The blend itself, scored beside the sources so the switch to `live` can
 #: rest on its measured error (#1786: "chosen by measured least error"). It
 #: never earns a weight, and it is scored on its raw error: it enters the
@@ -444,14 +447,17 @@ class SourceErrorTracker:
                 continue
             was = self.sources.get(slot)
             if was is not None and was != sensor:
-                self.mae.pop(slot, None)
-                self.bias.pop(slot, None)
-                self.samples.pop(slot, None)
-                for by_source in self.pending.values():
-                    by_source.pop(slot, None)
+                self._forget(slot)
                 forgotten.append(slot)
             self.sources[slot] = sensor
         return forgotten
+
+    def _forget(self, slot: str) -> None:
+        self.mae.pop(slot, None)
+        self.bias.pop(slot, None)
+        self.samples.pop(slot, None)
+        for by_source in self.pending.values():
+            by_source.pop(slot, None)
 
     # -- persistence ---------------------------------------------------
 
@@ -467,6 +473,7 @@ class SourceErrorTracker:
             "last_interval": self.last_interval,
             "last_settled": self.last_settled,
             "sources": dict(self.sources),
+            "sources_checked": True,
         }
 
     @classmethod
@@ -498,6 +505,16 @@ class SourceErrorTracker:
             t.sources = {str(k): str(v) for k, v in (data.get("sources") or {}).items()}
             ls = data.get("last_settled")
             t.last_settled = float(ls) if ls is not None else None
+            if not data.get("sources_checked"):
+                # Saved before the sensor behind each slot was checked
+                # (0.94.497 and older): an extra source changed before the
+                # upgrade can't be told apart from one that never changed,
+                # so the extra slots are scored again from scratch, once
+                # (29 Oct 2026, the reference household: source 3 moved to
+                # the two-way trial on 0.94.496 and kept the old tariff's
+                # offset). The provider and the AEMO-based price keep theirs.
+                for slot in _EXTRA_SLOTS:
+                    t._forget(slot)
         except (TypeError, ValueError, AttributeError, IndexError):
             return cls()
         return t

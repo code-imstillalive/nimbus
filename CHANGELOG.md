@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **After a start or reload, Nimbus says it's starting instead of looking unset.** For about a minute after every start or reload, while Home Assistant restores the battery and grid numbers, the hub's status read *Not yet configured* and the Solver settings screens showed the battery capacity and limits blank, which read as lost settings (nothing was lost; a blank field is never saved). The status now reads *Starting*, and Configure says Nimbus is still starting and to try again in a minute.
+- **An extra price source changed before this release starts fresh too.** 0.94.497 forgets a source's score and offset when its sensor changes, but only for a change made after it was installed: a source changed earlier (the reference household moved source 3 to the two-way trial on 0.94.496) kept the old sensor's score. On first start, this release scores price sources 2 and 3 again from scratch, once. The provider and the AEMO-based price keep theirs.
 - **The Solver tab's price-source names follow your settings.** The Price sources table named each source from a copy of the setting taken when the tab was made, so a changed source kept its old name until the tab was rebuilt. The names now read the settings live. A Solver tab made before this release still holds the old copy: remove the tab and add it again once to pick this up.
 - **A removed price source no longer shows a share.** The Price sources table's Share column was worked out over every source the blend had ever scored, so a source removed from Grid Prices kept a share there (the blend itself had already stopped using it). The shares are now over the sources set now.
 

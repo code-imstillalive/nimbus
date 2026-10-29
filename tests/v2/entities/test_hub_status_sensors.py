@@ -47,6 +47,14 @@ def test_the_status_is_the_first_thing_wrong_or_working_well():
             "Not yet configured",
             "wizard",
         ),
+        # 29 Oct 2026: settings still being restored after a start or
+        # reload are not missing ones.
+        (
+            {"sensor.nimbus_solver_config": _state("unconfigured", restoring=True)},
+            "Starting",
+            "restoring its settings",
+        ),
+        ({"sensor.nimbus_solver_config": _state("unavailable")}, "Starting", "minute"),
         (
             {
                 **CONFIGURED,
