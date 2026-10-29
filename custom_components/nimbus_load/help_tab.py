@@ -215,6 +215,26 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.498",
+        "29 Oct 2026",
+        (
+            (
+                "**Price sources table:** each source is named from your "
+                "current settings, a removed source has no share (the shares "
+                "add up to 100%), and price sources 2 and 3 are scored again "
+                "from scratch once, so a source changed before 0.94.497 no "
+                "longer carries the old sensor's score. Re-add the Solver tab "
+                "once to get the new names."
+            ),
+            (
+                "**After a start or reload:** the status reads Starting and "
+                "Configure asks you to try again in a minute, instead of "
+                "showing Not yet configured and blank battery numbers."
+            ),
+            ("**Diagnostics:** downloading them during a reload works."),
+        ),
+    ),
+    (
         "0.94.497",
         "29 Oct 2026",
         (
