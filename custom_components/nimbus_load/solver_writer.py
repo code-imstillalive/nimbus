@@ -4827,21 +4827,22 @@ def _price_scale_of_state(state: dict) -> float:
     return price_intervals.price_unit_scale((attrs or {}).get("unit_of_measurement"))
 
 
-def price_now(entity_id: str, fallback: float = 0.0) -> float:
+def price_now(entity_id: str, fallback: float = 0.0, *, quiet: bool = False) -> float:
     """A price sensor's current state in $/kWh, scaled by its own unit (nimbus
     #1537 -- a c/kWh sensor used to be read 100x too high). One read of the
     entity, as safe_num() makes; an unreadable state goes through safe_num()
-    for its warning and fallback (`fallback` is in $/kWh)."""
+    for its warning and fallback (`fallback` is in $/kWh). `quiet` is for a
+    reader that carries on without the value: no warning, a debug line."""
     try:
         state = ha_get(entity_id)
     except Exception as err:  # noqa: BLE001 -- safe_num() decides, as it always has
         _LOGGER.debug("price_now(%s): read failed (%s); via safe_num()", entity_id, err)
-        return safe_num(entity_id, fallback=fallback)
+        return safe_num(entity_id, fallback=fallback, quiet=quiet)
     scale = _price_scale_of_state(state)
     try:
         return finite_float(state["state"]) * scale
     except (KeyError, TypeError, ValueError):
-        return safe_num(entity_id, fallback=fallback / scale) * scale
+        return safe_num(entity_id, fallback=fallback / scale, quiet=quiet) * scale
 
 
 def _openadr_forecast_rows(entity_id: str) -> list | None:

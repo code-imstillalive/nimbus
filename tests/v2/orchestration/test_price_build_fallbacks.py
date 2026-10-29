@@ -76,11 +76,17 @@ def _build(**cfg):
 
 
 @pytest.mark.parametrize(
-    "price_now",
-    [lambda eid, fallback: float("nan"), lambda eid, fallback: 1 / 0],
+    "reading",
+    [lambda: float("nan"), lambda: 1 / 0],
     ids=["no_reading", "unreadable"],
 )
-def test_without_a_live_spot_the_fallback_still_runs(writer, monkeypatch, price_now):
+def test_without_a_live_spot_the_fallback_still_runs(writer, monkeypatch, reading):
+    quiet = []
+
+    def price_now(eid, fallback, **k):
+        quiet.append(k.get("quiet", False))
+        return reading()
+
     monkeypatch.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
     monkeypatch.setattr(prices.price_freshness, "aemo_series", _fallback(writer))
     monkeypatch.setattr(sw, "price_now", price_now)
@@ -88,6 +94,10 @@ def test_without_a_live_spot_the_fallback_still_runs(writer, monkeypatch, price_
     assert out.spot_import_raw == AEMO_IMPORT
     assert writer["live_spot"] == [None, None]
     assert not any(isinstance(v, float) and math.isnan(v) for v in writer["live_spot"])
+    # The spot price goes unavailable for seconds at each 5-minute rollover,
+    # and both readers carry on without it: no "check your configuration"
+    # warning for that.
+    assert quiet and all(quiet)
 
 
 def test_with_no_aemo_series_the_stale_primary_is_kept_and_says_so(writer, monkeypatch):

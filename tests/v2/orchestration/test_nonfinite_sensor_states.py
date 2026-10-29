@@ -4,6 +4,7 @@ the plan (#1837).
 
 from __future__ import annotations
 
+import logging
 import math
 import sys
 from contextlib import contextmanager
@@ -39,6 +40,23 @@ def test_price_now_falls_back_on_a_non_finite_state():
             value = solver_writer.price_now("sensor.price", fallback=0.3)
         assert value == pytest.approx(0.3)
         assert math.isfinite(value)
+
+    # test_a_quiet_read_of_an_unavailable_price_does_not_warn
+    state = {"state": "unavailable", "attributes": {"unit_of_measurement": "$/MWh"}}
+    for quiet, level in ((False, logging.WARNING), (True, logging.DEBUG)):
+        with (
+            _states({"sensor.spot": state}),
+            patch.object(solver_shared._LOGGER, "log") as log,
+            patch.object(solver_shared._LOGGER, "warning") as warning,
+            patch.object(solver_shared._LOGGER, "debug") as debug,
+        ):
+            value = solver_writer.price_now(
+                "sensor.spot", fallback=math.nan, quiet=quiet
+            )
+        assert math.isnan(value)
+        assert warning.called is (level == logging.WARNING)
+        assert debug.called is (level == logging.DEBUG)
+        log.assert_not_called()
 
     # test_the_aemo_cross_check_skips_a_non_finite_spot_price
     for text in NON_FINITE:
