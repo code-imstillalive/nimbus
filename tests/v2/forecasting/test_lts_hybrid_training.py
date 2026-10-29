@@ -9,7 +9,7 @@ import math
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
@@ -150,6 +150,25 @@ def test_lts_source_drops_insane_means():
 
     values = [v for _, v in result]
     assert values == [2.0], f"insane value must be dropped, got {values}"
+
+    # test_the_same_implausible_point_warns_only_on_its_first_read
+    getattr(coordinator_module, "_IMPLAUSIBLE_POINTS_WARNED", set()).clear()
+    with (
+        patch.object(coordinator_module._LOGGER, "warning") as warning,
+        patch.object(coordinator_module._LOGGER, "debug"),
+    ):
+        for _ in range(3):
+            again = _run(
+                coord._async_fetch_training_history(
+                    "sensor.test_load",
+                    now - timedelta(hours=24),
+                    now,
+                    convert_power=True,
+                )
+            )
+            assert [v for _, v in again] == [2.0]
+    implausible = [c for c in warning.call_args_list if "implausible" in c.args[0]]
+    assert len(implausible) == 1
 
     # test_recorder_source_drops_nan_states: nimbus issue #353 (Mark Purcell): float("nan") does not raise, so
     now = datetime(2026, 9, 4, 0, 0, tzinfo=UTC)
