@@ -2018,9 +2018,16 @@ def sweep_offer_curve(plan, now: float):
         and now - at < OFFER_CURVE_SLOW_REFRESH_S
     ):
         return plan
-    plan = network.complete_offer_curve(plan)
-    _LAST_OFFER_CURVE.update(at=now, seconds=plan.offer_curve_sweep_seconds)
-    return plan
+    try:
+        swept = network.complete_offer_curve(plan)
+    except ValueError as err:
+        # 29 Oct 2026, the reference household: one re-solve in the sweep
+        # ended 'Unknown' and the error failed the whole cycle, after the
+        # plan was published. The curve is left as last published instead.
+        _LOGGER.warning("Nimbus offer curve: not swept this cycle (%s)", err)
+        return plan
+    _LAST_OFFER_CURVE.update(at=now, seconds=swept.offer_curve_sweep_seconds)
+    return swept
 
 
 def publish_offer_curve(plan) -> None:
