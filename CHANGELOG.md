@@ -8,13 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-- **Solve now knows a solve is running, whoever started it.** 0.94.499's release check on the test install still logged the warning: a timed tick that found the solve running cleared the marker Solve now looked at, while that solve went on. Solve now now reads whether the solver's lock is held, and a skipped tick leaves the running solve's marker in place (so a reload still waits for it).
-
 ## [0.94.499] - 2026-10-29
 
 **A Solve now that lands during a solve no longer logs a warning.**
 
 - **A Solve now that lands during a solve no longer logs a warning.** On the reference install something calls Solve now every minute, and each call that met a running solve logged *did not produce a successful solve* and counted as the solver overrunning its tick (48 warnings in 45 minutes, while each solve took under a second). Such a call now asks the running solve to plan once more when it ends, which is what happened anyway, and logs nothing.
+- **Solve now knows a solve is running, whoever started it.** 0.94.499's release check on the test install still logged the warning: a timed tick that found the solve running cleared the marker Solve now looked at, while that solve went on. Solve now now reads whether the solver's lock is held, and a skipped tick leaves the running solve's marker in place (so a reload still waits for it).
 
 ## [0.94.498] - 2026-10-29
 
