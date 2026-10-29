@@ -354,7 +354,9 @@ def build_price_arrays(
             spot_sensor = cfg.get("solver_regional_spot_current_price_sensor")
             if spot_sensor:
                 try:
-                    live_spot = float(sw.price_now(spot_sensor, fallback=float("nan")))
+                    live_spot = float(
+                        sw.price_now(spot_sensor, fallback=float("nan"), quiet=True)
+                    )
                 except Exception as err:  # noqa: BLE001 -- no live spot is not an error
                     solver_shared._LOGGER.debug(
                         "Nimbus #1793: live AEMO spot unreadable: %s", err
@@ -710,7 +712,7 @@ def _retail_from_rrp(
     )
     rrp_now = None
     if spot_sensor:
-        value = sw.price_now(spot_sensor, fallback=float("nan"))
+        value = sw.price_now(spot_sensor, fallback=float("nan"), quiet=True)
         rrp_now = None if math.isnan(value) else float(value)
     out = []
     for fees, scale in ((fees_import, import_scale), (fees_export, export_scale)):

@@ -1908,7 +1908,7 @@ def finite_float(value: object) -> float:
     return number
 
 
-def safe_num(entity_id: str, fallback: float = 0.0) -> float:
+def safe_num(entity_id: str, fallback: float = 0.0, *, quiet: bool = False) -> float:
     """Read entity_id's current state as a float, degrading gracefully
     (WARN + fallback) instead of crashing the whole solve cycle when the
     entity's real state can't be parsed as a number.
@@ -1944,7 +1944,11 @@ def safe_num(entity_id: str, fallback: float = 0.0) -> float:
     try:
         return finite_float(ha_get(entity_id)["state"])
     except (KeyError, TypeError, ValueError) as e:
-        _LOGGER.warning(
+        # quiet: the caller treats no reading as normal and carries on
+        # without it (the regional spot price goes unavailable for a few
+        # seconds at each 5-minute rollover), so the advice below would be
+        # wrong for it.
+        (_LOGGER.debug if quiet else _LOGGER.warning)(
             "Nimbus Solver: entity '%s' has a non-numeric state -- could "
             "not parse it as a price/SoC value (%s). Falling back to %s "
             "for this solve. Check that this entity is genuinely "
