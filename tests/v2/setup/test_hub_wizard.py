@@ -336,6 +336,11 @@ def test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save(world
     )
     assert ln.current_value(hass, "hub1", const.CONF_SOLVER_MAX_CHARGE_KW) is None
     assert ln.current_value(hass, "hub1", const.CONF_SOLVER_MAX_DISCHARGE_KW) is None
+    # 29 Oct 2026: a registered number with no value yet is still being
+    # restored (the placeholder is a value; an unregistered one is skipped).
+    assert ln.restoring(hass, "hub1") is False
+    restoring = Hass({"number.cap": SimpleNamespace(state="unknown")})
+    assert ln.restoring(restoring, "hub1") is True
     fields = ln.schema_fields(hass, "hub1", "solver_battery")
     assert [str(k) for k in fields] == [
         ln.PREFIX + key for key, *_ in ln.STEP_NUMBERS["solver_battery"]
