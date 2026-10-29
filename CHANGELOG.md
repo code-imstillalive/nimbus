@@ -14,6 +14,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 - **A Solve now that lands during a solve no longer logs a warning.** On the reference install something calls Solve now every minute, and each call that met a running solve logged *did not produce a successful solve* and counted as the solver overrunning its tick (48 warnings in 45 minutes, while each solve took under a second). Such a call now asks the running solve to plan once more when it ends, which is what happened anyway, and logs nothing.
 - **Solve now knows a solve is running, whoever started it.** 0.94.499's release check on the test install still logged the warning: a timed tick that found the solve running cleared the marker Solve now looked at, while that solve went on. Solve now now reads whether the solver's lock is held, and a skipped tick leaves the running solve's marker in place (so a reload still waits for it).
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at ffa5d3c5** (#2171's branch, installed through HACS untagged and restarted at 13:04 AEST, 29 Oct; read through 13:09). Its `custom_components/` is the release's. An earlier install of `release-0.94.499` at 12:47 (with #2169 only) failed the same check, which is how #2171 was found.
+  - **Solve now during a solve:** 60 `nimbus_load.solve_now` calls, one every 2 s, 13:06:00–13:08:51: no *did not produce a successful solve* warning (the 12:47 install logged 11 in a minute, each after *previous cycle still in progress*), and the plan kept solving: 10 solves about 14 s apart, `optimal`.
+  - **Start-up:** status `Working well` after the restart; the one *previous cycle still in progress (consecutive skips: 2)* at 13:05:59 is the timer's own, from before the calls began. No Nimbus `ERROR`.
+- Consumer check: a `nimbus_load.solve_now` call during a running solve now returns at once and the running solve plans once more when it ends; nothing else changes. No setting is moved and no entity renamed.
 
 ## [0.94.498] - 2026-10-29
 
