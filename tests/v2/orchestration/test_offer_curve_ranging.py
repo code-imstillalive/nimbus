@@ -122,6 +122,20 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
             self.assertIs(run(done, 20.0), done)
         self.assertEqual(sweeps, [60.0, 60.0, 1.0, 1.0])
 
+        # 29 Oct 2026: a re-solve that fails in the sweep leaves the plan as
+        # it was (the last curve stays published) instead of failing the cycle.
+        def fails(plan):
+            raise ValueError("re-solve did not reach optimal (status='Unknown')")
+
+        solver_writer._LAST_OFFER_CURVE.update(at=None, seconds=None)
+        with (
+            patch.object(solver_writer.network, "complete_offer_curve", fails),
+            self.assertLogs(solver_writer._LOGGER, "WARNING") as logs,
+        ):
+            failed = pending(1.0)
+            self.assertIs(run(failed, 0.0), failed)
+        self.assertIn("not swept this cycle", logs.output[0])
+
         plan = _plan(
             offer_curve_import=[(-1.0, 30.0), (0.1905, 6.171)],
             offer_curve_export=[(-1.0, 0.0), (0.0868, 0.0)],

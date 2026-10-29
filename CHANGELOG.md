@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A failed offer-curve point no longer fails the whole solve.** On the reference install, 4 solves in a row at 14:29 on 29 Oct ended with *solve cycle failed*: one re-solve inside the offer-curve sweep finished with HiGHS status 'Unknown', and its error ended the cycle after the plan and dispatch were published, skipping the flex record and the rest, and setting the hub's status to *Needs attention*. A sweep that fails now leaves the last offer curve published, logs one warning, and the cycle finishes.
+
 ## [0.94.499] - 2026-10-29
 
 **A Solve now that lands during a solve no longer logs a warning.**
