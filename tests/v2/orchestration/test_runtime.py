@@ -202,6 +202,13 @@ def test_a_held_lock_skips_quietly_once_then_warns_and_asks_for_a_rerun(
     assert "main" not in sw.calls and "release" not in sw.calls
     assert rt._take_rerun_request() is True
     assert rt._take_rerun_request() is False
+    # 29 Oct 2026: a caller that finds a cycle running asks it for the
+    # follow-up; with nothing running it is told to start one itself.
+    monkeypatch.setattr(rt, "_in_flight_future", None)
+    assert rt.request_follow_up_if_running() is False
+    monkeypatch.setattr(rt, "_in_flight_future", SimpleNamespace(done=lambda: False))
+    assert rt.request_follow_up_if_running() is True
+    assert rt._take_rerun_request() is True
 
 
 def test_every_25th_single_overlap_is_summarised(monkeypatch, caplog):

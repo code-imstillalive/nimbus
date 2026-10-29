@@ -208,6 +208,16 @@ def test_solve_now_runs_a_solve_and_records_only_a_successful_one(
     assert recorded == ([{"trigger_source": "solve_now"}] if ok else [])
     assert ("did not produce a successful solve" in caplog.text) is not ok
 
+    # 29 Oct 2026: one landing while a cycle runs asks that cycle for a
+    # follow-up instead of starting (and failing) another.
+    caplog.clear()
+    recorded.clear()
+    monkeypatch.setattr(
+        svc.solver_runtime, "request_follow_up_if_running", lambda: True
+    )
+    _call(_hass(), svc.SERVICE_SOLVE_NOW)
+    assert recorded == [] and "did not produce" not in caplog.text
+
 
 # --- reports ----------------------------------------------------------------------------
 

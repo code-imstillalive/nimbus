@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A Solve now that lands during a solve no longer logs a warning.** On the reference install something calls Solve now every minute, and each call that met a running solve logged *did not produce a successful solve* and counted as the solver overrunning its tick (48 warnings in 45 minutes, while each solve took under a second). Such a call now asks the running solve to plan once more when it ends, which is what happened anyway, and logs nothing.
+
 ## [0.94.498] - 2026-10-29
 
 **The Price sources table follows your settings and adds up: names read live, a removed source has no share, and sources changed before 0.94.497 are scored again from scratch. After a start or reload Nimbus says it is starting instead of looking unset.**
