@@ -152,7 +152,7 @@ def test_lts_source_drops_insane_means():
     assert values == [2.0], f"insane value must be dropped, got {values}"
 
     # test_the_same_implausible_point_warns_only_on_its_first_read
-    coordinator_module._IMPLAUSIBLE_POINTS_WARNED.clear()
+    getattr(coordinator_module, "_IMPLAUSIBLE_POINTS_WARNED", set()).clear()
     with (
         patch.object(coordinator_module._LOGGER, "warning") as warning,
         patch.object(coordinator_module._LOGGER, "debug"),

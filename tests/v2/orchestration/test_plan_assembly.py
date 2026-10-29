@@ -218,7 +218,7 @@ def test_a_forecast_swapped_with_its_own_band_cannot_build(
     # test_a_lasting_clamp_warns_once_then_again_when_it_changes
     with monkeypatch.context() as mp:
         g = publish.publish_flex_telemetry_record.__globals__
-        g["_LAST_FLEX_CLAMP_WARNED"].clear()
+        g.get("_LAST_FLEX_CLAMP_WARNED", {}).clear()
         _posts(mp)
         fields = {"now": ("shadow_solar_forecast_price",)}
         mp.setattr(
