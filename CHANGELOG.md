@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Solve now knows a solve is running, whoever started it.** 0.94.499's release check on the test install still logged the warning: a timed tick that found the solve running cleared the marker Solve now looked at, while that solve went on. Solve now now reads whether the solver's lock is held, and a skipped tick leaves the running solve's marker in place (so a reload still waits for it).
+
 ## [0.94.499] - 2026-10-29
 
 **A Solve now that lands during a solve no longer logs a warning.**

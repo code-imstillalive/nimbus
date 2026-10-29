@@ -123,6 +123,10 @@ _price_latency_sensor = None
 # awaiter with no interference, so this adds a second, harmless awaiter
 # rather than disturbing the original one.
 _in_flight_future: asyncio.Future[bool] | None = None
+# True from taking the cycle lock to releasing it: a cycle is running now,
+# whichever caller started it (29 Oct 2026: _in_flight_future is replaced by
+# a tick that only finds the lock taken, so it can't say this).
+_cycle_running = False
 
 # nimbus issue #315 (Mark Purcell, 2026-08-31) -- "freshness watchdog trips
 # every ~44 min after reload, main-loop cadence degraded". Real, measured
@@ -900,10 +904,11 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
                 _consecutive_lock_skips,
             )
         return False
-    global _cycles_started
+    global _cycles_started, _cycle_running
     _consecutive_lock_skips = 0
     _rerun_requested = False
     _cycles_started += 1
+    _cycle_running = True
     cycle_started = time.monotonic()
     try:
         sw.main()
@@ -1012,6 +1017,7 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
             )
         else:
             _LOGGER.debug("Nimbus Solver: cycle took %.1fs", cycle_duration)
+        _cycle_running = False
         sw.release_lock()
 
 
@@ -1020,7 +1026,7 @@ def request_follow_up_if_running() -> bool:
     it finishes (the same request a tick that finds it running leaves), so
     the caller need not start another. False when nothing is running."""
     global _rerun_requested
-    if _in_flight_future is None or _in_flight_future.done():
+    if not _cycle_running:
         return False
     _rerun_requested = True
     return True
@@ -1069,12 +1075,16 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
     for follow_up in (False, True):
         started_before = _cycles_started
         future = hass.async_add_executor_job(_run_one_cycle, hass)
+        # A tick that only finds the lock taken must leave the running
+        # cycle's future in place, for wait_for_in_flight_solve().
+        previous = _in_flight_future
         _in_flight_future = future
         try:
             ok = await future
         finally:
             if _in_flight_future is future:
-                _in_flight_future = None
+                running = previous is not None and not previous.done()
+                _in_flight_future = previous if running else None
         ran = _cycles_started > started_before
         any_ok = any_ok or ok
         if follow_up or not ran or not _take_rerun_request():
