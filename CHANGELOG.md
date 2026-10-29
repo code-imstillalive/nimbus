@@ -13,6 +13,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 **A failed offer-curve point no longer fails the whole solve.**
 
 - **A failed offer-curve point no longer fails the whole solve.** On the reference install, 4 solves in a row at 14:29 on 29 Oct ended with *solve cycle failed*: one re-solve inside the offer-curve sweep finished with HiGHS status 'Unknown', and its error ended the cycle after the plan and dispatch were published, skipping the flex record and the rest, and setting the hub's status to *Needs attention*. A sweep that fails now leaves the last offer curve published, logs one warning, and the cycle finishes.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 183c129d** (`release-0.94.500`, installed through HACS untagged and restarted at 14:57 AEST, 29 Oct; read through 15:05). 123 of the 127 Nimbus entities carrying a version read 0.94.500; the other four are the daily reports, restored at startup and not yet republished.
+  - **Offer curve swept as before:** `sensor.nimbus_offer_curve` published at 15:01:03, no *not swept this cycle* warning, no *solve cycle failed*. The failing re-solve itself (an export-side point ending 'Unknown', seen on the reference household at 14:29) did not occur on devhub, so the new path is covered by its test (#2175's fail-once proof) rather than observed live.
+  - **The rest:** status `Working well`, plan `optimal`, device setup `active`, the flex record published (15:01:03); the stored options read back the same 56 keys as before the install. No Nimbus `ERROR` since the restart.
+- Consumer check: a failed offer-curve sweep leaves `sensor.nimbus_offer_curve` as last published and logs one WARNING instead of failing the cycle; nothing else changes. No setting is moved and no entity renamed.
 
 ## [0.94.499] - 2026-10-29
 
