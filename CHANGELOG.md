@@ -9,6 +9,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - **The Solver tab's price-source names follow your settings.** The Price sources table named each source from a copy of the setting taken when the tab was made, so a changed source kept its old name until the tab was rebuilt. The names now read the settings live. A Solver tab made before this release still holds the old copy: remove the tab and add it again once to pick this up.
+- **A removed price source no longer shows a share.** The Price sources table's Share column was worked out over every source the blend had ever scored, so a source removed from Grid Prices kept a share there (the blend itself had already stopped using it). The shares are now over the sources set now.
 
 ## [0.94.497] - 2026-10-29
 

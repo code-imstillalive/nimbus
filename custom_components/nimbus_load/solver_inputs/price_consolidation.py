@@ -502,10 +502,15 @@ class SourceErrorTracker:
             return cls()
         return t
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self, current: Sequence[str] | None = None) -> dict[str, Any]:
         """The published view: rounded MAE and sample counts by source and
-        lead, and the weights each bucket would use."""
+        lead, and the weights each bucket would use. The weights are over
+        `current`, the sources set now (default: every source scored): a
+        removed source keeps its score but has no share (29 Oct 2026, the
+        reference household removed price source 2 and the Share column
+        still gave it a fifth)."""
         sources = sorted(self.mae)
+        weighed = sorted(current) if current is not None else sources
         return {
             "mae_by_source_and_lead": {
                 s: {b: round(v, 5) for b, v in self.mae[s].items()} for s in sources
@@ -516,7 +521,7 @@ class SourceErrorTracker:
             },
             "samples": {s: dict(self.samples.get(s, {})) for s in sources},
             "weights": {
-                b[0]: self.weights(b[0], sources) if sources else None
+                b[0]: self.weights(b[0], weighed) if weighed else None
                 for b in LEAD_BUCKETS
             },
         }
@@ -566,7 +571,7 @@ def consolidate_side(
         "spread_now": round(head, 5) if head is not None else None,
         "now": now_slot(series, values, grid_times, settled),
         "next": next_slots(series, values, grid_times, n_settled),
-        **tracker.summary(),
+        **tracker.summary(names),
     }
     return values, summary, scored
 
