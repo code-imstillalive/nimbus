@@ -174,6 +174,20 @@ _retrain_tasks: dict[str, Any] = {}
 # threshold could wrongly reject).
 MAX_SANE_POWER_KW = 1000.0
 
+# (entity_id, timestamp) pairs already reported as implausible. The same
+# recorded point is re-read on every retrain; it is dropped every time, but
+# the WARNING is for the first time only (later reads log at debug).
+_IMPLAUSIBLE_POINTS_WARNED: set[tuple[str, str]] = set()
+
+
+def _implausible_log(entity_id: str, when) -> Callable[..., None]:
+    key = (entity_id, str(when))
+    if key in _IMPLAUSIBLE_POINTS_WARNED:
+        return _LOGGER.debug
+    _IMPLAUSIBLE_POINTS_WARNED.add(key)
+    return _LOGGER.warning
+
+
 # runtime-data (Quality Scale, Bronze): entry.runtime_data replaces the old
 # hass.data[DOMAIN][entry.entry_id] pattern. Defined HERE, not in
 # __init__.py -- __init__.py already imports FROM sensor.py
@@ -1514,7 +1528,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # value) -- dropped entirely (never trained on, never
                     # displayed), same as an unparseable state already is.
                     if abs(value) > MAX_SANE_POWER_KW:
-                        _LOGGER.warning(
+                        _implausible_log(entity_id, s.last_changed)(
                             "%s reported a physically implausible power reading (%.1f kW, "
                             "exceeds the %.0f kW sanity ceiling) at %s -- dropping this one "
                             "point rather than training on it",
@@ -1627,7 +1641,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # can into a raw state read (an hourly mean of 21 million kW
                     # is just as physically implausible as an individual sample
                     # at 21 million kW). Drop the point rather than train on it.
-                    _LOGGER.warning(
+                    _implausible_log(entity_id, r.get("start"))(
                         "%s LTS reports a physically implausible mean (%.1f kW, "
                         "exceeds the %.0f kW sanity ceiling) at %s -- dropping this one "
                         "row rather than training on it",

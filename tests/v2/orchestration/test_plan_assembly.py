@@ -215,6 +215,44 @@ def test_a_forecast_swapped_with_its_own_band_cannot_build(
         assert posted[-1][1] == "no_record"
         assert posted[-1][2]["last_record_interval"] == record["interval_start_utc"]
 
+    # test_a_lasting_clamp_warns_once_then_again_when_it_changes
+    with monkeypatch.context() as mp:
+        g = publish.publish_flex_telemetry_record.__globals__
+        g["_LAST_FLEX_CLAMP_WARNED"].clear()
+        _posts(mp)
+        fields = {"now": ("shadow_solar_forecast_price",)}
+        mp.setattr(
+            sw,
+            "build_flex_telemetry_record",
+            lambda *a, **k: SimpleNamespace(
+                record={"interval_start_utc": "x"},
+                reason="",
+                clamped_fields=fields["now"],
+            ),
+        )
+        warned = []
+        mp.setattr(
+            publish.solver_shared._LOGGER, "warning", lambda *a, **k: warned.append(a)
+        )
+        mp.setattr(publish.solver_shared._LOGGER, "debug", lambda *a, **k: None)
+        for minute in range(0, 30, 5):
+            g["_LAST_FLEX_TELEMETRY_POST"].clear()
+            publish.publish_flex_telemetry_record(
+                {}, None, NOW + timedelta(minutes=minute), **kw
+            )
+        assert len(warned) == 1
+        fields["now"] = ("shadow_solar_forecast_price", "price_export_seen")
+        g["_LAST_FLEX_TELEMETRY_POST"].clear()
+        publish.publish_flex_telemetry_record({}, None, NOW, **kw)
+        assert len(warned) == 2
+        fields["now"] = ()
+        g["_LAST_FLEX_TELEMETRY_POST"].clear()
+        publish.publish_flex_telemetry_record({}, None, NOW, **kw)
+        fields["now"] = ("shadow_solar_forecast_price",)
+        g["_LAST_FLEX_TELEMETRY_POST"].clear()
+        publish.publish_flex_telemetry_record({}, None, NOW, **kw)
+        assert len(warned) == 3
+
 
 # --- the period-0 diagnostic (#1417, #1577) ---------------------------------------------------
 

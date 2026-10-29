@@ -284,6 +284,7 @@ _LAST_FLEX_TELEMETRY_POST: dict = {}
 # is written only when the reason CHANGES, so a long "ranging off" stretch
 # costs one recorder row, not one per solve.
 _LAST_FLEX_TELEMETRY_NO_RECORD: dict = {}
+_LAST_FLEX_CLAMP_WARNED: dict = {}
 
 FLEX_TELEMETRY_NO_RECORD_STATE = "no_record"
 
@@ -391,14 +392,24 @@ def publish_flex_telemetry_record(
         )
         _post_no_record_reason(sw, build, interval)
         return
-    if build.clamped_fields:
-        solver_shared._LOGGER.warning(
+    # A clamp usually lasts many intervals (the solar shadow price at dawn,
+    # for one). WARNING when the set of clamped fields changes, debug while
+    # it stays the same; the record's own `clamped_fields` still names them
+    # every interval.
+    clamped = tuple(build.clamped_fields)
+    if clamped:
+        (
+            solver_shared._LOGGER.warning
+            if _LAST_FLEX_CLAMP_WARNED.get("fields") != clamped
+            else solver_shared._LOGGER.debug
+        )(
             "Nimbus flex telemetry: field(s) clamped into the schema's own "
             "[%s, %s] $/kWh range: %s",
             flex_telemetry.PRICE_MIN,
             flex_telemetry.PRICE_MAX,
-            ", ".join(build.clamped_fields),
+            ", ".join(clamped),
         )
+    _LAST_FLEX_CLAMP_WARNED["fields"] = clamped
     attributes = {
         "friendly_name": "Nimbus Flex Telemetry",
         "record": build.record,
