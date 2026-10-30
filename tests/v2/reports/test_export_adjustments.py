@@ -36,11 +36,13 @@ def test_the_reward_and_the_charge_land_in_their_hours_and_seasons_only():
     want = [0.05 - 0.0221, 0.05, 0.05, 0.05, 0.172, 0.172, 0.05, 0.172, 0.05]
     assert out == pytest.approx(want)
 
-    # A period a tariff feed priced already carries it: never added twice.
-    fed = ["primary", "secondary", "primary"]
-    three = [_at("2026-11-01", "17:00")] * 3
-    assert ea.apply(ENERGEX_96200X, [0.1] * 3, fed, three) == pytest.approx(
-        [0.222, 0.1, 0.222]
+    # A tariff feed's period carries it already, and a consolidated blend
+    # carries part of it: neither gets it twice. The AEMO fallback for a
+    # stale retailer carries none, so it does.
+    labels = ["primary", "secondary", "consolidated", "aemo_fallback"]
+    four = [_at("2026-11-01", "17:00")] * 4
+    assert ea.apply(ENERGEX_96200X, [0.1] * 4, labels, four) == pytest.approx(
+        [0.222, 0.1, 0.1, 0.222]
     )
 
     # Blank or comments only: the price is unchanged.

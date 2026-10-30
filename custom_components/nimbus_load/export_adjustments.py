@@ -12,9 +12,12 @@ The household sets the adjustments as text, one per line:
 
 for example `11-3 17-20 0.122` (a month range may wrap the year end; the
 hours cover start:00 up to, not including, end:00; the amount is signed, a
-charge negative). Each is added to the export price of every period priced
-from the household's own sources, and never to a period a secondary source
-(a tariff feed) filled, which carries it already.
+charge negative). Each is added only where the household's own retailer
+priced the period (`primary`), or the AEMO-based fallback did when that
+retailer's feed was stale (`aemo_fallback`): neither carries a network
+export component. Never on a period a tariff feed priced (`secondary`),
+which carries it already, nor on a consolidated blend (`consolidated`),
+whose share of a tariff feed would count it twice.
 """
 
 from __future__ import annotations
@@ -22,6 +25,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 from typing import NamedTuple
+
+#: The export price labels whose price carries no network export component.
+ADJUSTED_SOURCES = frozenset({"primary", "aemo_fallback"})
 
 
 class ExportAdjustment(NamedTuple):
@@ -75,14 +81,14 @@ def apply(
     sources: Sequence[str],
     local_times: Sequence[datetime],
 ) -> list[float]:
-    """`export_price` with each period's adjustments added, except where
-    `sources` says a secondary source (a tariff feed) priced it."""
+    """`export_price` with each period's adjustments added where `sources`
+    labels it `ADJUSTED_SOURCES`; every other period unchanged."""
     adjustments, _problems = parse(text)
     prices = list(export_price)
     if not adjustments:
         return prices
     for i, local in enumerate(local_times[: len(prices)]):
-        if i < len(sources) and sources[i] == "secondary":
+        if i >= len(sources) or sources[i] not in ADJUSTED_SOURCES:
             continue
         prices[i] += sum(a.rate for a in adjustments if a.applies(local))
     return prices
