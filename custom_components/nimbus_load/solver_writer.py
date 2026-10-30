@@ -5179,8 +5179,9 @@ def fetch_aemo_forecast(
         fc = ha_get(sensor_id)["attributes"]["forecast"]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError):
         return []
-    if price_intervals.is_aemo_nem_rows(fc):
-        return price_intervals.as_step_points(price_intervals.aemo_nem_intervals(fc))
+    points = price_intervals.regional_step_points(fc)  # incl. a PD7DAY tariff
+    if points is not None:
+        return points
     return sorted(
         (
             (parse_iso(p["time"]), p["calibrated"])

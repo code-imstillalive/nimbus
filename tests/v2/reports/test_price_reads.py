@@ -142,30 +142,46 @@ def test_coverage_is_real_only_inside_a_published_interval(sensor):
 # --- the regional forecast past the retail feed --------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("rows", "points"),
-    [
-        (
-            AEMO,
-            [
-                ("2026-10-06T13:00:00+10:00", 0.0297),
-                ("2026-10-06T13:30:00+10:00", 0.0267),
-                ("2026-10-08T03:30:00+10:00", 0.1176),
-            ],
-        ),
-        (
-            PD7,
-            [
-                ("2026-10-06T12:30:00+10:00", 0.043006),
-                ("2026-10-14T03:30:00+10:00", 0.081885),
-            ],
-        ),
-    ],
-    ids=["aemo", "pd7day"],
-)
-def test_the_regional_forecast_reads_aemo_and_pd7day_alike(monkeypatch, rows, points):
-    monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})
-    assert sw.fetch_aemo_forecast("sensor.regional") == [(t(a), v) for a, v in points]
+_REGIONAL_CASES = {
+    "aemo": (
+        AEMO,
+        [
+            ("2026-10-06T13:00:00+10:00", 0.0297),
+            ("2026-10-06T13:30:00+10:00", 0.0267),
+            ("2026-10-08T03:30:00+10:00", 0.1176),
+        ],
+    ),
+    "pd7day": (
+        PD7,
+        [
+            ("2026-10-06T12:30:00+10:00", 0.043006),
+            ("2026-10-14T03:30:00+10:00", 0.081885),
+        ],
+    ),
+    # nimbus #2190 (Mark Purcell): a PD7DAY TARIFF sensor (e.g. a two-way
+    # tariff trial's own import tariff) carries `value`, never `calibrated`;
+    # read the same as the wholesale case, from `value`.
+    "pd7day_tariff": (
+        PD7_TARIFF["pd7_import"],
+        [
+            ("2026-10-06T12:30:00+10:00", 0.081069),
+            ("2026-10-14T03:30:00+10:00", 0.189752),
+        ],
+    ),
+}
+
+
+def test_the_regional_forecast_reads_aemo_and_pd7day_alike(monkeypatch, subtests):
+    # One test over three shapes (the household's test-count range): AEMO NEM
+    # Data, a wholesale PD7DAY forecast, and a PD7DAY tariff.
+    for name, (rows, points) in _REGIONAL_CASES.items():
+        with subtests.test(name=name):
+            monkeypatch.setattr(
+                sw, "ha_get", lambda _e, rows=rows: {"attributes": {"forecast": rows}}
+            )
+            assert sw.fetch_aemo_forecast("sensor.regional") == [
+                (t(a), v) for a, v in points
+            ]
 
 
 def test_past_the_retail_feed_the_regional_price_plus_the_learned_offset_is_used():

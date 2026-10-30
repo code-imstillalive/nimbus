@@ -704,6 +704,17 @@ def coverage(intervals: list[PriceInterval]) -> Coverage:
     )
 
 
+def regional_step_points(rows: Any) -> list[tuple[datetime, float]] | None:
+    """A regional forecast's (start, value) points when its rows are AEMO
+    NEM Data's or NEM PD7DAY's shape, else None. A PD7DAY tariff sensor
+    carries `value`, never `calibrated` (nimbus #2190, Mark Purcell)."""
+    if is_aemo_nem_rows(rows):
+        return as_step_points(aemo_nem_intervals(rows))
+    if is_pd7day_rows(rows):
+        return as_step_points(pd7day_intervals(rows))
+    return None
+
+
 def as_step_points(intervals: list[PriceInterval]) -> list[tuple[datetime, float]]:
     """(start, value) points for the solver's existing hold-the-latest-point
     lookups, which key on interval start."""

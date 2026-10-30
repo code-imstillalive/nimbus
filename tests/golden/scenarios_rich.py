@@ -235,7 +235,9 @@ def states(now: datetime) -> dict:
                 "is_stale": False,
                 "forecast": [
                     {
-                        "nemtime": _t(d),
+                        # A real PD7DAY row ends 30 minutes after it
+                        # starts (`nemtime`, NEM's period-ending time).
+                        "nemtime": _t(d + timedelta(minutes=30)),
                         "time": _t(d),
                         "raw_value": round(_buy(hr(d)) - 0.15, 4),
                         "calibrated": round(_buy(hr(d)) - 0.15, 4),
