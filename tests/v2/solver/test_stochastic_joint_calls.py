@@ -132,3 +132,30 @@ def test_a_call_that_runs_out_of_time_is_named_with_its_own_limit(monkeypatch):
         last = result.joint_calls[-1]
         assert last["mip_gap"] == 4e-4
         assert 0.0 <= last["joint_solve_seconds"] <= last["solve_seconds"]
+
+    # test_the_solution_is_read_once_not_once_per_column: #2199, #2025. A
+    # production joint solve has ~16,000 columns; read one at a time,
+    # each read copied the whole solution, tens of seconds outside HiGHS's
+    # time limit. Planted: a read per column fails here.
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        import highspy
+
+        reads = []
+        real_get = highspy.Highs.getSolution
+
+        def get_solution(self):
+            reads.append(1)
+            return real_get(self)
+
+        mp.setattr(highspy.Highs, "getSolution", get_solution)
+        mp.setattr(
+            highspy.Highs,
+            "val",
+            lambda self, var: get_solution(self).col_value[var.index],
+        )
+        result = sd.build_stochastic_plan(_inputs())
+        assert result.status == "optimal"
+        # One read per column would be at least the joint's own columns.
+        n = result.n_joint_variables
+        assert len(reads) < n // 2, f"{len(reads)} solution reads, {n} columns"
