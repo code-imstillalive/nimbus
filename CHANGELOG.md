@@ -8,8 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-### Fixed
-- Solver settings: Grid Prices no longer saves an AEMO loss-factor pair (TNI, DLF code) set on only one side, or the same sensor pointed at a source's buy price and that source's own sell price ([#2190](https://github.com/code-imstillalive/nimbus/issues/2190)).
+## [0.94.502] - 2026-10-31
+
+**Solves take about half as long, and the scenario plan finishes inside its time limit.**
+
+- **Faster solves** (#2199). After every solve, Nimbus read the answer back from the solver one value at a time, and each read copied the whole answer, so the time grew with the square of the plan's size. It now reads it once. The plans are identical; only the time changes. On the test install the main solve went from 13-14 s to 6-7 s, and the scenario (stochastic) solve from about 59 s, ending past its deadline, to 15-21 s and optimal. On a slower host that read-back could push a cycle past 300 s, which marked the Solver's sensors unavailable with *has not received a fresh Solver plan*.
+- **Grid Prices refuses an impossible combination** (#2190). An AEMO loss-factor pair (TNI, DLF code) set on only one side, or one sensor used as a source's buy price and the same source's sell price, is refused on the form instead of saved.
+- **A NEM PD7DAY tariff sensor reads its `value`** as the regional forecast, not only `calibrated`, so a tariff sensor placed there is read correctly.
+- **An offer-curve re-solve that ends Unknown is retried** with the interior-point method, and HiGHS's own information is reported when it still fails (#2186).
+- **A clamped flex telemetry value names its raw inputs.** The WARNING for a shadow price held at its range limit now carries the figures behind it (the period length, the solar reduced cost and the power-balance dual), so a dawn clamp can be traced (#2180).
+- **Docs:** the price forecast array replaces the sources' forecasts after the current block (#2190).
 
 ## [0.94.501] - 2026-10-30
 
@@ -18,6 +26,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **An entity that disappears no longer stops every solve** (#2182). When an entity Nimbus reads (an EV's charge limit, in the report) stopped existing in Home Assistant, every solve cycle failed from then on and the plan and dispatch stopped updating. A missing entity is now read as "no reading": Nimbus logs a warning, uses the same fallback it uses for an unreadable value, and finishes the solve.
 - **Home / away works with an away switch** (#1847). Nimbus read an entity's *on* as home, which is backwards for an away switch, so turning it on left the forecast as it was. A new setting under Forecaster settings, **The home / away entity is on while away**, reads it the right way round. Off by default, so a presence sensor reads as before.
 - **Fewer repeated warnings.** The regional spot price going *unavailable* for a few seconds at each 5-minute rollover no longer logs a "check your configuration" warning (it was never a fault). A flex telemetry value held at its range limit, and a bad recorded meter reading being dropped, each warn once instead of every cycle.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at ecaf38f1** (`release/0.94.501`, installed through HACS untagged and restarted at 12:42 AEST, 30 Oct; read through 12:47). 123 of the 127 Nimbus entities carrying a version read 0.94.501; the other four are the daily reports, restored at startup and not yet republished. All 366 `nimbus_load` entities available, no duplicate IDs.
+- Consumer check: one new optional setting (`occupancy_on_means_away`, off by default); a missing entity now takes the caller's fallback with a WARNING instead of failing the cycle; three warnings log less often. No setting is moved and no entity renamed.
 
 ## [0.94.500] - 2026-10-29
 

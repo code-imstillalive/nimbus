@@ -215,6 +215,21 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.502",
+        "31 Oct 2026",
+        (
+            (
+                "**Faster solves:** about half the time, and the scenario "
+                "plan finishes inside its limit, so the Solver's sensors no "
+                "longer go unavailable on a slow host."
+            ),
+            (
+                "**Grid Prices:** an impossible price-source combination is "
+                "refused on the form."
+            ),
+        ),
+    ),
+    (
         "0.94.501",
         "30 Oct 2026",
         (
