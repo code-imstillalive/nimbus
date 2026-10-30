@@ -367,10 +367,10 @@ def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted():
     x = p.add_variable("x", lb=0.0, ub=1.0, cost=-1.0)
     result = p.solve(keep_basis=True)
     real = result._highs
-    result._highs = _Unknown(real, 1)  # the retry reaches optimal
+    object.__setattr__(result, "_highs", _Unknown(real, 1))  # retry: optimal
     steps = result.sweep_costs_with_ranging(x, [{x: -2.0}])
     assert steps[0].value == pytest.approx(1.0)
-    result._highs = _Unknown(real, 2)  # still Unknown after the retry
+    object.__setattr__(result, "_highs", _Unknown(real, 2))  # still Unknown
     with pytest.raises(ValueError, match="highs_info="):
         result.sweep_costs_with_ranging(x, [{x: -3.0}])
 
