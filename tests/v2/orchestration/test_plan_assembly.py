@@ -219,7 +219,7 @@ def test_a_forecast_swapped_with_its_own_band_cannot_build(
     with monkeypatch.context() as mp:
         g = publish.publish_flex_telemetry_record.__globals__
         g.get("_LAST_FLEX_CLAMP_WARNED", {}).clear()
-        _posts(mp)
+        posted = _posts(mp)
         fields = {"now": ("shadow_solar_forecast_price",)}
         mp.setattr(
             sw,
@@ -241,6 +241,8 @@ def test_a_forecast_swapped_with_its_own_band_cannot_build(
                 {}, None, NOW + timedelta(minutes=minute), **kw
             )
         assert len(warned) == 1
+        # #2180: a clamped record carries the raw shadow-price inputs.
+        assert "shadow_raw" in posted[-1][2]
         fields["now"] = ("shadow_solar_forecast_price", "price_export_seen")
         g["_LAST_FLEX_TELEMETRY_POST"].clear()
         publish.publish_flex_telemetry_record({}, None, NOW, **kw)

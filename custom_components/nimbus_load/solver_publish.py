@@ -419,6 +419,8 @@ def publish_flex_telemetry_record(
         # dict and the record are different objects with different
         # contracts. `schema_version` lives in the record alone.
         "clamped_fields": list(build.clamped_fields),
+        # nimbus #2180: the raw inputs behind a clamped shadow price.
+        "shadow_raw": dict(sw.FLEX_SHADOW_RAW) if build.clamped_fields else {},
         # nimbus #1634: `grid_meter` or `plan`, see
         # solver_writer._flex_telemetry_measured.
         "net_import_source": getattr(build, "net_import_source", None),
