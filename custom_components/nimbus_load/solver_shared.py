@@ -1943,6 +1943,18 @@ def safe_num(entity_id: str, fallback: float = 0.0, *, quiet: bool = False) -> f
     """
     try:
         return finite_float(ha_get(entity_id)["state"])
+    except OSError as e:
+        # nimbus #2182 (Mark Purcell): an entity that no longer exists --
+        # ha_get()'s 404, an OSError -- is the same "no reading" as an
+        # unreadable state, not a reason to fail the whole solve cycle.
+        (_LOGGER.debug if quiet else _LOGGER.warning)(
+            "Nimbus Solver: entity '%s' could not be read (%s). Falling back "
+            "to %s for this solve. Check that the entity still exists.",
+            entity_id,
+            e,
+            fallback,
+        )
+        return fallback
     except (KeyError, TypeError, ValueError) as e:
         # quiet: the caller treats no reading as normal and carries on
         # without it (the regional spot price goes unavailable for a few
