@@ -1218,6 +1218,8 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_flex_telemetry_assets",
         "build_flex_telemetry_record",
         "publish_flex_telemetry_record",
+        # nimbus #2180: the record builder's raw shadow-price figures.
+        "_note_flex_shadow_raw",
         # nimbus #1634 step 2: the no-record reason, same family as above.
         "_no_flex_record",
         "_flex_available_physical",

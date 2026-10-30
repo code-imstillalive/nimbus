@@ -241,6 +241,8 @@ def test_a_forecast_swapped_with_its_own_band_cannot_build(
                 {}, None, NOW + timedelta(minutes=minute), **kw
             )
         assert len(warned) == 1
+        # #2180: the clamp warning names the raw shadow-price inputs.
+        assert "raw inputs" in warned[0][0]
         fields["now"] = ("shadow_solar_forecast_price", "price_export_seen")
         g["_LAST_FLEX_TELEMETRY_POST"].clear()
         publish.publish_flex_telemetry_record({}, None, NOW, **kw)
