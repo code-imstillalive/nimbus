@@ -215,6 +215,21 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.501",
+        "30 Oct 2026",
+        (
+            (
+                "**Missing entity:** one that disappears from Home Assistant "
+                "no longer stops every solve; Nimbus uses its fallback."
+            ),
+            (
+                "**Home / away:** a setting for an away switch, which is on "
+                "while you are away."
+            ),
+            "**Fewer repeated warnings** in the log.",
+        ),
+    ),
+    (
         "0.94.500",
         "29 Oct 2026",
         (
