@@ -2529,8 +2529,7 @@ def build_flex_telemetry_record(
     # `solar_used_0`'s own upper bound IS period 0's solar forecast, so its
     # reduced cost is #495's "solar-used bound". None, never a plausible 0.
     reduced = plan.reduced_costs
-    solar_shadow = reduced.get("solar_used_0", 0.0) / hours if reduced else None
-    _note_flex_shadow_raw(plan, reduced, hours)
+    solar_shadow = _note_flex_shadow_raw(plan, reduced, hours)
     clamped: list[str] = []
     return flex_telemetry.build_record(
         interval_start=interval_start,
@@ -2568,9 +2567,10 @@ def build_flex_telemetry_record(
 FLEX_SHADOW_RAW: dict = {}
 
 
-def _note_flex_shadow_raw(plan, reduced, hours: float) -> None:
-    """nimbus #2180 (Mark Purcell): keep the raw figures behind the two
-    shadow prices, so a dawn clamp can be read from the log."""
+def _note_flex_shadow_raw(plan, reduced, hours: float) -> float | None:
+    """The solar shadow price, `solar_used_0`'s reduced cost per hour (None
+    without reduced costs), keeping the raw figures behind it and the energy
+    shadow price for the clamp WARNING (nimbus #2180, Mark Purcell)."""
     FLEX_SHADOW_RAW.clear()
     FLEX_SHADOW_RAW.update(
         {
@@ -2581,6 +2581,7 @@ def _note_flex_shadow_raw(plan, reduced, hours: float) -> None:
             "power_balance_t0_dual": plan.duals.get("power_balance_t0"),
         }
     )
+    return reduced.get("solar_used_0", 0.0) / hours if reduced else None
 
 
 def _offer_curve_band_range_contains(
