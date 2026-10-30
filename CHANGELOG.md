@@ -18,6 +18,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **An offer-curve re-solve that ends Unknown is retried** with the interior-point method, and HiGHS's own information is reported when it still fails (#2186).
 - **A clamped flex telemetry value names its raw inputs.** The WARNING for a shadow price held at its range limit now carries the figures behind it (the period length, the solar reduced cost and the power-balance dual), so a dawn clamp can be traced (#2180).
 - **Docs:** the price forecast array replaces the sources' forecasts after the current block (#2190).
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at b26bfee8** (`release/0.94.502`, installed through HACS untagged and restarted at 07:04 AEST, 31 Oct; read through 07:10). 123 of the 127 Nimbus entities carrying a version read 0.94.502; the other four are the daily reports, restored at startup and not yet republished. All 366 `nimbus_load` entities available, no duplicate IDs. Solves optimal from 07:05; the scenario solve took 7.5 s, optimal, over 37,464 joint columns (59 s and past its deadline on 0.94.501). One #773-variant cycle at 07:05 (the second phase's budget spent, its pinned step `Unknown`, the cycle falling back to a plain plan) was seen 7 times on 28 Oct before this release, so it is not new; every other WARNING is one devhub logs on every start (its test EV, test weather feed and test meter).
+- Consumer check: no setting, entity or attribute is added, moved or renamed. Solves take less time with identical plans; Grid Prices refuses two impossible combinations it used to save; a clamped flex telemetry WARNING carries its raw inputs.
 
 ## [0.94.501] - 2026-10-30
 
