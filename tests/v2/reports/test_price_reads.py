@@ -160,8 +160,19 @@ def test_coverage_is_real_only_inside_a_published_interval(sensor):
                 ("2026-10-14T03:30:00+10:00", 0.081885),
             ],
         ),
+        (
+            # nimbus #2194: a PD7DAY TARIFF sensor (this field's own real
+            # use -- e.g. a two-way tariff trial's own import/export tariff
+            # sensor) carries `value`, never `calibrated`. Read the same as
+            # the wholesale case above, from `value` instead.
+            PD7_TARIFF["pd7_import"],
+            [
+                ("2026-10-06T12:30:00+10:00", 0.081069),
+                ("2026-10-14T03:30:00+10:00", 0.189752),
+            ],
+        ),
     ],
-    ids=["aemo", "pd7day"],
+    ids=["aemo", "pd7day", "pd7day_tariff"],
 )
 def test_the_regional_forecast_reads_aemo_and_pd7day_alike(monkeypatch, rows, points):
     monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})
