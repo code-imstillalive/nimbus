@@ -299,6 +299,8 @@
     "error": {
       "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both.",
       "frozen_price_signal": "This price is fixed when the forecast is built and does not follow the live price (LocalVolts Rate All Var). It would hide a price spike from the plan. Pick the live price instead: for LocalVolts, Buy Flex Up or Sell Flex Up.",
+      "loss_factor_pair_incomplete": "AEMO's two loss factor sensors (transmission node and distribution loss factor code) only work together. Set both to turn the regional price into a retail one, or clear both to skip the AEMO source.",
+      "import_export_same_entity": "The same sensor is set as both the buy and sell price for one source. A buy price and a sell price are never the same live sensor -- point this field at your export price sensor instead.",
       "mode_refused": "That mode change was refused: run the dry run and check every power sensor's unit, then try again.",
       "choice_refused": "One of the ticked changes is no longer offered. Open the review again.",
       "binding_refused": "One of the ticked sources can't be read with its unit. Untick it and try again.",

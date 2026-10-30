@@ -139,7 +139,11 @@ from ..const import (
 )
 from ..energy_prefs import energy_sources
 from ..power_input_check import energy_unit_field_errors
-from ..price_input_check import PRICE_FIELDS, frozen_price_field_errors
+from ..price_input_check import (
+    PRICE_FIELDS,
+    frozen_price_field_errors,
+    price_combination_errors,
+)
 from . import live_numbers
 from .device_setup import DeviceSetupSteps
 
@@ -1847,6 +1851,10 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
                 self._solver_data,
                 [key for key, _label in PRICE_FIELDS],
             )
+            # nimbus #2191: a combination no single field's own value can be
+            # wrong about -- a half-set loss-factor pair, or the same entity
+            # doing double duty as a source's buy AND sell price.
+            errors.update(price_combination_errors(self._solver_data))
             # A field inside the collapsed "Advanced" section has nowhere to
             # show a per-field error.
             errors = {

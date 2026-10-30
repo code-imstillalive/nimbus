@@ -8,6 +8,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- Solver settings: Grid Prices no longer saves an AEMO loss-factor pair (TNI, DLF code) set on only one side, or the same sensor pointed at a source's buy price and that source's own sell price ([#2190](https://github.com/code-imstillalive/nimbus/issues/2190)).
+
 ## [0.94.501] - 2026-10-30
 
 **An entity that disappears no longer stops every solve.**
