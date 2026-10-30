@@ -2571,17 +2571,17 @@ def _note_flex_shadow_raw(plan, reduced, hours: float) -> float | None:
     """The solar shadow price, `solar_used_0`'s reduced cost per hour (None
     without reduced costs), keeping the raw figures behind it and the energy
     shadow price for the clamp WARNING (nimbus #2180, Mark Purcell)."""
+    # The figure logged is the one divided below, defaulted the same way.
+    solar_reduced = reduced.get("solar_used_0", 0.0) if reduced else None
     FLEX_SHADOW_RAW.clear()
     FLEX_SHADOW_RAW.update(
         {
             "period_hours": round(hours, 6),
-            "solar_used_0_reduced_cost": (
-                None if not reduced else reduced.get("solar_used_0")
-            ),
+            "solar_used_0_reduced_cost": solar_reduced,
             "power_balance_t0_dual": plan.duals.get("power_balance_t0"),
         }
     )
-    return reduced.get("solar_used_0", 0.0) / hours if reduced else None
+    return None if solar_reduced is None else solar_reduced / hours
 
 
 def _offer_curve_band_range_contains(
