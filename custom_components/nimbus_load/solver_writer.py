@@ -5179,18 +5179,9 @@ def fetch_aemo_forecast(
         fc = ha_get(sensor_id)["attributes"]["forecast"]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError):
         return []
-    if price_intervals.is_aemo_nem_rows(fc):
-        return price_intervals.as_step_points(price_intervals.aemo_nem_intervals(fc))
-    # nimbus #2190: a NEM PD7DAY TARIFF sensor (this field's own, real,
-    # documented use -- see price_intervals.py's "NEM PD7DAY" section)
-    # carries `value` (and `spot`/`network_rate`), never `calibrated` --
-    # the bare `calibrated`-only read below silently kept zero points for
-    # one, holding every period past the retailer's own coverage flat.
-    # price_intervals.pd7day_intervals() already reads `value`, falling
-    # back to `calibrated` only when a row has neither, exactly this
-    # function's own intended "published value, not re-derived" contract.
-    if price_intervals.is_pd7day_rows(fc):
-        return price_intervals.as_step_points(price_intervals.pd7day_intervals(fc))
+    points = price_intervals.regional_step_points(fc)  # incl. a PD7DAY tariff
+    if points is not None:
+        return points
     return sorted(
         (
             (parse_iso(p["time"]), p["calibrated"])
