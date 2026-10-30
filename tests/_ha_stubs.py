@@ -520,6 +520,7 @@ def install_ha_stubs() -> None:
         # Tower) -- same real, minimal stub pattern as EntitySelector/
         # NumberSelector above.
         TextSelector=_StubTextSelector,
+        TextSelectorConfig=_StubSelectorConfig,
         SelectSelector=_StubSelectSelector,
         SelectSelectorConfig=_StubSelectorConfig,
         SelectSelectorMode=types.SimpleNamespace(DROPDOWN="dropdown", LIST="list"),
