@@ -61,6 +61,7 @@ instead (table below) so you can tune it without re-running this wizard.
 | Live export (sell) price sensor ($/kWh) | Same, for what you're paid to export. |
 | Source 2, AEMO (optional, NEM only) | Regional price forecast, regional price now, and the site's TNI and DLF code sensors. With both codes, the AEMO price is made retail with the site's loss factors from AEMO's tables. |
 | Sources 3 and 4 (optional) | Other buy and sell price forecasts to compare. Each is scored against the settled price and counts in the blend once it has earned a weight. |
+| Price forecast array (optional, on the Solver Sources step) | A per-5-minute price forecast from your retailer. When set, it is the plan's price for every period after the current 5 minutes and replaces the sources' own forecasts above; only the current block is read from source 1's live price. Use the same retailer as source 1. |
 | Site postcode (optional, under Advanced) | Your 4-digit postcode, for the flex telemetry record's NEM region and the first three digits of the postcode. Needed only when Home Assistant has no Companion App geocoded location, or more than one. |
 
 This step refuses two combinations that can never be right, rather than saving
