@@ -11,6 +11,7 @@ formatter's edge values.
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import given
@@ -110,8 +111,8 @@ class _PinRecorder:
 
 def _pin(x, binary_cols):
     h = _PinRecorder()
-    var_array = list(range(len(x)))
-    h.val = lambda i: x[i]
+    var_array = [SimpleNamespace(index=i) for i in range(len(x))]
+    h.getSolution = lambda: SimpleNamespace(col_value=list(x))
     _out, records = _captured(
         lambda: lp._pin_binaries_to_current_solution(h, var_array, binary_cols)
     )

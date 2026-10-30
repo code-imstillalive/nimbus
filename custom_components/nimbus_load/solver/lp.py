@@ -2201,7 +2201,7 @@ def _pin_binaries_to_current_solution(
     convention. No-op when `binary_cols` is empty (a pure LP)."""
     if not binary_cols:
         return
-    x = np.array([h.val(var_array[i]) for i in range(len(var_array))])
+    x = _column_values(h, var_array)
     # nimbus issue #773 diagnostic (2026-09-16). Measurement only --
     # nothing about the pinning below changes.
     #
@@ -2215,8 +2215,10 @@ def _pin_binaries_to_current_solution(
     # is not actually near-integral gets snapped anyway -- and against a
     # tight semi-continuous linking constraint (#616's power[t] <=
     # max_power * on[t]) a snapped assignment can genuinely be infeasible.
-    # The alternative is that h.val() after a MIP solve returns the final
-    # node's relaxation rather than the incumbent.
+    # The other candidate was that h.val() returned something other than
+    # getSolution()'s point. It can't: highspy's val() reads
+    # getSolution().col_value, which `_column_values()` now reads directly
+    # (#2199).
     #
     # This separates them for the cost of one max(): a materially
     # off-integral value confirms the rounding path, while crisply integral
@@ -2244,21 +2246,30 @@ def _pin_binaries_to_current_solution(
         h.changeColBounds(i, fixed, fixed)
 
 
+def _column_values(h: highspy.Highs, var_array: list[Any]) -> NDArray[np.float64]:
+    """Every column's value in the solution just found, in `var_array`'s
+    order, from one read of HiGHS's solution.
+
+    `h.val(var)` copies the whole solution on every call (highspy builds
+    `getSolution().col_value` each time), so reading n columns one at a time
+    cost n full copies: 0.66 s of a 0.88 s joint stochastic solve at 5,400
+    columns, and tens of seconds at the ~16,000 a production joint solve has,
+    outside HiGHS's time limit (#2199, #2025). The values are the same ones
+    `h.val()` returns."""
+    col_value = np.asarray(h.getSolution().col_value, dtype=float)
+    return col_value[[var.index for var in var_array]]
+
+
 def _capture_integral_point(h: highspy.Highs) -> list[float] | None:
     """Read the FULL column vector of the solve that just ran against `h`,
     for later use as a MIP start (`_offer_mip_start()`) or an explicit pin
     (`_pin_binaries_to_values()`).
 
-    Deliberately reads `h.getSolution().col_value` rather than `h.val()`
-    per column, which is what `_pin_binaries_to_current_solution()` uses.
-    That is not stylistic: that function's own comment records a real,
-    unresolved suspicion that `h.val()` after a MIP solve may return the
-    final NODE's relaxation rather than the incumbent -- which would be
-    one candidate explanation for the `phase2_pin_resolve` Infeasible
-    reports on #773. `getSolution()` is the documented accessor for the
-    solved point, so a capture taken expressly to be replayed into the
-    solver takes it from there. (Whether the two actually disagree is a
-    separate open question -- see #773.)
+    Reads `h.getSolution().col_value`, the documented accessor for the
+    solved point. `h.val()` reads the same array (highspy's own `val()` is
+    `getSolution().col_value[index]`), so the two can't disagree after a
+    MIP solve; every read now takes the array once (`_column_values()`,
+    #2199).
 
     Returns None rather than raising if the accessor gives nothing usable,
     so every caller can treat a capture as best-effort."""
@@ -3385,7 +3396,7 @@ def _solve_highs(
             ranging_valid=_ranging_valid_on_non_optimal,
         )
 
-    x = np.array([h.val(var_array[i]) for i in range(n)])
+    x = _column_values(h, var_array)
     objective = float(h.getObjectiveValue())
     # nimbus issue #776: for a CalibratedOptions solve, `h`'s own live
     # objective right now is `primary + weight * secondary` (see
@@ -3438,7 +3449,7 @@ def _solve_highs(
             # (every binary pinned, every continuous variable re-optimised
             # against the same constraints), but the objective and the
             # solution struct below now carry real LP duals.
-            x = np.array([h.val(var_array[i]) for i in range(n)])
+            x = _column_values(h, var_array)
             objective = float(h.getObjectiveValue())
 
     # Dual values (row_dual) and reduced costs (col_dual), 2026-08-18 --
