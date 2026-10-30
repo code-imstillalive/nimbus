@@ -860,6 +860,17 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "financial_year",
         "site_factor",
         "years",
+        # nimbus #2190: the price cross-check (solver_inputs/rrp_crosscheck.py),
+        # a report only. The docs copy has no consolidation sources to check.
+        "_amber_detailed",
+        "_is_localvolts_spot",
+        "_iso",
+        "_key",
+        "_pd7day_points",
+        "_spread",
+        "compare",
+        "read_source",
+        "report",
         # nimbus issue #1537 item 1 -- price sensors read in their own unit
         # (c/kWh, $/MWh). The docs copy has no generic price reader at all
         # (it reads the reference household's own $/kWh sensors), so there
