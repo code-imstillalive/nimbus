@@ -73,6 +73,7 @@ RISK_TIERS: list[tuple[str, str, int]] = [
     ("solver_publish.py", "solve cycle", 1),
     ("p5min.py", "prices", 1),
     ("p5min_guard.py", "prices", 1),
+    ("rrp_crosscheck.py", "prices", 2),
     ("price_intervals.py", "prices", 1),
     ("pricing_source.py", "prices", 1),
     ("solver_inputs/prices.py", "prices", 1),

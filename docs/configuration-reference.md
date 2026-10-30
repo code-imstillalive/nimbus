@@ -354,6 +354,31 @@ tune these directly, no need to re-run the wizard. Every entry in
   automatically also hedge export-price risk, since they're economically
   opposite decisions.
 
+## Price cross-check
+
+Every price sensor listed under **Optional: price sources to record for
+comparison only** (Solver Sources), together with the regional AEMO price and
+forecast sensors on Grid Prices, is brought back to the wholesale AEMO price
+(RRP) and compared, interval by interval, now and over the next 24 hours.
+The plan sensor's `rrp_crosscheck` attribute reports:
+
+- `sources`: each sensor, how it was read (`kind`), the number its price was
+  divided by to reach the RRP (`divisor`), and how many intervals it covers.
+- `disagreeing_intervals` and `worst`: intervals where two sources' RRPs are
+  more than 0.5 c/kWh apart, the widest first, with each source's figure.
+- `stale`: a source that stayed the same on an interval while two or more
+  others moved, with how many intervals and the first.
+
+How each kind is read:
+- **A LocalVolts spot-rate sensor:** ÷ your site's loss factor (from the TNI
+  and DLF code sensors on Grid Prices), and a further ÷ 1.10 on the buy side.
+- **Amber Express:** spot ÷ 1.10, for the interval in progress only.
+- **NEM PD7DAY:** the published wholesale figure.
+- **Anything else:** its state, as the RRP now.
+
+It is a report: no price, plan or dispatch reads it. A disagreement is
+something to look into, not something Nimbus corrects.
+
 ## Experimental switches, and what will not change under you
 
 Two switches are released but **experimental**, and off by default. Their
