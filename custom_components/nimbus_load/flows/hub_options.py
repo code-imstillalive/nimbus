@@ -76,6 +76,7 @@ from ..const import (
     CONF_HYBRID_RECENT_DAYS,
     CONF_OCCUPANCY_DEPARTURE,
     CONF_OCCUPANCY_ENTITY,
+    CONF_OCCUPANCY_ON_MEANS_AWAY,
     CONF_OCCUPANCY_RETURN,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SITE_POSTCODE,
@@ -237,6 +238,10 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
                     domain=["person", "zone", "group", "binary_sensor", "input_boolean"]
                 )
             ),
+            vol.Optional(
+                CONF_OCCUPANCY_ON_MEANS_AWAY,
+                default=bool(defaults.get(CONF_OCCUPANCY_ON_MEANS_AWAY, False)),
+            ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_OCCUPANCY_DEPARTURE,
                 description={"suggested_value": defaults.get(CONF_OCCUPANCY_DEPARTURE)},
@@ -1281,6 +1286,7 @@ _FORECASTER_SCHEMA_KEYS = (
     CONF_OCCUPANCY_ENTITY,
     CONF_OCCUPANCY_DEPARTURE,
     CONF_OCCUPANCY_RETURN,
+    CONF_OCCUPANCY_ON_MEANS_AWAY,
     CONF_CURTAILMENT_SENSOR,
     CONF_BATTERY_SENSOR,
     CONF_GRID_SENSOR,
