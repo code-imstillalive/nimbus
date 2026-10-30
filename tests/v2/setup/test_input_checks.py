@@ -188,6 +188,46 @@ def test_a_price_signal_that_never_changes_is_named_with_how_it_was_recognised(
     assert prc.frozen_rate_field(hass, None) is None
 
 
+# --- price-field combinations (nimbus #2191) --------------------------------------------------
+
+
+def test_a_half_set_loss_factor_pair_is_refused_but_both_or_neither_is_fine():
+    tni, dlf = (
+        const.CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+        const.CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+    )
+    assert prc.price_combination_errors({tni: "sensor.tni"}) == {
+        dlf: "loss_factor_pair_incomplete"
+    }
+    assert prc.price_combination_errors({dlf: "sensor.dlf"}) == {
+        tni: "loss_factor_pair_incomplete"
+    }
+    assert prc.price_combination_errors({tni: "sensor.tni", dlf: "sensor.dlf"}) == {}
+    assert prc.price_combination_errors({}) == {}
+
+
+def test_the_same_entity_as_one_sources_buy_and_sell_price_is_refused():
+    imp, exp = (
+        const.CONF_SOLVER_IMPORT_PRICE_SENSOR,
+        const.CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    )
+    imp2, exp2 = (
+        const.CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+        const.CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+    )
+    assert prc.price_combination_errors({imp: "sensor.x", exp: "sensor.x"}) == {
+        exp: "import_export_same_entity"
+    }
+    # Different sources' fields are unrelated -- no cross-position check.
+    assert prc.price_combination_errors({imp: "sensor.x", exp2: "sensor.x"}) == {}
+    # Each source pair is checked independently.
+    assert prc.price_combination_errors(
+        {imp: "sensor.x", exp: "sensor.x", imp2: "sensor.y", exp2: "sensor.y"}
+    ) == {exp: "import_export_same_entity", exp2: "import_export_same_entity"}
+    assert prc.price_combination_errors({imp: "sensor.x", exp: "sensor.y"}) == {}
+    assert prc.price_combination_errors({imp: "sensor.x"}) == {}
+
+
 def test_a_broken_registry_never_breaks_the_price_check(monkeypatch, providers):
     # test_a_broken_registry_never_breaks_the_price_check
     with monkeypatch.context() as mp:

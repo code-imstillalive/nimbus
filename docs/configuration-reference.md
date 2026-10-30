@@ -63,6 +63,11 @@ instead (table below) so you can tune it without re-running this wizard.
 | Sources 3 and 4 (optional) | Other buy and sell price forecasts to compare. Each is scored against the settled price and counts in the blend once it has earned a weight. |
 | Site postcode (optional, under Advanced) | Your 4-digit postcode, for the flex telemetry record's NEM region and the first three digits of the postcode. Needed only when Home Assistant has no Companion App geocoded location, or more than one. |
 
+This step refuses two combinations that can never be right, rather than saving
+them: the TNI and DLF code sensors set on only one side of the pair (set both,
+or clear both to skip the AEMO source), and the same sensor pointed at a
+source's buy price and that same source's sell price (nimbus issue #2191).
+
 **Step 3 — Solar & Load Forecasts:**
 
 | Field | Purpose |
