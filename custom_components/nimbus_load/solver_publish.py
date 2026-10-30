@@ -404,10 +404,12 @@ def publish_flex_telemetry_record(
             else solver_shared._LOGGER.debug
         )(
             "Nimbus flex telemetry: field(s) clamped into the schema's own "
-            "[%s, %s] $/kWh range: %s",
+            "[%s, %s] $/kWh range: %s (raw inputs: %s)",
             flex_telemetry.PRICE_MIN,
             flex_telemetry.PRICE_MAX,
             ", ".join(clamped),
+            # nimbus #2180: the figures before `/hours` and the clamp.
+            dict(sw.FLEX_SHADOW_RAW),
         )
     _LAST_FLEX_CLAMP_WARNED["fields"] = clamped
     attributes = {
@@ -419,8 +421,6 @@ def publish_flex_telemetry_record(
         # dict and the record are different objects with different
         # contracts. `schema_version` lives in the record alone.
         "clamped_fields": list(build.clamped_fields),
-        # nimbus #2180: the raw inputs behind a clamped shadow price.
-        "shadow_raw": dict(sw.FLEX_SHADOW_RAW) if build.clamped_fields else {},
         # nimbus #1634: `grid_meter` or `plan`, see
         # solver_writer._flex_telemetry_measured.
         "net_import_source": getattr(build, "net_import_source", None),

@@ -2530,19 +2530,7 @@ def build_flex_telemetry_record(
     # reduced cost is #495's "solar-used bound". None, never a plausible 0.
     reduced = plan.reduced_costs
     solar_shadow = reduced.get("solar_used_0", 0.0) / hours if reduced else None
-    # nimbus #2180 (Mark Purcell): the raw figures behind the two shadow
-    # prices, before /hours and before the schema's clamp, so a dawn clamp
-    # can be read live (the recorder drops the nested record).
-    FLEX_SHADOW_RAW.clear()
-    FLEX_SHADOW_RAW.update(
-        {
-            "period_hours": round(hours, 6),
-            "solar_used_0_reduced_cost": (
-                None if not reduced else reduced.get("solar_used_0")
-            ),
-            "power_balance_t0_dual": plan.duals.get("power_balance_t0"),
-        }
-    )
+    _note_flex_shadow_raw(plan, reduced, hours)
     clamped: list[str] = []
     return flex_telemetry.build_record(
         interval_start=interval_start,
@@ -2575,9 +2563,24 @@ def build_flex_telemetry_record(
     )
 
 
-#: nimbus #2180: the last flex record's raw shadow-price inputs (see the
-#: record builder above); published beside the record when it clamps.
+#: nimbus #2180: the last flex record's raw shadow-price inputs, before
+#: `/hours` and the schema's clamp; named in the clamp WARNING.
 FLEX_SHADOW_RAW: dict = {}
+
+
+def _note_flex_shadow_raw(plan, reduced, hours: float) -> None:
+    """nimbus #2180 (Mark Purcell): keep the raw figures behind the two
+    shadow prices, so a dawn clamp can be read from the log."""
+    FLEX_SHADOW_RAW.clear()
+    FLEX_SHADOW_RAW.update(
+        {
+            "period_hours": round(hours, 6),
+            "solar_used_0_reduced_cost": (
+                None if not reduced else reduced.get("solar_used_0")
+            ),
+            "power_balance_t0_dual": plan.duals.get("power_balance_t0"),
+        }
+    )
 
 
 def _offer_curve_band_range_contains(
