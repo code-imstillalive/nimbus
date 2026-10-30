@@ -347,6 +347,38 @@ def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted():
     with pytest.raises(ValueError, match="non-finite cost"):
         result.sweep_costs_with_ranging(x, [{x: float("nan")}])
 
+    # test_an_unknown_re_solve_is_retried_then_reported_with_highs_info (#2186)
+    class _Unknown:
+        """The real HiGHS handle, reporting Unknown until the interior-point
+        retry switches solver (or always, with `always`)."""
+
+        def __init__(self, h, always):
+            self._h, self._always, self._ipm = h, always, False
+
+        def setOptionValue(self, name, value):
+            if name == "solver":
+                self._ipm = value == "ipm"
+            return self._h.setOptionValue(name, value)
+
+        def getModelStatus(self):
+            if self._always or not self._ipm:
+                return lp.highspy.HighsModelStatus.kUnknown
+            return self._h.getModelStatus()
+
+        def __getattr__(self, name):
+            return getattr(self._h, name)
+
+    p = lp.LPProblem()
+    x = p.add_variable("x", lb=0.0, ub=1.0, cost=-1.0)
+    result = p.solve(keep_basis=True)
+    real = result._highs
+    object.__setattr__(result, "_highs", _Unknown(real, always=False))
+    steps = result.sweep_costs_with_ranging(x, [{x: -2.0}])  # the retry
+    assert steps[0].value == pytest.approx(1.0)
+    object.__setattr__(result, "_highs", _Unknown(real, always=True))
+    with pytest.raises(ValueError, match="highs_info="):
+        result.sweep_costs_with_ranging(x, [{x: -3.0}])
+
 
 class _FakeRangingResult:
     """Minimal stand-in for `LPResult`, implementing only the one method

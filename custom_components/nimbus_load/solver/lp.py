@@ -1229,10 +1229,22 @@ class LPResult:
                         current[name] = cost
                 with _timed_lp_call(h, "sweep_cost_with_ranging"):
                     _run(h)
-                if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
+                status = h.getModelStatus()
+                if status == highspy.HighsModelStatus.kUnknown:
+                    # nimbus #2186 (Mark Purcell): the same interior-point
+                    # retry the main solve gets (#1360). Crossover leaves a
+                    # basis, so ranging still reads.
+                    status = _retry_unknown_with_ipm(
+                        h, "offer-curve interior-point re-solve"
+                    )
+                if status != highspy.HighsModelStatus.kOptimal:
+                    # #2186: what HiGHS knew at the failure, so a recurrence
+                    # leaves more than a status string (#1179's snapshot).
+                    info = _highs_info_snapshot(h)
                     msg = (
                         f"sweep_cost_with_ranging({var!r}): re-solve at costs={cost_map} did "
-                        f"not reach optimal (status={h.modelStatusToString(h.getModelStatus())!r})"
+                        f"not reach optimal (status={h.modelStatusToString(status)!r}, "
+                        f"highs_info={info})"
                     )
                     raise ValueError(msg)
                 solution = h.getSolution().col_value
@@ -2970,12 +2982,12 @@ def _note_unknown_retry(how: str) -> None:
     )
 
 
-def _retry_unknown_with_ipm(h: Any) -> Any:
+def _retry_unknown_with_ipm(h: Any, how: str = "interior-point solve") -> Any:
     """Re-run `h` once with HiGHS's interior-point solver after an Unknown
     status, and return the new model status (nimbus #1360). The options are
     restored afterwards whatever the outcome, so a later solve on a reused
     handle starts from the same settings as before."""
-    _note_unknown_retry("interior-point solve")
+    _note_unknown_retry(how)
     try:
         h.setOptionValue("solver", "ipm")
         h.setOptionValue("run_crossover", "on")
