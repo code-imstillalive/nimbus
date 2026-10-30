@@ -17,7 +17,10 @@ priced the period (`primary`), or the AEMO-based fallback did when that
 retailer's feed was stale (`aemo_fallback`): neither carries a network
 export component. Never on a period a tariff feed priced (`secondary`),
 which carries it already, nor on a consolidated blend (`consolidated`),
-whose share of a tariff feed would count it twice.
+whose share of a tariff feed would count it twice. Nor on `fallback`, which
+is not `aemo_fallback`: it is the period no source covers, priced as the
+mean of every source's held value, so it too carries a tariff feed's share
+(it only exists when a second or third source is configured).
 """
 
 from __future__ import annotations
