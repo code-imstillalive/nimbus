@@ -227,6 +227,15 @@ def test_the_same_entity_as_one_sources_buy_and_sell_price_is_refused():
     assert prc.price_combination_errors({imp: "sensor.x", exp: "sensor.y"}) == {}
     assert prc.price_combination_errors({imp: "sensor.x"}) == {}
 
+    # test_a_malformed_export_adjustment_is_refused (#2190)
+    adj = const.CONF_SOLVER_EXPORT_ADJUSTMENTS
+    ok = "11-3 17-20 0.122" + chr(10) + "4-10 11-13 -0.0221" + chr(10) + "# a comment"
+    assert prc.price_combination_errors({adj: ok}) == {}
+    for bad in ("17-20 0.122", "13-3 17-20 0.1", "11-3 20-17 0.1", "11-3 17-20 5"):
+        assert prc.price_combination_errors({adj: bad}) == {
+            adj: "export_adjustments_invalid"
+        }, bad
+
 
 def test_a_broken_registry_never_breaks_the_price_check(monkeypatch, providers):
     # test_a_broken_registry_never_breaks_the_price_check

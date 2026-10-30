@@ -212,6 +212,10 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     import p5min_guard  # type: ignore[no-redef]
 try:
+    from . import export_adjustments
+except ImportError:  # pragma: no cover - standalone/cron path
+    import export_adjustments  # type: ignore[no-redef]
+try:
     from .solver_inputs import solar as solar_inputs_solar
 except ImportError:
     from solver_inputs import solar as solar_inputs_solar  # type: ignore[no-redef]
@@ -9848,6 +9852,15 @@ def main() -> None:
     # export_price; the real P2P premium goes through export_bonus_price
     # instead (see above) -- neither is diluted or clamped.
     export_price = list(spot_export)
+    # nimbus #2190: network time-of-export adjustments (an export reward or
+    # charge in set hours and months) on the periods the household's own
+    # sources priced; a secondary tariff feed carries them already.
+    export_price = export_adjustments.apply(
+        cfg.get("solver_export_adjustments"),
+        export_price,
+        export_price_source,
+        [_local(t) for t in grid_times],
+    )
     # nimbus issue #1213 (Mark Purcell): the price-event simulation, applied
     # here -- at the very END of price resolution, after the fallback
     # branches, after blend_price_with_secondary_sources(), and after the

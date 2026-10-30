@@ -1096,6 +1096,10 @@ CONF_SOLVER_FLEX_SIGNALS_ENABLED: Final = "solver_flex_signals_enabled"
 # only reads it" pattern the rest of this file follows. The issue's own
 # prior-art check confirmed neither EMHASS nor HAEO has an equivalent.
 CONF_SOLVER_PRICE_EVENT_SENSOR: Final = "solver_price_event_sensor"
+# nimbus #2190: network time-of-export adjustments added to the export price
+# (e.g. a two-way tariff's export reward or charge), one "months hours $/kWh"
+# per line; see export_adjustments.py. Blank: no change.
+CONF_SOLVER_EXPORT_ADJUSTMENTS: Final = "solver_export_adjustments"
 CONF_SOLVER_PRICE_EVENT_ENABLED: Final = "solver_price_event_enabled"
 DEFAULT_SOLVER_PRICE_EVENT_ENABLED: Final = False
 DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED: Final = False

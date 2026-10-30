@@ -21,7 +21,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import export_adjustments
 from .const import (
+    CONF_SOLVER_EXPORT_ADJUSTMENTS,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
@@ -150,4 +152,9 @@ def price_combination_errors(user_input: dict[str, Any]) -> dict[str, str]:
         export_entity = user_input.get(export_key)
         if import_entity and export_entity and import_entity == export_entity:
             errors[export_key] = "import_export_same_entity"
+    _adjustments, problems = export_adjustments.parse(
+        user_input.get(CONF_SOLVER_EXPORT_ADJUSTMENTS)
+    )
+    if problems:
+        errors[CONF_SOLVER_EXPORT_ADJUSTMENTS] = "export_adjustments_invalid"
     return errors

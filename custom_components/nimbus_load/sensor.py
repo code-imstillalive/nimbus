@@ -138,6 +138,7 @@ from .const import (
     CONF_SOLVER_EFFICIENCY_PERCENT,
     CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
     CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
+    CONF_SOLVER_EXPORT_ADJUSTMENTS,
     CONF_SOLVER_EXPORT_FLOOR_PRICE,
     CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
@@ -506,6 +507,7 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # wizard was submitted. Caught by the key guard (now tests/v2/entities/test_solver_config_sensor.py)
     # before it shipped, exactly as the notes above say it was for the
     # price and envelope fields.
+    CONF_SOLVER_EXPORT_ADJUSTMENTS,
     CONF_SOLVER_PRICE_EVENT_SENSOR,
     # nimbus issue #493 (Signals 4/7 of #489, item 1): same exact bug
     # class every comment in this tuple already warns about -- saved into

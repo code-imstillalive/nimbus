@@ -86,6 +86,7 @@ from ..const import (
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
     CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
+    CONF_SOLVER_EXPORT_ADJUSTMENTS,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
@@ -533,6 +534,13 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
                     "suggested_value": defaults.get(CONF_SOLVER_PRICE_EVENT_SENSOR)
                 },
             ): _entity(),
+            # nimbus #2190: network time-of-export adjustments, as text.
+            vol.Optional(
+                CONF_SOLVER_EXPORT_ADJUSTMENTS,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_EXPORT_ADJUSTMENTS)
+                },
+            ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
             # nimbus issue #493 (Signals 4/7 of #489, item 1): an optional
             # live DNSP dynamic import/export envelope -- e.g. Open Dynamic
             # Export's own opModImpLimW/opModExpLimW MQTT-published
@@ -1335,6 +1343,7 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     # nimbus issue #1213: carried through the wizard's own merge like
     # every other optional source, so configuring it in one step is not
     # undone by a later step's save.
+    CONF_SOLVER_EXPORT_ADJUSTMENTS,
     CONF_SOLVER_PRICE_EVENT_SENSOR,
     # nimbus #2136: the site postcode (#2133). Shown on Grid Prices but left
     # out of this list, so the final merge dropped it and it was never saved.
