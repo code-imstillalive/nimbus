@@ -140,7 +140,7 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
                 "b": {"1-4 h": _cells([0.0] * 60)},
             }
         },
-        blend_sources={"import": ["b"]},
+        blend_sources={"import": {"1-4 h": ["b"]}},
     )
     assert only_b["import"]["blend"]["1-4 h"]["0.05"]["fair_mae"] == 0.0
 

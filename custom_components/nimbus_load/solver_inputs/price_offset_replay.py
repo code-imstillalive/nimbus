@@ -171,16 +171,20 @@ def replay_blend(
 def replay(
     samples: Mapping[str, Mapping[str, Mapping[str, Mapping[str, Any]]]],
     alphas: Sequence[float] = ALPHAS,
-    blend_sources: Mapping[str, Sequence[str]] | None = None,
+    blend_sources: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
 ) -> dict[str, Any]:
     """`samples` is `PriceErrorHistory.samples`. MAE and offsets in $/kWh.
-    `blend_sources[side]` limits the rebuilt blend to the sources the
-    consolidation is configured with (the history can hold sources since
-    removed, which the published blend no longer used); None = every one."""
+    `blend_sources[side][bucket]` limits the rebuilt blend to the sources the
+    published blend weights at that lead (its `weights`): the history holds
+    sources the blend leaves out, at some leads or altogether. A side or
+    bucket not given uses every source."""
     out: dict[str, Any] = {
         "alphas": list(alphas),
         "warmup_pairs": WARMUP,
-        "blend_sources": {k: list(v) for k, v in (blend_sources or {}).items()},
+        "blend_sources": {
+            side: {b: list(v) for b, v in by_b.items()}
+            for side, by_b in (blend_sources or {}).items()
+        },
     }
     for side in peh.SIDES:
         side_out: dict[str, Any] = {}
@@ -199,9 +203,8 @@ def replay(
                 if s != pc.BLEND_SOURCE
                 and b in sources[s]
                 and (
-                    blend_sources is None
-                    or side not in blend_sources
-                    or s in blend_sources[side]
+                    b not in ((blend_sources or {}).get(side) or {})
+                    or s in blend_sources[side][b]
                 )
             }
             published = _pairs((sources.get(pc.BLEND_SOURCE) or {}).get(b) or {})

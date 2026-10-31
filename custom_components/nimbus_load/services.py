@@ -825,15 +825,18 @@ async def _async_handle_replay_price_offsets(
         hist = price_error_history.PriceErrorHistory.from_dict(data)
         return price_offset_replay.replay(hist.samples, blend_sources=configured)
 
-    # The rebuilt blend uses the sources the consolidation blends now, as the
-    # plan publishes them, not every source the history ever held.
+    # The rebuilt blend uses, at each lead, the sources the published blend
+    # weights there (its `weights`), not every source the history holds.
     plan = hass.states.get("sensor.nimbus_solver_battery_forecast")
     pc_attr = (plan.attributes.get("price_consolidation") or {}) if plan else {}
     configured = {
-        side: list((pc_attr.get(side) or {}).get("sources") or [])
+        side: {
+            bucket: list(w)
+            for bucket, w in ((pc_attr.get(side) or {}).get("weights") or {}).items()
+            if isinstance(w, dict)
+        }
         for side in ("import", "export")
-        if (pc_attr.get(side) or {}).get("sources")
-    } or None
+    }
 
     return await hass.async_add_executor_job(_run)
 
