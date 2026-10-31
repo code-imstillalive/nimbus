@@ -167,6 +167,12 @@ def test_lts_source_drops_insane_means():
             )
         )
     assert [round(v, 4) for _, v in watts] == [1.7067]
+    _install_lts_rows(  # the rows the blocks below read
+        [
+            {"start": now - timedelta(hours=2), "mean": 2.0},
+            {"start": now - timedelta(hours=1), "mean": 21_474_836.5},
+        ]
+    )
 
     # test_the_same_implausible_point_warns_only_on_its_first_read
     getattr(coordinator_module, "_IMPLAUSIBLE_POINTS_WARNED", set()).clear()
