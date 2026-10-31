@@ -163,8 +163,23 @@ def _unconvertible_unit_message(unit: object, *, lts: bool = False) -> str:
 # sites in this exact class of bug.
 _retrain_tasks: dict[str, Any] = {}
 
+
 # Real, confirmed live 2026-08-17 -- see _async_fetch_recorder_history()'s
 # own comment at the point this is used for the full incident. A generous
+def _stored_statistics_unit(hass: HomeAssistant, entity_id: str) -> str | None:
+    """The unit the recorder stores with `entity_id`'s long-term statistics,
+    or None. Runs on the recorder's executor (callers are inside `_fetch`)."""
+    try:
+        from homeassistant.components.recorder.statistics import get_metadata
+
+        entry = (get_metadata(hass, statistic_ids={entity_id}) or {}).get(entity_id)
+    except Exception:  # noqa: BLE001 -- a unit lookup must never stop training
+        return None
+    if not entry:
+        return None
+    return (entry[1] or {}).get("unit_of_measurement") or None
+
+
 # physical sanity ceiling on any convert_power=True history point:
 # comfortably above anything a real household's own load/battery/grid/
 # solar sensor could ever legitimately report (this household's own
@@ -1612,7 +1627,14 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         warned_missing_unit = False
 
         def _fetch() -> list[tuple[datetime, float]]:
-            nonlocal warned_missing_unit
+            nonlocal warned_missing_unit, unit
+            # A sensor with no state yet (an MQTT-fed copy in the first seconds
+            # after a restart) has no unit to read; the statistics' own stored
+            # unit is the one its rows were recorded in. Without it, watts were
+            # taken as kW and good rows dropped as implausible (859 on the test
+            # box, 1 Nov 2026).
+            if convert_power and not unit:
+                unit = _stored_statistics_unit(self.hass, entity_id)
             # period="hour" is the LTS bucket kept indefinitely by recorder.
             # types={"mean"} is what a load/power sensor's training grid actually
             # consumes -- min/max/change/sum are useful for a diagnostic view but
