@@ -233,6 +233,11 @@ _single_skip_total = 0
 # cycle that starts clears it (it reads fresh inputs), and a follow-up never
 # chains another, so the solver cannot run back to back indefinitely.
 _rerun_requested = False
+# nimbus #294 / #945: a price change whose own solve found a cycle running
+# leaves its latency context here. The follow-up that running cycle runs is
+# the solve that answers the change, so its latency is recorded there; before
+# this, a box whose cycles overlap every price change never recorded one.
+_deferred_price_trigger: dict | None = None
 # Cycles that took the lock, ever: async_run_solve() compares it before and
 # after its own job to know whether that job ran a cycle or found one running.
 _cycles_started = 0
@@ -387,8 +392,9 @@ def reset_module_state() -> None:
     _import_error_notified = False
     _price_latency_sensor = None
     _consecutive_lock_skips = 0
-    global _rerun_requested
+    global _rerun_requested, _deferred_price_trigger
     _rerun_requested = False
+    _deferred_price_trigger = None
     # nimbus issue #1296: cleared with its siblings, so a re-added entry does
     # not inherit a previous entry's consecutive count and warn immediately.
     _consecutive_not_configured = 0
@@ -1032,6 +1038,26 @@ def request_follow_up_if_running() -> bool:
     return True
 
 
+def defer_price_trigger(**context) -> bool:
+    """Leave a price change's latency context for the follow-up the running
+    cycle will run (`record_solve_completed()`'s keyword arguments). Only
+    while that follow-up is still pending: once it has started, a sample
+    recorded later would time another solve, so the sample is dropped
+    instead. Returns whether it was left."""
+    global _deferred_price_trigger
+    if not _rerun_requested:
+        return False
+    _deferred_price_trigger = dict(context)
+    return True
+
+
+def _answer_deferred_price_trigger(ok: bool) -> None:
+    global _deferred_price_trigger
+    context, _deferred_price_trigger = _deferred_price_trigger, None
+    if ok and context is not None:
+        record_solve_completed(**context)
+
+
 def _take_rerun_request() -> bool:
     global _rerun_requested
     requested, _rerun_requested = _rerun_requested, False
@@ -1087,6 +1113,8 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
                 _in_flight_future = previous if running else None
         ran = _cycles_started > started_before
         any_ok = any_ok or ok
+        if follow_up and ran:
+            _answer_deferred_price_trigger(ok)
         if follow_up or not ran or not _take_rerun_request():
             break
         _LOGGER.debug(
