@@ -215,6 +215,20 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.504",
+        "1 Nov 2026",
+        (
+            (
+                "**Grid Prices:** AEMO's own price forecast sits with the other "
+                "AEMO sources, and Advanced sections show their labels."
+            ),
+            (
+                "**Price consolidation:** every source is scored fairly, with "
+                "the offset known when its forecast was made."
+            ),
+        ),
+    ),
+    (
         "0.94.503",
         "1 Nov 2026",
         (
