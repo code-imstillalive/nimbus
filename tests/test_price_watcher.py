@@ -276,6 +276,20 @@ def test_debounce_coalesces_a_burst_of_state_changes_into_one_solve():
                 "new_state": SimpleNamespace(last_changed=last_changed),
             }
             cb(fake_event)
+            # test_an_attribute_update_after_the_change_keeps_the_change
+            # (#294): the state, then its attributes a moment later, inside
+            # the debounce window (an MQTT-fed price sensor does this).
+            attrs_only = MagicMock()
+            attrs_only.data = {
+                "entity_id": "sensor.import_a",
+                "old_state": SimpleNamespace(state="0.2", last_changed=last_changed),
+                "new_state": SimpleNamespace(
+                    state="0.2",
+                    last_changed=last_changed,
+                    last_updated="2026-08-31T07:55:21.370000+00:00",
+                ),
+            }
+            cb(attrs_only)
 
             await _wait_until(lambda: fake_solve.called)
 
