@@ -157,6 +157,7 @@ _GRID_VISIBLE_PRICE_FIELDS = frozenset(
         "solver_import_price_sensor",
         "solver_export_price_sensor",
         "solver_regional_spot_forecast_sensor",
+        "solver_aemo_forecast_sensor",
         "solver_regional_spot_current_price_sensor",
         "solver_loss_factor_tni_sensor",
         "solver_loss_factor_dlf_code_sensor",

@@ -1087,6 +1087,40 @@ class TestTheConfigSurfaceIsMeasured(unittest.TestCase):
             + _WHEN_THIS_FIRES,
         )
 
+        # test_every_price_source_on_grid_prices_stays_visible (household,
+        # 20 Oct 2026: sources 1-4 stay in view). 0.94.503's AEMO forecast
+        # field went into the collapsed Advanced section because it was left
+        # off the visible set; the household couldn't find it (1 Nov).
+        hub = _NIMBUS_LOAD / "flows" / "hub_options.py"
+        visible: set[str] = set()
+        for node in ast.walk(ast.parse(hub.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Assign)
+                and getattr(node.targets[0], "id", "") == "_GRID_VISIBLE_PRICE_FIELDS"
+            ):
+                visible = {
+                    c.value
+                    for c in ast.walk(node.value)
+                    if isinstance(c, ast.Constant) and isinstance(c.value, str)
+                }
+        strings = json.loads(
+            (_NIMBUS_LOAD / "strings.json").read_text(encoding="utf-8")
+        )
+        labels = strings["options"]["step"]["solver_grid"]["data"]
+        sources = {k for k, v in labels.items() if "Source " in v.split(":")[0]}
+        self.assertTrue(sources)
+        self.assertEqual(sources - visible, set())
+
+        # test_a_collapsed_section_shows_labels_not_keys (household, 1 Nov:
+        # the Sources step's Advanced section showed raw keys such as
+        # solver_price_comparison_sensors): a step's "advanced" section
+        # carries every label the step has.
+        for step, body in strings["options"]["step"].items():
+            adv = (body.get("sections") or {}).get("advanced")
+            if adv is not None:
+                missing = set(body.get("data") or {}) - set(adv.get("data") or {})
+                self.assertEqual(missing, set(), step)
+
 
 class TestTheCountingTrapStaysDocumented(unittest.TestCase):
     """The reason this file parses instead of grepping. Kept as a test so
