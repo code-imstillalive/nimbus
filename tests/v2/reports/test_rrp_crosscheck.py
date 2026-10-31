@@ -49,7 +49,7 @@ def test_each_source_reaches_the_rrp_and_disagreement_and_staleness_are_reported
     rrp = 0.0560
     sell = rc.read_source("lv_sell", None, _lv("Sell", [rrp * SITE] * 3), SITE, NOW)
     buy = rc.read_source("lv_buy", None, _lv("Buy", [rrp * SITE * 1.10] * 3), SITE, NOW)
-    amber = rc.read_source("amber", None, _amber(rrp * 1.10, 0.0770), SITE, NOW)
+    amber = rc.read_source("amber", None, _amber(rrp * 1.10, rrp * 1.10), SITE, NOW)
     aemo = rc.read_source("aemo", str(rrp), {}, SITE, NOW)
     key = int(NOW.replace(minute=0).timestamp()) // 300
     for read in (sell, buy, amber, aemo):
@@ -57,7 +57,8 @@ def test_each_source_reaches_the_rrp_and_disagreement_and_staleness_are_reported
     assert (sell.divisor, buy.divisor) == pytest.approx((SITE, SITE * 1.10))
     assert amber.kind == rc.KIND_AMBER and aemo.kind == rc.KIND_CURRENT
     # Amber's forecast rows are read too, each over its own interval.
-    assert amber.points[key + 1] == pytest.approx(0.07)
+    ahead = rc.read_source("amber", None, _amber(rrp * 1.10, 0.0770), SITE, NOW)
+    assert ahead.points[key + 1] == pytest.approx(0.07)
 
     # test_a_pd7day_row_is_read_as_its_wholesale_figure
     pd7 = rc.read_source(
