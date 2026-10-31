@@ -1,7 +1,7 @@
 name: TEMP golden regen (price table, removed before merge)
 on:
   push:
-    branches: [feat/price-table-correction-row]
+    branches: [feat/rrp-row-aemo-forecast]
 jobs:
   regen:
     runs-on: ubuntu-latest
