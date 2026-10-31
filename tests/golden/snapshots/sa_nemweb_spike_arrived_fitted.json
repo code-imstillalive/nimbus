@@ -15346,6 +15346,7 @@
        "site_loss_factor": null,
        "sources": [
         {
+         "as_of": null,
          "divisor": 1.0,
          "intervals": 1,
          "kind": "current_price",
@@ -15353,6 +15354,7 @@
          "source": "sensor.golden_regional_spot_price"
         },
         {
+         "as_of": "2026-07-30T18:00:00+10:00",
          "divisor": 1.0,
          "intervals": 289,
          "kind": "pd7day",
@@ -15364,6 +15366,10 @@
        "tolerance": 0.005,
        "worst": [
         {
+         "as_of": {
+          "sensor.golden_nem_spot_price_forecast": "2026-07-30T18:00:00+10:00",
+          "sensor.golden_regional_spot_price": null
+         },
          "rrp": {
           "sensor.golden_nem_spot_price_forecast": 0.21292,
           "sensor.golden_regional_spot_price": 4.981
@@ -15720,7 +15726,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 379217 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=343778B, batteries=23696B, price_consolidation=4334B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 379394 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=343778B, batteries=23696B, price_consolidation=4334B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   }

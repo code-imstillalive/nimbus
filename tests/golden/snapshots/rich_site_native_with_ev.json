@@ -19184,6 +19184,7 @@
        "site_loss_factor": null,
        "sources": [
         {
+         "as_of": null,
          "divisor": 1.0,
          "intervals": 1,
          "kind": "current_price",
@@ -19191,6 +19192,7 @@
          "source": "sensor.fake_spot_now"
         },
         {
+         "as_of": null,
          "divisor": 1.0,
          "intervals": 289,
          "kind": "pd7day",
@@ -19202,6 +19204,10 @@
        "tolerance": 0.005,
        "worst": [
         {
+         "as_of": {
+          "sensor.fake_spot_forecast": null,
+          "sensor.fake_spot_now": null
+         },
          "rrp": {
           "sensor.fake_spot_forecast": 0.142,
           "sensor.fake_spot_now": 0.136
@@ -39101,6 +39107,7 @@
        "site_loss_factor": null,
        "sources": [
         {
+         "as_of": null,
          "divisor": 1.0,
          "intervals": 1,
          "kind": "current_price",
@@ -39108,6 +39115,7 @@
          "source": "sensor.fake_spot_now"
         },
         {
+         "as_of": null,
          "divisor": 1.0,
          "intervals": 289,
          "kind": "pd7day",
@@ -39119,6 +39127,10 @@
        "tolerance": 0.005,
        "worst": [
         {
+         "as_of": {
+          "sensor.fake_spot_forecast": null,
+          "sensor.fake_spot_now": null
+         },
          "rrp": {
           "sensor.fake_spot_forecast": 0.142,
           "sensor.fake_spot_now": 0.136
