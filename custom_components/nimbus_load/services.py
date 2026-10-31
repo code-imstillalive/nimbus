@@ -823,7 +823,17 @@ async def _async_handle_replay_price_offsets(
         except (OSError, ValueError) as err:
             return {"error": f"price error history not readable: {err}"}
         hist = price_error_history.PriceErrorHistory.from_dict(data)
-        return price_offset_replay.replay(hist.samples)
+        return price_offset_replay.replay(hist.samples, blend_sources=configured)
+
+    # The rebuilt blend uses the sources the consolidation blends now, as the
+    # plan publishes them, not every source the history ever held.
+    plan = hass.states.get("sensor.nimbus_solver_battery_forecast")
+    pc_attr = (plan.attributes.get("price_consolidation") or {}) if plan else {}
+    configured = {
+        side: list((pc_attr.get(side) or {}).get("sources") or [])
+        for side in ("import", "export")
+        if (pc_attr.get(side) or {}).get("sources")
+    } or None
 
     return await hass.async_add_executor_job(_run)
 

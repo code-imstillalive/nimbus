@@ -133,6 +133,16 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
     )
     assert out["import"]["blend"]["1-4 h"]["0.001"]["fair_mae"] < 0.01
     assert out["export"] == {"blend": {}}
+    only_b = por.replay(
+        {
+            "import": {
+                "a": {"1-4 h": _cells([0.2] * 60)},
+                "b": {"1-4 h": _cells([0.0] * 60)},
+            }
+        },
+        blend_sources={"import": ["b"]},
+    )
+    assert only_b["import"]["blend"]["1-4 h"]["0.05"]["fair_mae"] == 0.0
 
     # test_loo_band_coverage
     assert peh.loo_band_coverage([1] * 10, list(range(10))) == (None, None)
