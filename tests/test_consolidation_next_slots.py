@@ -46,3 +46,13 @@ def test_now_with_nothing_settled_or_no_periods():
     assert pc.next_slots({"primary": [0.1, 0.1]}, [0.1, 0.1], grid, 1)[
         "correction"
     ] == [None]
+
+    # test_the_rrp_forecast_is_aemos_own_where_it_reaches_then_the_regional
+    # (#2190, Mark): AEMO NEM Data up to the end of its last 30-min row,
+    # PD7DAY from there; no AEMO forecast leaves the regional one alone.
+    aemo = [(T0, 0.07), (T0 + timedelta(minutes=30), 0.08)]
+    pd7 = [(T0 + timedelta(minutes=30 * i), 0.05) for i in range(4)]
+    joined, until = pc.join_rrp_forecasts(aemo, pd7)
+    assert joined == aemo + pd7[2:]
+    assert until == (T0 + timedelta(hours=1)).isoformat()
+    assert pc.join_rrp_forecasts([], pd7) == (pd7, None)

@@ -426,7 +426,10 @@ _CONSOLIDATION_SOURCES = {
         "{% set s3 = state_attr(cfg, 'solver_import_price_sensor_3') %}"
         "{% set name_2 = (state_attr(s2, 'friendly_name') if s2 else none) or 'Extra source 1' %}"
         "{% set name_3 = (state_attr(s3, 'friendly_name') if s3 else none) or 'Extra source 2' %}"
-        "{% set label = {'primary': prov_name, 'aemo_markup': 'AEMO + markup', 'retail_from_rrp': 'Retail from AEMO RRP', 'secondary_2': name_2, 'secondary_3': name_3} %}"
+        # nimbus #2190: say which forecast the RRP row is built from.
+        "{% set until = (pc.get('loss_factor') or {}).get('aemo_forecast_until') %}"
+        "{% set rrp_label = ('Retail from AEMO forecast, PD7DAY after ' ~ (as_timestamp(until) | timestamp_custom('%a %H:%M'))) if until else 'Retail from AEMO RRP' %}"
+        "{% set label = {'primary': prov_name, 'aemo_markup': 'AEMO + markup', 'retail_from_rrp': rrp_label, 'secondary_2': name_2, 'secondary_3': name_3} %}"
         # #2190: the spread of the running interval itself (spread_now is
         # the next period's).
         "{% set spread = (imp.get('now') or {}).get('spread') %}"
