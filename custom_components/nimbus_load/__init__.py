@@ -1328,13 +1328,18 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
         triggering_entity = pending.get("entity_id")
         price_change_at = pending.get("changed_at")
         trigger_kind = pending.get("trigger_kind", "price_change")
+        context = {
+            "trigger_source": trigger_kind,
+            "triggering_entity": triggering_entity,
+            "price_change_at": price_change_at,
+            "debounce_s": debounce_s,
+        }
         if await solver_runtime.async_run_solve(hass):
-            solver_runtime.record_solve_completed(
-                trigger_source=trigger_kind,
-                triggering_entity=triggering_entity,
-                price_change_at=price_change_at,
-                debounce_s=debounce_s,
-            )
+            solver_runtime.record_solve_completed(**context)
+        else:
+            # A cycle was running: the follow-up it runs answers this change,
+            # and records its latency (#294, #945).
+            solver_runtime.defer_price_trigger(**context)
 
     def _fire_solve() -> None:
         pending["handle"] = None
