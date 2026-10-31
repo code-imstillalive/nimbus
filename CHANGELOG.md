@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.503] - 2026-11-01
+
+**Every price source is checked against the wholesale price, and the Price sources table adds up.**
+
+- **Price cross-check** (#2190, #2205). Every configured price source is brought back to AEMO's wholesale price (RRP) by the shape it publishes and compared interval by interval, now and over the next 24 hours. A source that stays put while two others move is reported stale, with each source's age beside it. It is a report only: published as the plan sensor's `rrp_crosscheck` attribute, read by no price, plan or dispatch. Amber's forecast rows are read in full (#2208).
+- **Price sources table** (#2207). The Now column's Blend is the settled price once the interval has settled (a settled $5.10 spike had read $0.29). A **Learned correction** row shows what the learned offsets added, so Blend = the weighted sources + the correction.
+- **AEMO's own price forecast** (#2209, new optional setting on Grid Prices). With an AEMO NEM Data 30-minute forecast sensor set, the retail-from-RRP row uses AEMO's own forecast up to its last row and PD7DAY after it; the label names the switch time. Unset, nothing changes.
+- **The curtailment setting asks for a measured signal**, never another optimiser's entity (#2206).
+- **The price-response latency sensor records again where it read *unknown*** (#2212, #2214). A price change that arrives mid-solve is now timed on the follow-up solve that answers it, and an attribute update a moment after a price change no longer cancels it (a price sensor that writes its state, then its attributes, recorded nothing). Confirmed on devhub: blank for over two days before, first sample 20.3 s after the restart.
+
 ## [0.94.502] - 2026-10-31
 
 **Solves take about half as long, and the scenario plan finishes inside its time limit.**
@@ -18,6 +28,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **An offer-curve re-solve that ends Unknown is retried** with the interior-point method, and HiGHS's own information is reported when it still fails (#2186).
 - **A clamped flex telemetry value names its raw inputs.** The WARNING for a shadow price held at its range limit now carries the figures behind it (the period length, the solar reduced cost and the power-balance dual), so a dawn clamp can be traced (#2180).
 - **Docs:** the price forecast array replaces the sources' forecasts after the current block (#2190).
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at b26bfee8** (`release/0.94.502`, installed through HACS untagged and restarted at 07:04 AEST, 31 Oct; read through 07:10). 123 of the 127 Nimbus entities carrying a version read 0.94.502; the other four are the daily reports, restored at startup and not yet republished. All 366 `nimbus_load` entities available, no duplicate IDs. Solves optimal from 07:05; the scenario solve took 7.5 s, optimal, over 37,464 joint columns (59 s and past its deadline on 0.94.501). One #773-variant cycle at 07:05 (the second phase's budget spent, its pinned step `Unknown`, the cycle falling back to a plain plan) was seen 7 times on 28 Oct before this release, so it is not new; every other WARNING is one devhub logs on every start (its test EV, test weather feed and test meter).
+- Consumer check: no setting, entity or attribute is added, moved or renamed. Solves take less time with identical plans; Grid Prices refuses two impossible combinations it used to save; a clamped flex telemetry WARNING carries its raw inputs.
 
 ## [0.94.501] - 2026-10-30
 

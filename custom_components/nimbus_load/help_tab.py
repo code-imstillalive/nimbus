@@ -215,6 +215,20 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.503",
+        "1 Nov 2026",
+        (
+            (
+                "**Price cross-check:** every price source is compared with "
+                "the wholesale price, and a stale one is reported."
+            ),
+            (
+                "**Price sources:** the Now column shows the settled price, "
+                "and a Learned correction row makes the Blend add up."
+            ),
+        ),
+    ),
+    (
         "0.94.502",
         "31 Oct 2026",
         (

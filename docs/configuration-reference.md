@@ -373,7 +373,7 @@ The plan sensor's `rrp_crosscheck` attribute reports:
 How each kind is read:
 - **A LocalVolts spot-rate sensor:** ÷ your site's loss factor (from the TNI
   and DLF code sensors on Grid Prices), and a further ÷ 1.10 on the buy side.
-- **Amber Express:** spot ÷ 1.10, for the interval in progress only.
+- **Amber Express:** spot ÷ 1.10, on every forecast row over its own interval.
 - **NEM PD7DAY:** the published wholesale figure.
 - **AEMO NEM Data forecast** (rows with `start_time`, `end_time`, `price`): AEMO's own predispatch price, as published.
 - **Anything else:** its state, as the RRP now.
