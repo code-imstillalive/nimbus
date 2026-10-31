@@ -94,6 +94,13 @@ def test_each_source_reaches_the_rrp_and_disagreement_and_staleness_are_reported
     assert aemo_fc.kind == rc.KIND_AEMO_FORECAST
     assert aemo_fc.points[key] == pytest.approx(rrp) and len(aemo_fc.points) == 6
 
+    # test_a_localvolts_row_left_out_is_no_figure_not_the_previous_one
+    gappy = _lv("Sell", [rrp * SITE] * 3)
+    gappy["interval_minutes"] = 5
+    del gappy["forecast"][1]  # 00:05 has no spot row (fully matched)
+    gap = rc.read_source("lv_gap", None, gappy, SITE, NOW)
+    assert sorted(gap.points) == [key, key + 2]
+
     # test_without_a_site_loss_factor_localvolts_says_why
     blind = rc.read_source("lv", None, _lv("Sell", [0.06]), None, NOW)
     assert blind.points == {} and blind.reason == "no_site_loss_factor"

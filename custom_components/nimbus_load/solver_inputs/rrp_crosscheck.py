@@ -11,8 +11,11 @@ How each source's RRP is read, by the shape it publishes, never by name:
 
 - LocalVolts v2 spot sensor (`source_field: spotCost`): RRP x the site's
   loss factor (MLF x DLF), with a further measured 1.10 on the buy side
-  (`LV_BUY_SPOT_MULTIPLIER`, 1.1667 = 1.0605 x 1.10 over 30 Oct 2026). Its
-  `forecast` rows are read for every interval.
+  (`LV_BUY_SPOT_MULTIPLIER`, 1.1667 = 1.0605 x 1.10 over 30 Oct 2026). Each
+  `forecast` row covers only its own `interval_minutes`: LocalVolts leaves a
+  row out when it has no spot figure (fully matched, or the buy side in the
+  evening P2P window), and a gap is no figure, not the previous row's (found
+  on live data, #2205).
 - Amber Express (`detailedForecast` rows carrying `spot_per_kwh`): RRP x a
   measured 1.10 (`price_intervals.AMBER_SPOT_MULTIPLIER`), on the interval in
   progress only. Its forecast rows can repeat one spot value instead of
@@ -135,9 +138,13 @@ def read_source(
         divisor = site_factor * (
             LV_BUY_SPOT_MULTIPLIER if attrs.get("direction") == "Buy" else 1.0
         )
+        try:
+            step = timedelta(minutes=float(attrs.get("interval_minutes") or 5))
+        except (TypeError, ValueError):
+            step = timedelta(minutes=5)
         points: dict[int, float] = {}
-        for iv in price_intervals.generic_forecast_intervals(attrs.get("forecast")):
-            points.update(_spread(iv.start, iv.end, iv.value / divisor, now))
+        for t, v in price_intervals._generic_points(attrs.get("forecast")):
+            points.update(_spread(t, t + step, v / divisor, now))
         return SourceRead(label, KIND_LOCALVOLTS, divisor, points)
     detailed = _amber_detailed(attrs)
     if detailed is not None:
