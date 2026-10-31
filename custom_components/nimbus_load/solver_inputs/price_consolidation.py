@@ -559,13 +559,16 @@ def consolidate_side(
     the future intervals (never the current settled block), and summarise.
     Returns `(values, published summary, whether anything was scored)`."""
     names = sorted(series)
+    weights = tracker.weights_by_period(now, grid_times, names)
     # Blend with each source's standing offset removed; spikes are still
     # judged on the sources' own prices.
     values, _, method = consolidate(
-        tracker.debiased(now, grid_times, series),
-        tracker.weights_by_period(now, grid_times, names),
-        None,
+        tracker.debiased(now, grid_times, series), weights, None
     )
+    # #2190: the same blend of the sources' own prices, offsets left in, so
+    # the published table can show the learned correction as its own row
+    # and the blend adds up (blend = this + correction).
+    as_shown, _, _ = consolidate(series, weights, None)
     # How far apart the sources' own prices are, offsets and all.
     _, spread, _ = consolidate(series)
     if spike_threshold is not None and spike_threshold > 0:
@@ -573,6 +576,12 @@ def consolidate_side(
             top = max(_available(series, i).values(), default=None)
             if top is not None and top >= spike_threshold:
                 values[i] = top
+                if i < len(as_shown):
+                    as_shown[i] = top
+    correction = [
+        None if v is None or s is None else v - s
+        for v, s in zip(values, as_shown, strict=False)
+    ]
     scored = tracker.observe_settled(now, settled)
     for name, s in series.items():
         tracker.record_series(
@@ -587,7 +596,7 @@ def consolidate_side(
         "method": method,
         "spread_now": round(head, 5) if head is not None else None,
         "now": now_slot(series, values, grid_times, settled),
-        "next": next_slots(series, values, grid_times, n_settled),
+        "next": next_slots(series, values, grid_times, n_settled, correction),
         **tracker.summary(names),
     }
     return values, summary, scored
@@ -625,11 +634,21 @@ def now_slot(
     # 2026: the Now column's provider cell and Gap were blank).
     if "primary" in sources and sources["primary"] is None:
         sources["primary"] = _r(settled)
+    known = [v for v in sources.values() if v is not None]
+    # #2190 (Mark agreed, 31 Oct 2026): the running interval's price is
+    # settled, so the blend shows that price with no correction (#220: the
+    # settled block is never a forecast value). The plan never read this
+    # cell; it is the table's Now column.
+    blend_now = settled if settled is not None else (values[0] if values else None)
     return {
         "time": grid_times[0].isoformat(),
         "settled": _r(settled),
         "sources": sources,
-        "consolidated": _r(values[0]) if values else None,
+        "consolidated": _r(blend_now),
+        "correction": 0.0 if settled is not None else None,
+        # How far apart the sources are for the running interval itself
+        # (the table's header said "now" but showed the next period's).
+        "spread": _r(max(known) - min(known)) if len(known) >= 2 else None,
     }
 
 
@@ -638,6 +657,7 @@ def next_slots(
     values: Sequence[float | None],
     grid_times: Sequence[datetime],
     n_settled: int,
+    correction: Sequence[float | None] | None = None,
 ) -> dict[str, Any]:
     """Each source's own price and the blend for the next `NEXT_SLOTS`
     periods after the settled block (household, 19 Oct 2026, with Mark
@@ -652,6 +672,13 @@ def next_slots(
             for name, s in sorted(series.items())
         },
         "consolidated": [_r(values[i]) if i < len(values) else None for i in span],
+        # #2190: what the learned offsets added to the sources' own blend.
+        "correction": [
+            _r(correction[i])
+            if correction is not None and i < len(correction)
+            else None
+            for i in span
+        ],
     }
 
 

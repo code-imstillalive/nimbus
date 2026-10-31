@@ -427,7 +427,9 @@ _CONSOLIDATION_SOURCES = {
         "{% set name_2 = (state_attr(s2, 'friendly_name') if s2 else none) or 'Extra source 1' %}"
         "{% set name_3 = (state_attr(s3, 'friendly_name') if s3 else none) or 'Extra source 2' %}"
         "{% set label = {'primary': prov_name, 'aemo_markup': 'AEMO + markup', 'retail_from_rrp': 'Retail from AEMO RRP', 'secondary_2': name_2, 'secondary_3': name_3} %}"
-        "{% set spread = imp.get('spread_now') %}"
+        # #2190: the spread of the running interval itself (spread_now is
+        # the next period's).
+        "{% set spread = (imp.get('now') or {}).get('spread') %}"
         "{% if names | length < 2 %}**Price sources**: one source, nothing to blend."
         "{% else %}"
         "**Price sources**{% if spread is not none %}: they differ now by {{ (spread * 100) | round(1) }}¢{% endif %}\n\n"
@@ -435,6 +437,7 @@ _CONSOLIDATION_SOURCES = {
         "{% set w = (imp.get('weights') or {}).get('5-60 min') or {} %}"
         "{% set nx = imp.get('next') or {} %}{% set times = nx.get('times') or [] %}"
         "{% set srcs = nx.get('sources') or {} %}{% set blend = nx.get('consolidated') or [] %}"
+        "{% set corr = nx.get('correction') or [] %}"
         "{% set prim = srcs.get('primary') or [] %}"
         "{% set nw = imp.get('now') or {} %}{% set nsrc = nw.get('sources') or {} %}"
         f"{{% set y = '{_NOW_COLOUR}' %}}"
@@ -451,6 +454,12 @@ _CONSOLIDATION_SOURCES = {
         "{% for i in range(times | length) %}| {{ ((v[i] * 100) | round(1)) if i < v | length and v[i] is not none else '—' }} {% endfor %}|\n"
         "{% endfor %}"
         "{% if times %}"
+        # #2190 (Mark agreed): what the learned offsets add, as its own row,
+        # so the blend visibly adds up.
+        "| Learned correction | | | | | "
+        "{% if nw %}| {{ c(nw.get('correction')) }} {% endif %}"
+        "{% for i in range(times | length) %}{% set k = corr[i] if i < corr | length else none %}"
+        "| {% if k is not none %}{{ '+' if k > 0 else '' }}{{ (k * 100) | round(1) }}{% else %}—{% endif %} {% endfor %}|\n"
         "| **Blend** | | | | | "
         "{% if nw %}| <font color='{{ y }}'>**{{ c(nw.get('consolidated')) }}**</font> {% endif %}"
         "{% for i in range(times | length) %}| **{{ ((blend[i] * 100) | round(1)) if i < blend | length and blend[i] is not none else '—' }}** {% endfor %}|\n"
@@ -461,7 +470,8 @@ _CONSOLIDATION_SOURCES = {
         "| {% if b is not none and p0 is not none %}<font color='violet'>{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}</font>{% endif %} {% endfor %}|\n"
         "{% endif %}"
         "\n*Now: the interval running now. "
-        "Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend; — while it is still being scored, when it does not count. Prices in ¢/kWh.*"
+        "Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend; — while it is still being scored, when it does not count. "
+        "Learned correction: what the blend adds for each source's usual error, so Blend = the sources' weighted price + the correction; none for Now, whose price is settled. Prices in ¢/kWh.*"
         "{% endif %}"
     ),
 }
