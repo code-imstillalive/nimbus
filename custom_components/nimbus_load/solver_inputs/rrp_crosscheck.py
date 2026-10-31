@@ -17,9 +17,11 @@ How each source's RRP is read, by the shape it publishes, never by name:
   evening P2P window), and a gap is no figure, not the previous row's (found
   on live data, #2205).
 - Amber Express (`detailedForecast` rows carrying `spot_per_kwh`): RRP x a
-  measured 1.10 (`price_intervals.AMBER_SPOT_MULTIPLIER`), on the interval in
-  progress only. Its forecast rows can repeat one spot value instead of
-  forecasting it (#2190), so they are not read.
+  measured 1.10 (`price_intervals.AMBER_SPOT_MULTIPLIER`), every row, each
+  over its own interval (`end_time` less `duration`). Mark checked a live
+  Amber install's full forecast on 31 Oct: 53 of 58 rows carry their own
+  spot, so the forecast rows are a real forecast (#2190; an earlier
+  two-row sample had suggested they repeat one value).
 - NEM PD7DAY rows: `raw_value` (the wholesale forecast) or, on a tariff row,
   `spot_raw`, as published.
 - AEMO NEM Data forecast rows (`start_time`, `end_time`, `price`): AEMO's
@@ -148,17 +150,28 @@ def read_source(
         return SourceRead(label, KIND_LOCALVOLTS, divisor, points)
     detailed = _amber_detailed(attrs)
     if detailed is not None:
-        found = price_intervals.amber_spot_in_progress(detailed, now)
-        if found is None:
-            return SourceRead(
-                label,
-                KIND_AMBER,
-                price_intervals.AMBER_SPOT_MULTIPLIER,
-                reason="no_interval_in_progress",
-            )
-        start, rrp = found
+        points = {}
+        for d in detailed:
+            if not isinstance(d, dict):
+                continue
+            try:
+                end = price_intervals.parse_iso(d["end_time"])
+                start = end - timedelta(minutes=int(d["duration"]))
+                spot = float(d["spot_per_kwh"])
+            except (KeyError, TypeError, ValueError, AttributeError):
+                continue
+            if math.isfinite(spot) and end > start:
+                points.update(
+                    _spread(
+                        start, end, spot / price_intervals.AMBER_SPOT_MULTIPLIER, now
+                    )
+                )
         return SourceRead(
-            label, KIND_AMBER, price_intervals.AMBER_SPOT_MULTIPLIER, {_key(start): rrp}
+            label,
+            KIND_AMBER,
+            price_intervals.AMBER_SPOT_MULTIPLIER,
+            points,
+            reason=None if points else "no_rows",
         )
     rows = attrs.get("forecast")
     if price_intervals.is_aemo_nem_rows(rows):

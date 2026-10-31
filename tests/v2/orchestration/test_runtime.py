@@ -541,6 +541,20 @@ def test_a_trigger_during_a_cycle_gets_exactly_one_follow_up(monkeypatch):
     assert asyncio.run(rt.async_run_solve(FakeHass())) is True
     assert sw.calls.count("main") == 2
 
+    # test_a_price_change_that_found_a_cycle_running_is_timed_on_its_follow_up
+    # (#294, #945): before, the follow-up ran as the tick's solve and the
+    # price change's latency was never recorded on a box whose cycles overlap.
+    recorded = []
+    monkeypatch.setattr(rt, "record_solve_completed", lambda **kw: recorded.append(kw))
+    rt._rerun_requested = False
+    assert rt.defer_price_trigger(trigger_source="price_change") is False
+    rt._rerun_requested = True  # the price change's own solve found the lock
+    assert rt.defer_price_trigger(trigger_source="price_change") is True
+    assert asyncio.run(rt.async_run_solve(FakeHass())) is True
+    assert recorded == [{"trigger_source": "price_change"}]
+    assert rt._deferred_price_trigger is None
+    rt._rerun_requested = False
+
 
 def test_a_cycle_that_found_the_lock_held_runs_no_follow_up(monkeypatch):
     _stores(monkeypatch)
