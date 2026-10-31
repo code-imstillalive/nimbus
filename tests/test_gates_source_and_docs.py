@@ -951,7 +951,7 @@ EXPECTED_KEY_COUNTS = {
     # (pricing_autodetect.LV_V2_OPTIONAL_PROFILE), as #1537 did. The factor
     # values themselves are never a field: they come from AEMO's tables.
     # nimbus #2136: 31 -> 32, the site postcode (#2133) it had left out.
-    "_SOLVER_WIZARD_SCHEMA_KEYS": 32,
+    "_SOLVER_WIZARD_SCHEMA_KEYS": 33,
 }
 
 
@@ -982,7 +982,8 @@ EXPECTED_SPLIT = {
     # telemetry record's region and prefix. #449's question: it can't be
     # discovered (no outbound geocoding, and the Companion App's sensor is
     # read first); blank skips it, so nothing is pre-filled.
-    "_solver_grid_schema": (2, 12),
+    # nimbus #2190: 12 -> 13 optional, the AEMO NEM Data forecast sensor.
+    "_solver_grid_schema": (2, 13),
     # nimbus #1537: 14 -> 15 optional (the second P2P matched-rate source).
     # nimbus #1786: 15 -> 16 optional (comparison-only price sources).
     # nimbus #1786: 16 -> 18 optional (the site's TNI and DLF code sensors).

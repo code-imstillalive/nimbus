@@ -194,6 +194,28 @@ def aemo_markup_series(
     return out
 
 
+#: AEMO NEM Data forecast rows are 30 minutes: a forecast's last row covers
+#: this long past its start.
+RRP_FORECAST_STEP = timedelta(minutes=30)
+
+
+def join_rrp_forecasts(
+    first: Sequence[tuple[datetime, float]] | None,
+    then: Sequence[tuple[datetime, float]] | None,
+) -> tuple[list[tuple[datetime, float]], str | None]:
+    """nimbus #2190 (Mark Purcell, 31 Oct 2026): the RRP forecast behind
+    "retail from RRP" -- `first` (AEMO NEM Data's own predispatch) up to the
+    end of its last row, then `then` (the regional forecast, PD7DAY
+    `calibrated`) from there. Returns the joined (start, value) points and
+    the switch-over time (ISO), None when `first` is empty."""
+    head = sorted(first or [], key=lambda p: p[0])
+    tail = sorted(then or [], key=lambda p: p[0])
+    if not head:
+        return tail, None
+    until = head[-1][0] + RRP_FORECAST_STEP
+    return head + [p for p in tail if p[0] >= until], until.isoformat()
+
+
 def retail_from_rrp_series(
     grid_times: Sequence[datetime],
     aemo_pts: Sequence[tuple[datetime, float]] | None,

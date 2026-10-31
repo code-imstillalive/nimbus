@@ -1321,6 +1321,13 @@ CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR: Final = "solver_price_forecast_array_se
 CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: Final = (
     "solver_regional_spot_forecast_sensor"
 )
+# nimbus #2190 (Mark Purcell, 31 Oct 2026): an optional AEMO NEM Data
+# forecast sensor (`start_time` / `end_time` / `price` rows: AEMO's own
+# 30-minute predispatch, refreshed every 30 min). Where it covers, it is the
+# wholesale behind the "retail from RRP" price source; the regional forecast
+# above (PD7DAY, `calibrated`) takes over past its last row. Blank: the
+# regional forecast alone, as before.
+CONF_SOLVER_AEMO_FORECAST_SENSOR: Final = "solver_aemo_forecast_sensor"
 # Same audit, a different sensor from the forecast one above: a real,
 # live/historical wholesale spot-price sensor (this household's own is
 # `sensor.aemo_nem_qld1_current_5min_period_price`, a DIFFERENT AEMO
