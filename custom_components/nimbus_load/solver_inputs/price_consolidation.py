@@ -54,6 +54,12 @@ LEAD_BUCKETS: tuple[tuple[str, float, float, float], ...] = (
 
 #: EWMA smoothing for the absolute error (about a 20-sample memory).
 EWMA_ALPHA = 0.05
+#: The offset's own memory, by lead (#1786, replayed with Mark Purcell, 1 Nov
+#: 2026). From an hour out the offset is a standing premium, so it learns
+#: slowly (0.005, about 17 h); under an hour it is mostly the current regime
+#: and 0.05 scored best. On the test box's 8 days, 0.005 gave the provider's
+#: lowest fair error from 1 h out at about half the offset's swing.
+BIAS_ALPHA: dict[str, float] = {"1-4 h": 0.005, "4-24 h": 0.005}
 #: Settled samples every included source needs before weights are offered.
 MIN_SAMPLES = 50
 #: Pending forecasts are never kept further ahead than this.
@@ -264,7 +270,7 @@ def interval_key(t: datetime) -> int:
 class SourceErrorTracker:
     """Running per-source, per-lead absolute error of a price forecast.
 
-    `pending[interval][source][bucket] = [lead_minutes, forecast]` holds, for
+    `pending[interval][source][bucket] = [lead_minutes, forecast, offset]` holds, for
     each future interval, the forecast closest to each bucket's
     representative lead. `observe_settled()` is called every solve with the
     current interval and its settled price; the previous interval is scored
@@ -281,6 +287,9 @@ class SourceErrorTracker:
         self.last_settled: float | None = None
         #: The sensor each source slot was scored on (follow_sources).
         self.sources: dict[str, str] = {}
+        #: $/kWh; pairs at or above it are not scored (set each cycle by
+        #: consolidate_side). None = every pair is scored.
+        self.spike_threshold: float | None = None
 
     # -- recording -----------------------------------------------------
 
@@ -308,9 +317,12 @@ class SourceErrorTracker:
             .get(bucket)
         )
         if slot is None or abs(lead - rep) <= abs(slot[0] - rep):
+            # The offset applied now goes with the forecast, so it is scored
+            # with what was known when it was made (#1786).
             self.pending[interval_key(interval_start)][source][bucket] = [
                 lead,
                 float(value),
+                self.offset(source, bucket),
             ]
 
     def record_series(
@@ -349,23 +361,32 @@ class SourceErrorTracker:
         """Score every pending forecast for interval `key` against `settled`,
         then drop it and anything older. Returns how many were scored."""
         scored = 0
+        spike = self.spike_threshold
         for source, buckets in self.pending.get(key, {}).items():
-            for bucket, (_lead, forecast) in buckets.items():
+            for bucket, entry in buckets.items():
+                forecast = entry[1]
+                # #1786: a pair in the spike regime feeds neither the offset
+                # nor the score; the spike override handles spikes, and one
+                # false spike would drag a standing premium for hours.
+                if spike is not None and spike > 0 and max(forecast, settled) >= spike:
+                    continue
                 signed = forecast - settled
                 b = self.bias.setdefault(source, {}).get(bucket)
-                # Scored after removing the offset learned so far, so a
-                # steady contract premium is not counted as forecast error.
-                # The blend is scored as it is (BLEND_SOURCE).
-                err = (
-                    abs(signed - (b or 0.0)) if source != BLEND_SOURCE else abs(signed)
-                )
+                # Scored with the offset that was removed when the forecast
+                # was made (#1786: scoring with the one learned by settle time
+                # flattered every source against the blend). Older state
+                # without it falls back to the offset learned so far. The
+                # blend is scored as it is (BLEND_SOURCE).
+                applied = entry[2] if len(entry) > 2 else (b or 0.0)
+                err = abs(signed - applied) if source != BLEND_SOURCE else abs(signed)
                 n = self.samples.setdefault(source, {}).get(bucket, 0)
                 prev = self.mae.setdefault(source, {}).get(bucket)
                 self.mae[source][bucket] = (
                     err if prev is None else (1 - EWMA_ALPHA) * prev + EWMA_ALPHA * err
                 )
+                a = BIAS_ALPHA.get(bucket, EWMA_ALPHA)
                 self.bias[source][bucket] = (
-                    signed if b is None else (1 - EWMA_ALPHA) * b + EWMA_ALPHA * signed
+                    signed if b is None else (1 - a) * b + a * signed
                 )
                 self.samples[source][bucket] = n + 1
                 scored += 1
@@ -507,7 +528,7 @@ class SourceErrorTracker:
         try:
             for k, v in (data.get("pending") or {}).items():
                 t.pending[int(k)] = {
-                    str(s): {str(b): [float(x[0]), float(x[1])] for b, x in bs.items()}
+                    str(s): {str(b): [float(y) for y in x[:3]] for b, x in bs.items()}
                     for s, bs in v.items()
                 }
             t.mae = {
@@ -604,6 +625,7 @@ def consolidate_side(
         None if v is None or s is None else v - s
         for v, s in zip(values, as_shown, strict=False)
     ]
+    tracker.spike_threshold = spike_threshold
     scored = tracker.observe_settled(now, settled)
     for name, s in series.items():
         tracker.record_series(
