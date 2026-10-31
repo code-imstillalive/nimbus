@@ -24,3 +24,25 @@ def test_now_with_nothing_settled_or_no_periods():
     assert out["sources"] == {"primary": None}
     assert out["consolidated"] is None
     assert pc.now_slot({"primary": [0.2]}, [0.2], [], 0.2) == {}
+
+    # test_the_settled_now_shows_its_settled_price_with_no_correction (#2190):
+    # the blend for the running interval carried each source's learned
+    # offset (9.84 against a settled 9.04 live); now it is the settled price.
+    now = pc.now_slot(
+        {"primary": [0.0904], "retail_from_rrp": [0.0905]}, [0.0984], grid, 0.0904
+    )
+    assert now["consolidated"] == 0.0904 and now["correction"] == 0.0
+    assert now["spread"] == 0.0001  # the running interval's own spread
+
+    # test_the_correction_row_is_what_the_offsets_added_to_the_sources_blend
+    out = pc.next_slots(
+        {"primary": [0.10, 0.11, 0.12]},
+        [0.10, 0.118, 0.13],
+        grid + _grid(3)[2:],
+        1,
+        [0.0, 0.008, 0.01],
+    )
+    assert out["correction"] == [0.008, 0.01]
+    assert pc.next_slots({"primary": [0.1, 0.1]}, [0.1, 0.1], grid, 1)[
+        "correction"
+    ] == [None]
