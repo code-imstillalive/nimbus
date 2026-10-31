@@ -1111,6 +1111,16 @@ class TestTheConfigSurfaceIsMeasured(unittest.TestCase):
         self.assertTrue(sources)
         self.assertEqual(sources - visible, set())
 
+        # test_a_collapsed_section_shows_labels_not_keys (household, 1 Nov:
+        # the Sources step's Advanced section showed raw keys such as
+        # solver_price_comparison_sensors): a step's "advanced" section
+        # carries every label the step has.
+        for step, body in strings["options"]["step"].items():
+            adv = (body.get("sections") or {}).get("advanced")
+            if adv is not None:
+                missing = set(body.get("data") or {}) - set(adv.get("data") or {})
+                self.assertEqual(missing, set(), step)
+
 
 class TestTheCountingTrapStaysDocumented(unittest.TestCase):
     """The reason this file parses instead of grepping. Kept as a test so

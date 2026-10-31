@@ -8,7 +8,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-- **Grid Prices shows "AEMO's own price forecast" with the other AEMO sources.** In 0.94.503 it sat inside the collapsed Advanced section, so it couldn't be found where the docs said. 0.94.503's validation line said the setting was exercised through the options flow, but it was set through the API, never on the screen; the field was in the form, only out of view. A test now keeps every "Source" field on Grid Prices visible.
+- **Grid Prices shows "AEMO's own price forecast" with the other AEMO sources.** In 0.94.503 it sat inside the collapsed Advanced section, out of view, not where the docs placed it.
+- **Advanced sections show their labels.** On Grid Prices and Sources, the fields inside Advanced showed raw names such as `solver_price_comparison_sensors`; they now show the same labels and help text as elsewhere.
+- **Correction to 0.94.503's validation line:** the AEMO forecast setting was set, cleared and set through the API, not on the screen, which was never opened. That is how the hidden field was missed.
 
 ## [0.94.503] - 2026-11-01
 
