@@ -114,21 +114,78 @@ def test_each_source_reaches_the_rrp_and_disagreement_and_staleness_are_reported
     assert set(worst["rrp"]) == {"lv_sell", "aemo"}
 
     # test_a_source_that_stays_put_while_two_move_is_stale_on_any_interval
+    def _aemo(values):
+        return {
+            "forecast": [
+                {
+                    "start_time": (HOUR + timedelta(minutes=5 * i)).isoformat(),
+                    "end_time": (HOUR + timedelta(minutes=5 * i + 5)).isoformat(),
+                    "price": v,
+                }
+                for i, v in enumerate(values)
+            ]
+        }
+
+    def _pd7(values):
+        return {
+            "forecast": [
+                {
+                    "time": (HOUR + timedelta(minutes=5 * i)).isoformat(),
+                    "nemtime": (HOUR + timedelta(minutes=5 * i + 5)).isoformat(),
+                    "raw_value": v,
+                }
+                for i, v in enumerate(values)
+            ]
+        }
+
+    def _three(aemo, pd7, lv):
+        return [
+            rc.read_source("a", None, _aemo(aemo), SITE, NOW),
+            rc.read_source("b", None, _pd7(pd7), SITE, NOW),
+            rc.read_source("c", None, _lv("Sell", [v * SITE for v in lv]), SITE, NOW),
+        ]
+
     watch = rc.StaleWatch()
-    first = [
-        rc.read_source("a", None, _lv("Sell", [0.05 * SITE] * 3), SITE, NOW),
-        rc.read_source("b", None, _lv("Sell", [0.05 * SITE] * 3), SITE, NOW),
-        rc.read_source("c", None, _lv("Sell", [0.05 * SITE] * 3), SITE, NOW),
-    ]
-    assert watch.update(first) == []
-    moved = [0.05 * SITE, 0.07 * SITE, 0.07 * SITE]  # a future interval moves
-    second = [
-        rc.read_source("a", None, _lv("Sell", moved), SITE, NOW),
-        rc.read_source("b", None, _lv("Sell", moved), SITE, NOW),
-        rc.read_source("c", None, _lv("Sell", [0.05 * SITE] * 3), SITE, NOW),
-    ]
-    stale = watch.update(second)
-    assert [s["source"] for s in stale] == ["c"] and stale[0]["intervals"] >= 2
+    flat, moved = [0.05] * 3, [0.05, 0.07, 0.07]  # two future intervals move
+    assert watch.update(_three(flat, flat, flat)) == []
+    stale = watch.update(_three(moved, moved, flat))
+    assert [s["source"] for s in stale] == ["c"] and stale[0]["intervals"] == 2
+    second = _three(moved, moved, flat)
+
+    # test_one_retailer_feeds_buy_and_sell_moving_together_count_once
+    one = rc.StaleWatch()
+    base = [0.05 * SITE] * 3
+    up = [0.05 * SITE, 0.07 * SITE, 0.07 * SITE]
+    pd = {
+        "forecast": [
+            {
+                "time": HOUR.isoformat(),
+                "nemtime": NOW.replace(minute=30).isoformat(),
+                "raw_value": 0.05,
+            }
+        ]
+    }
+    one.update(
+        [
+            rc.read_source("lv_s", None, _lv("Sell", base), SITE, NOW),
+            rc.read_source(
+                "lv_b", None, _lv("Buy", [v * 1.10 for v in base]), SITE, NOW
+            ),
+            rc.read_source("pd", None, pd, SITE, NOW),
+        ]
+    )
+    assert (
+        one.update(
+            [
+                rc.read_source("lv_s", None, _lv("Sell", up), SITE, NOW),
+                rc.read_source(
+                    "lv_b", None, _lv("Buy", [v * 1.10 for v in up]), SITE, NOW
+                ),
+                rc.read_source("pd", None, pd, SITE, NOW),
+            ]
+        )
+        == []
+    )
 
     # test_the_published_report_carries_every_source_and_the_factor
     ages = {

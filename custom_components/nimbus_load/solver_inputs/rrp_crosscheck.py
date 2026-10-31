@@ -226,15 +226,28 @@ def compare(reads: list[SourceRead]) -> dict[str, Any]:
     }
 
 
+#: Kinds that are one retailer feed whatever sensors it is split across, so
+#: its buy and sell sensors moving together count as one source moving.
+_ONE_FEED_KINDS = frozenset({KIND_LOCALVOLTS, KIND_AMBER})
+
+
+def _feed(read: SourceRead) -> str:
+    return read.kind if read.kind in _ONE_FEED_KINDS else read.label
+
+
 class StaleWatch:
     """Between one read and the next, on any interval: a source that stayed
-    put while two or more others moved is counted as stale there."""
+    put while two or more OTHER feeds moved is counted as stale there. A
+    retailer's buy and sell sensors are one feed (found on live data, #2205:
+    counted as two, they flagged the others stale whenever that one feed
+    refreshed)."""
 
     def __init__(self) -> None:
         self._last: dict[str, dict[int, float]] = {}
 
     def update(self, reads: list[SourceRead]) -> list[dict[str, Any]]:
         now_points = {r.label: dict(r.points) for r in reads}
+        feed_of = {r.label: _feed(r) for r in reads}
         flagged: dict[str, list[int]] = {}
         keys = (
             set().union(*(p.keys() for p in now_points.values()))
@@ -247,10 +260,13 @@ class StaleWatch:
                 before = self._last.get(label, {}).get(k)
                 if k in pts and before is not None:
                     moved[label] = abs(pts[k] - before) > MOVED
-            if sum(moved.values()) >= 2:
-                for label, did in moved.items():
-                    if not did:
-                        flagged.setdefault(label, []).append(k)
+            for label, did in moved.items():
+                if did:
+                    continue
+                movers = {feed_of[o] for o, m in moved.items() if m}
+                movers.discard(feed_of[label])
+                if len(movers) >= 2:
+                    flagged.setdefault(label, []).append(k)
         self._last = now_points
         return [
             {"source": label, "intervals": len(ks), "first": _iso(min(ks))}
