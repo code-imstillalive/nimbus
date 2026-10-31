@@ -1353,6 +1353,9 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
         # has moved across HA releases and this is a two-line inline
         # equivalent that stays stable across those moves.
         handle = pending.get("handle")
+        real_change_pending = (
+            handle is not None and pending.get("trigger_kind") == "price_change"
+        )
         if handle is not None:
             handle.cancel()  # type: ignore[attr-defined]
         old_state = event.data.get("old_state")
@@ -1375,6 +1378,14 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
         is_real_price_change = (
             old_state is None or new_state is None or old_state.state != new_state.state
         )
+        if real_change_pending and not is_real_price_change:
+            # An attribute-only update right after a real change, inside the
+            # same debounce window, keeps the change it follows: an
+            # integration that writes the state, then its attributes a
+            # second later (an MQTT-fed copy does) otherwise recorded no
+            # latency at all (#294).
+            pending["handle"] = hass.loop.call_later(debounce_s, _fire_solve)
+            return
         pending["entity_id"] = event.data.get("entity_id")
         pending["trigger_kind"] = (
             "price_change" if is_real_price_change else "price_attributes"
