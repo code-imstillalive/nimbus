@@ -553,15 +553,13 @@ CONF_OCCUPANCY_RETURN: Final = "occupancy_return"
 # reverse of a presence sensor. Off (default): on / home means home.
 CONF_OCCUPANCY_ON_MEANS_AWAY: Final = "occupancy_on_means_away"
 CONF_HUMIDITY_SENSOR: Final = "humidity_sensor"
-# Shared, hub-level -- HAEO's own solar-curtailment status entity
-# (switch.solar_curtailment on the real system this was built against),
-# real and confirmed 2026-08-14: a boolean on/off with its own forward
-# `forecast` attribute (HAEO already plans curtailment ahead of time),
-# which is genuinely more useful at predict-time than any of this
-# integration's other forecast inputs -- it's HAEO's own actual plan, not
-# a held-flat approximation. Added specifically for curtailment-driven
-# loads (e.g. a pool heater run only to soak up otherwise-curtailed
-# solar, never for its own schedule or the weather).
+# Shared, hub-level: a measured on/off signal that's on while the inverter
+# is curtailing solar (an export-limit-active state, for example), with an
+# optional forward `forecast` attribute. Never another optimiser's control
+# or plan entity (the runtime rule; the reference household had pointed it
+# at one, found and cleared 31 Oct 2026). Added for curtailment-driven
+# loads (e.g. a pool heater run only to soak up otherwise-curtailed solar,
+# never for its own schedule or the weather).
 CONF_CURTAILMENT_SENSOR: Final = "curtailment_sensor"
 
 # Shared, hub-level -- REAL MEASURED power sensors only (this household's

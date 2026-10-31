@@ -2034,10 +2034,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return forecast
 
     async def _async_fetch_curtailment_forecast(self) -> list[tuple[datetime, float]]:
-        """HAEO's own curtailment switch carries a real forward `forecast`
-        attribute (confirmed live 2026-08-14: {"time": ..., "value": bool}
-        entries) -- HAEO already plans curtailment ahead of time, so this is
-        genuinely forward-looking, unlike humidity's held-flat approximation.
+        """The curtailment input's forward `forecast` attribute, when it has
+        one ({"time": ..., "value": bool} entries), so the curtailment feature
+        is forward-looking, unlike humidity's held-flat approximation. An
+        input without one gives an empty list.
         """
         if self._curtailment_sensor is None:
             return []

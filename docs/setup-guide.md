@@ -331,9 +331,9 @@ you want Nimbus to forecast your inverter's DC power itself.
 ### The two traps on this screen
 
 > **Never point a Power Signal at an optimiser's plan entity.** Use real,
-> measured sensors only. Point it at HAEO's, EMHASS's or Nimbus's own output and
-> the model learns from its own predictions, and the forecast slowly becomes
-> nonsense.
+> measured sensors only. Point it at an optimiser's output, Nimbus's own
+> included, and the model learns from predictions, and the forecast slowly
+> becomes nonsense.
 
 > **Do not use `sensor.nimbus_household_load_total_forecast` as a forecasting or Solver input.**
 > It is an output for display and diagnostics. Feeding it back into planning creates

@@ -175,7 +175,7 @@ _BASIC_INPUTS = (
 _TRAPS = (
     "**Common traps**\n\n"
     "- **Never point a Power Signal at a plan or forecast entity** (Nimbus's "
-    "own, HAEO's, EMHASS's). Use measured sensors only, or the model learns "
+    "own, or another optimiser's). Use measured sensors only, or the model learns "
     "from its own predictions.\n"
     "- **`sensor.nimbus_household_load_total_forecast` is an output.** Never "
     "select it as an input.\n"
