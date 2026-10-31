@@ -28,18 +28,20 @@ def _lv(direction, values, start=HOUR):
     }
 
 
-def _amber(spot):
-    end = NOW.replace(minute=5)
-    return {
-        "detailedForecast": [
+def _amber(*spots):
+    """Amber Express detailedForecast rows, one per 5 minutes from the hour."""
+    rows = []
+    for n, spot in enumerate(spots):
+        end = HOUR + timedelta(minutes=5 * n + 5)
+        rows.append(
             {
                 "spot_per_kwh": spot,
                 "duration": 5,
                 "start_time": (end - timedelta(minutes=5, seconds=-1)).isoformat(),
                 "end_time": end.isoformat(),
             }
-        ]
-    }
+        )
+    return {"detailedForecast": rows}
 
 
 def test_each_source_reaches_the_rrp_and_disagreement_and_staleness_are_reported():
@@ -47,13 +49,15 @@ def test_each_source_reaches_the_rrp_and_disagreement_and_staleness_are_reported
     rrp = 0.0560
     sell = rc.read_source("lv_sell", None, _lv("Sell", [rrp * SITE] * 3), SITE, NOW)
     buy = rc.read_source("lv_buy", None, _lv("Buy", [rrp * SITE * 1.10] * 3), SITE, NOW)
-    amber = rc.read_source("amber", None, _amber(rrp * 1.10), SITE, NOW)
+    amber = rc.read_source("amber", None, _amber(rrp * 1.10, 0.0770), SITE, NOW)
     aemo = rc.read_source("aemo", str(rrp), {}, SITE, NOW)
     key = int(NOW.replace(minute=0).timestamp()) // 300
     for read in (sell, buy, amber, aemo):
         assert read.points[key] == pytest.approx(rrp), read.kind
     assert (sell.divisor, buy.divisor) == pytest.approx((SITE, SITE * 1.10))
     assert amber.kind == rc.KIND_AMBER and aemo.kind == rc.KIND_CURRENT
+    # Amber's forecast rows are read too, each over its own interval.
+    assert amber.points[key + 1] == pytest.approx(0.07)
 
     # test_a_pd7day_row_is_read_as_its_wholesale_figure
     pd7 = rc.read_source(
