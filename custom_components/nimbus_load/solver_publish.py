@@ -1974,6 +1974,8 @@ def publish_plan(
     price_source_freshness=None,
     # nimbus #1786: apply_price_consolidation()'s result, or None.
     price_consolidation=None,
+    # nimbus #2190: rrp_crosscheck_report()'s result, or None.
+    rrp_crosscheck=None,
     # nimbus #1797: solver_plan.run_stochastic_dispatch()'s summary, or None.
     stochastic=None,
     # nimbus #1797: solver_plan.stochastic_paths_for()'s result, or None.
@@ -2820,6 +2822,9 @@ def publish_plan(
             "price_source_freshness": price_source_freshness,
             # nimbus #1786: mode, sources, method, spread and running error.
             "price_consolidation": _price_consolidation_attribute(price_consolidation),
+            # nimbus #2190: every source's RRP compared per interval; a
+            # report only. Always present (None with under two sources).
+            "rrp_crosscheck": rrp_crosscheck,
             # nimbus #1797: the two-stage stochastic solve -- in shadow it
             # changes nothing else on this sensor; with
             # switch.nimbus_solver_stochastic_dispatch on and the solve

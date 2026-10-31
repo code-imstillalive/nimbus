@@ -860,6 +860,19 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "financial_year",
         "site_factor",
         "years",
+        # nimbus #2190: the price cross-check (solver_inputs/rrp_crosscheck.py),
+        # a report only. The docs copy has no consolidation sources to check.
+        "_amber_detailed",
+        "_feed",
+        "as_of",
+        "_is_localvolts_spot",
+        "_iso",
+        "_key",
+        "_pd7day_points",
+        "_spread",
+        "compare",
+        "read_source",
+        "report",
         # nimbus issue #1537 item 1 -- price sensors read in their own unit
         # (c/kWh, $/MWh). The docs copy has no generic price reader at all
         # (it reads the reference household's own $/kWh sensors), so there
@@ -1220,6 +1233,8 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "publish_flex_telemetry_record",
         # nimbus #2180: the record builder's raw shadow-price figures.
         "_note_flex_shadow_raw",
+        # nimbus #2190: the price cross-check report (a report only).
+        "rrp_crosscheck_report",
         # nimbus #1634 step 2: the no-record reason, same family as above.
         "_no_flex_record",
         "_flex_available_physical",
