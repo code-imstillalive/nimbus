@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.504] - 2026-11-01
+
+**The price consolidation scores every source fairly, and Grid Prices shows every price source.**
+
+- **Consolidation scoring** (#1786, #2218, reviewed by Mark Purcell). Each source is scored with the offset that was removed when its forecast was made, not one learned afterwards; replayed on the test box, the old scoring flattered every source by 30-100 % from an hour out. The learned offset now has a memory of about 17 hours from an hour out (0.05 below), and a pair in the spike regime feeds neither the offset nor the score. Shadow by default: the plan is unchanged unless consolidation is switched live.
+- **A read-only replay of the consolidation offsets** (#2217): `nimbus_load.replay_price_offsets` scores the stored price history both ways for several offset memories. Changes nothing.
 - **Grid Prices shows "AEMO's own price forecast" with the other AEMO sources.** In 0.94.503 it sat inside the collapsed Advanced section, out of view, not where the docs placed it.
 - **Advanced sections show their labels.** On Grid Prices and Sources, the fields inside Advanced showed raw names such as `solver_price_comparison_sensors`; they now show the same labels and help text as elsewhere.
 - **Correction to 0.94.503's validation line:** the AEMO forecast setting was set, cleared and set through the API, not on the screen, which was never opened. That is how the hidden field was missed.
@@ -21,6 +27,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **AEMO's own price forecast** (#2209, new optional setting on Grid Prices). With an AEMO NEM Data 30-minute forecast sensor set, the retail-from-RRP row uses AEMO's own forecast up to its last row and PD7DAY after it; the label names the switch time. Unset, nothing changes.
 - **The curtailment setting asks for a measured signal**, never another optimiser's entity (#2206).
 - **The price-response latency sensor records again where it read *unknown*** (#2212, #2214). A price change that arrives mid-solve is now timed on the follow-up solve that answers it, and an attribute update a moment after a price change no longer cancels it (a price sensor that writes its state, then its attributes, recorded nothing). Confirmed on devhub: blank for over two days before, first sample 20.3 s after the restart.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 07e9574f** (`release/0.94.503`, installed through HACS untagged and restarted at 06:19 AEST, 1 Nov; read through 06:26). 123 of the 127 Nimbus entities carrying a version read 0.94.503; the other four are the daily reports, restored at startup and not yet republished. None of the 384 Nimbus entities unavailable. Plan `optimal` from 06:20. The cross-check publishes `rrp_crosscheck` with every source. The Price sources table's Now column equals the settled price (4.26 c, correction 0.0). With the new AEMO forecast setting set, the retail-from-RRP switch reads 2 Nov 04:00, the end of AEMO NEM Data's last row. The setting was set, cleared and set again through the options flow on 31 Oct, read back each time with every other option unchanged. The price-response latency sensor recorded its first sample (24.5 s) six minutes after the restart; it had read *unknown* for over two days before #2212/#2214. No new WARNING or ERROR: the rest are the ones devhub logs on every start (its test EV, test meter, test weather feed) and the flex telemetry clamp. Amber's full-row reading (#2208) wasn't exercised live: devhub has no Amber feed; it's covered by its test.
+- Consumer check: one new optional setting (`solver_aemo_forecast_sensor`, unset by default, so nothing changes until it is set); one new plan attribute, `rrp_crosscheck`, which is report-only and unrecorded; the Price sources table gains a Learned correction row, and its Now column shows the settled price. No setting is moved and no entity renamed.
 
 ## [0.94.502] - 2026-10-31
 
