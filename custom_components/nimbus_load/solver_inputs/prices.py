@@ -275,13 +275,19 @@ def build_price_arrays(
         # coverage, are untouched.
         aemo_source = "aemo_markup"
         loss_factor = None
+        # nimbus #2190 (Mark): AEMO NEM Data's own predispatch where it
+        # covers, the regional forecast (PD7DAY) past its last row.
+        rrp_forecast, aemo_until = price_consolidation.join_rrp_forecasts(
+            sw.fetch_aemo_forecast(cfg.get("solver_aemo_forecast_sensor")),
+            aemo_forecast,
+        )
         try:
             factored = _retail_from_rrp(
                 sw,
                 cfg,
                 now,
                 grid_times,
-                aemo_forecast,
+                rrp_forecast,
                 import_history,
                 export_history,
                 same_poll_wholesale,
@@ -293,6 +299,8 @@ def build_price_arrays(
             factored = None
         if factored is not None:
             aemo_import_series, aemo_export_series, loss_factor = factored
+            if isinstance(loss_factor, dict):
+                loss_factor = {**loss_factor, "aemo_forecast_until": aemo_until}
             if aemo_import_series is not None:
                 aemo_source = "retail_from_rrp"
         # Real empirical price bands for price_risk_aversion (2026-08-21,

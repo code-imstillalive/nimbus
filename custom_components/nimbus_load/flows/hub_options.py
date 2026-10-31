@@ -81,6 +81,7 @@ from ..const import (
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SITE_POSTCODE,
     CONF_SOLAR_SENSOR,
+    CONF_SOLVER_AEMO_FORECAST_SENSOR,
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
@@ -459,6 +460,12 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
                     "suggested_value": defaults.get(
                         CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR
                     )
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_AEMO_FORECAST_SENSOR,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_AEMO_FORECAST_SENSOR)
                 },
             ): _entity(),
             vol.Optional(
@@ -1323,6 +1330,7 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
+    CONF_SOLVER_AEMO_FORECAST_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
     CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
