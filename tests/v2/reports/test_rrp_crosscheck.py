@@ -75,6 +75,25 @@ def test_each_source_reaches_the_rrp_and_disagreement_and_staleness_are_reported
     assert pd7.kind == rc.KIND_PD7DAY and len(pd7.points) == 6
     assert pd7.points[key] == pytest.approx(rrp)
 
+    # test_an_aemo_forecast_row_is_read_as_published
+    aemo_fc = rc.read_source(
+        "aemo_fc",
+        "0.05",
+        {
+            "forecast": [
+                {
+                    "start_time": HOUR.isoformat(),
+                    "end_time": NOW.replace(minute=30).isoformat(),
+                    "price": rrp,
+                }
+            ]
+        },
+        SITE,
+        NOW,
+    )
+    assert aemo_fc.kind == rc.KIND_AEMO_FORECAST
+    assert aemo_fc.points[key] == pytest.approx(rrp) and len(aemo_fc.points) == 6
+
     # test_without_a_site_loss_factor_localvolts_says_why
     blind = rc.read_source("lv", None, _lv("Sell", [0.06]), None, NOW)
     assert blind.points == {} and blind.reason == "no_site_loss_factor"

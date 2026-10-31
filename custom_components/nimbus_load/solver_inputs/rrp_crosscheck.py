@@ -19,6 +19,8 @@ How each source's RRP is read, by the shape it publishes, never by name:
   forecasting it (#2190), so they are not read.
 - NEM PD7DAY rows: `raw_value` (the wholesale forecast) or, on a tariff row,
   `spot_raw`, as published.
+- AEMO NEM Data forecast rows (`start_time`, `end_time`, `price`): AEMO's
+  own predispatch RRP, as published, for every row.
 - Any other sensor: its state is the RRP for the interval in progress (the
   AEMO 5-minute price).
 
@@ -54,6 +56,7 @@ LV_BUY_SPOT_MULTIPLIER = 1.10
 KIND_LOCALVOLTS = "localvolts_spot"
 KIND_AMBER = "amber_spot"
 KIND_PD7DAY = "pd7day"
+KIND_AEMO_FORECAST = "aemo_forecast"
 KIND_CURRENT = "current_price"
 
 
@@ -151,6 +154,11 @@ def read_source(
             label, KIND_AMBER, price_intervals.AMBER_SPOT_MULTIPLIER, {_key(start): rrp}
         )
     rows = attrs.get("forecast")
+    if price_intervals.is_aemo_nem_rows(rows):
+        points = {}
+        for iv in price_intervals.aemo_nem_intervals(rows):
+            points.update(_spread(iv.start, iv.end, iv.value, now))
+        return SourceRead(label, KIND_AEMO_FORECAST, 1.0, points)
     if price_intervals.is_pd7day_rows(rows):
         return SourceRead(label, KIND_PD7DAY, 1.0, _pd7day_points(rows, now))
     try:

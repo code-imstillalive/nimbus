@@ -374,6 +374,7 @@ How each kind is read:
   and DLF code sensors on Grid Prices), and a further ÷ 1.10 on the buy side.
 - **Amber Express:** spot ÷ 1.10, for the interval in progress only.
 - **NEM PD7DAY:** the published wholesale figure.
+- **AEMO NEM Data forecast** (rows with `start_time`, `end_time`, `price`): AEMO's own predispatch price, as published.
 - **Anything else:** its state, as the RRP now.
 
 It is a report: no price, plan or dispatch reads it. A disagreement is
