@@ -42,6 +42,23 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none(monkeypatch):
     assert pc.consolidate({"a": [None, 2.0], "b": [None]})[1] == [None, 0.0]
     assert pc.consolidate({"a": [None]})[2] == "none"
 
+    # test_a_source_is_scored_with_the_offset_known_when_it_forecast (#1786,
+    # replayed with Mark Purcell, 1 Nov 2026): not with one learned since,
+    # the offset learns slowly from an hour out, and spikes feed neither.
+    t = pc.SourceErrorTracker()
+    start = NOW + timedelta(hours=2)  # the 1-4 h bucket
+    t.bias = {"a": {"1-4 h": 0.02}}
+    t.samples = {"a": {"1-4 h": pc.MIN_SAMPLES}}
+    t.record("a", NOW, start, 0.12)  # 0.02 removed when it was made
+    t.bias["a"]["1-4 h"] = 0.05  # learned more since
+    assert t.settle(pc.interval_key(start), 0.10) == 1
+    assert t.mae["a"]["1-4 h"] == pytest.approx(0.0)
+    assert t.bias["a"]["1-4 h"] == pytest.approx(0.995 * 0.05 + 0.005 * 0.02)
+    t.spike_threshold = 0.85
+    t.record("a", NOW, start, 0.12)
+    assert t.settle(pc.interval_key(start), 2.0) == 0
+    assert pc.SourceErrorTracker.from_dict(t.to_dict()).spike_threshold is None
+
     # test_an_unscored_source_still_takes_a_spike_it_alone_forecasts
     values, _s, method = pc.consolidate(
         {"a": [0.30, 0.30], "b": [0.25, 5.00]}, {"a": 1.0}, spike_threshold=0.85
