@@ -40,6 +40,8 @@ flex_telemetry_record:
 
 get_stochastic_summary:
 
+replay_price_offsets:
+
 export_decision_inputs:
   fields:
     start:
