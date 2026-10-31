@@ -876,6 +876,18 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "compare",
         "read_source",
         "report",
+        # nimbus #1786: the offset replay behind nimbus_load.replay_price_offsets
+        # (solver_inputs/price_offset_replay.py). The docs copy has no
+        # consolidation and no services.
+        "_known_at",
+        "_lead_intervals",
+        "_offset_timeline",
+        "_pairs",
+        "_quantile",
+        "replay",
+        "replay_blend",
+        "replay_source",
+        "strided_alpha",
         # nimbus issue #1537 item 1 -- price sensors read in their own unit
         # (c/kWh, $/MWh). The docs copy has no generic price reader at all
         # (it reads the reference household's own $/kWh sensors), so there

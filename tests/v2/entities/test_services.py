@@ -116,7 +116,7 @@ def test_every_service_registers_once_and_unloads_completely(monkeypatch):
     # test_every_service_registers_once_and_unloads_completely
     hass = _hass()
     registered = {s for _d, s in hass.services.handlers}
-    assert len(registered) == 13
+    assert len(registered) == 14  # replay_price_offsets (#1786)
     svc.async_register_services(hass)  # a second hub entry adds nothing
     assert {s for _d, s in hass.services.handlers} == registered
     svc.async_unregister_services(hass)
