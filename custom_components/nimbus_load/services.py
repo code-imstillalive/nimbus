@@ -112,6 +112,7 @@ SERVICE_EXPORT_DECISION_INPUTS = "export_decision_inputs"
 # nimbus #1797: the stochastic solve's own in-process state, readable on an
 # install whose plan sensor a mirror overwrites (devhub).
 SERVICE_GET_STOCHASTIC_SUMMARY = "get_stochastic_summary"
+SERVICE_REPLAY_PRICE_OFFSETS = "replay_price_offsets"
 # nimbus #1574 (DC-004 step 5a): the device document's dry run and mode.
 SERVICE_DEVICE_CONTRACT_PREVIEW = "device_contract_preview"
 # HACS review (hacs/default#12099): the standard dashboard tabs, returned on
@@ -245,6 +246,7 @@ SERVICE_EXPORT_DECISION_INPUTS_SCHEMA = vol.Schema(
 )
 
 SERVICE_GET_STOCHASTIC_SUMMARY_SCHEMA = vol.Schema({})
+SERVICE_REPLAY_PRICE_OFFSETS_SCHEMA = vol.Schema({})
 
 SERVICE_RESCORE_HISTORY_SCHEMA = vol.Schema(
     {
@@ -797,6 +799,48 @@ async def _async_handle_get_stochastic_summary(
     return solver_plan.stochastic_snapshot()
 
 
+async def _async_handle_replay_price_offsets(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """nimbus #1786 (Mark Purcell, 1 Nov 2026): replay the consolidation's
+    learned offsets over this install's stored price error history, scored
+    with hindsight (today) and fairly (the offset known at forecast time), for
+    each candidate memory. Reads the history file; changes nothing."""
+    import json
+    import os
+
+    from .solver_inputs import price_error_history, price_offset_replay
+
+    path = os.environ.get(
+        "NIMBUS_SOLVER_PRICE_ERROR_HISTORY_PATH",
+        hass.config.path("nimbus_solver_price_error_history.json"),
+    )
+
+    def _run() -> dict:
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as err:
+            return {"error": f"price error history not readable: {err}"}
+        hist = price_error_history.PriceErrorHistory.from_dict(data)
+        return price_offset_replay.replay(hist.samples, blend_sources=configured)
+
+    # The rebuilt blend uses, at each lead, the sources the published blend
+    # weights there (its `weights`), not every source the history holds.
+    plan = hass.states.get("sensor.nimbus_solver_battery_forecast")
+    pc_attr = (plan.attributes.get("price_consolidation") or {}) if plan else {}
+    configured = {
+        side: {
+            bucket: list(w)
+            for bucket, w in ((pc_attr.get(side) or {}).get("weights") or {}).items()
+            if isinstance(w, dict)
+        }
+        for side in ("import", "export")
+    }
+
+    return await hass.async_add_executor_job(_run)
+
+
 async def _async_handle_set_controllable_load(
     hass: HomeAssistant, call: ServiceCall
 ) -> dict:
@@ -1037,6 +1081,19 @@ def async_register_services(hass: HomeAssistant) -> None:
             supports_response=SupportsResponse.ONLY,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_REPLAY_PRICE_OFFSETS):
+
+        async def _handle_replay_price_offsets(call: ServiceCall):
+            return await _async_handle_replay_price_offsets(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_REPLAY_PRICE_OFFSETS,
+            _handle_replay_price_offsets,
+            schema=SERVICE_REPLAY_PRICE_OFFSETS_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_FLEX_TELEMETRY_RECORD):
 
         async def _handle_flex_telemetry_record(call: ServiceCall):
@@ -1103,6 +1160,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_RESCORE_HISTORY,
         SERVICE_EXPORT_DECISION_INPUTS,
         SERVICE_GET_STOCHASTIC_SUMMARY,
+        SERVICE_REPLAY_PRICE_OFFSETS,
         SERVICE_GET_DASHBOARD,
         SERVICE_DEVICE_CONTRACT_PREVIEW,
         SERVICE_DEVICE_CONTRACT_SET_MODE,

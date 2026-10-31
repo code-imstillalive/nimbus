@@ -27,6 +27,7 @@ import test_main_golden_output_guardrail as guardrail
 from _isolated_state import isolated_state_paths
 from solver_inputs import price_consolidation as pc
 from solver_inputs import price_error_history as peh
+from solver_inputs import price_offset_replay as por
 
 NOW = datetime(2026, 10, 16, 2, 0, 30, tzinfo=UTC)
 
@@ -103,6 +104,45 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
         {"samples": {"import": 3}},
     ]:
         assert peh.PriceErrorHistory.from_dict(bad).sample_count() == 0
+
+    # test_the_offset_replay_scores_fairly_and_finds_a_standing_premium (#1786,
+    # Mark Purcell): the tracker scores a source with the offset it learned by
+    # settle time; the blend only ever had the one known at forecast time.
+    keys = [k for k in range(6_000_000, 6_010_000) if peh.on_stride(k)]
+
+    def _cells(errors):
+        return {"normal": [[k, 0, 0.10 + e, 0.10] for k, e in zip(keys, errors)]}
+
+    steady = por.replay_source(por._pairs(_cells([0.02] * 200)), "1-4 h", 0.001)
+    assert steady["offset_p10"] == pytest.approx(0.02)
+    assert steady["fair_mae"] < 0.004  # only the warm-up pairs miss
+    swing = por._pairs(_cells(([0.03] * 10 + [-0.03] * 10) * 10))
+    today = por.replay_source(swing, "4-24 h", 0.05)
+    assert today["hindsight_mae"] < today["fair_mae"]  # hindsight flatters it
+    long_memory = por.replay_source(swing, "4-24 h", 0.001)
+    assert (long_memory["offset_p90"] - long_memory["offset_p10"]) < (
+        today["offset_p90"] - today["offset_p10"]
+    )
+    out = por.replay(
+        {
+            "import": {
+                "a": {"1-4 h": _cells([0.02] * 60)},
+                "b": {"1-4 h": _cells([0.0] * 60)},
+            }
+        }
+    )
+    assert out["import"]["blend"]["1-4 h"]["0.001"]["fair_mae"] < 0.01
+    assert out["export"] == {"blend": {}}
+    only_b = por.replay(
+        {
+            "import": {
+                "a": {"1-4 h": _cells([0.2] * 60)},
+                "b": {"1-4 h": _cells([0.0] * 60)},
+            }
+        },
+        blend_sources={"import": {"1-4 h": ["b"]}},
+    )
+    assert only_b["import"]["blend"]["1-4 h"]["0.05"]["fair_mae"] == 0.0
 
     # test_loo_band_coverage
     assert peh.loo_band_coverage([1] * 10, list(range(10))) == (None, None)

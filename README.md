@@ -635,6 +635,12 @@ Edit inline on the dashboard without touching the wizard:
   over the horizon, and the solve cadence. Read from this install's own
   Solver, not from a sensor, so it is this install's solve even where another
   install's mirrored plan sensor overwrites the entity. Read-only.
+- `nimbus_load.replay_price_offsets`. Replays the price consolidation's
+  learned offsets over this install's stored price error history (21 days):
+  each source's error scored with hindsight, as the tracker does today, and
+  with the offset known when the forecast was issued, for several offset
+  memories, with the blend rebuilt the same way. For comparing scoring
+  methods before a change (#1786). Read-only.
 - `nimbus_load.get_dashboard`. Returns this install's standard Nimbus
   dashboard (Forecaster, Solver, Topology, Control Panel, Regret, Help), with
   every entity filled in, to paste into a dashboard's raw configuration

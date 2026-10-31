@@ -702,6 +702,10 @@
       "name": "Get stochastic summary",
       "description": "Returns the latest two-stage stochastic dispatch summary (shadow or drive), each scenario's planned battery state of charge and battery power over the horizon, and the solve cadence (last run, last fallback reason, backoff). Read from this install's own Solver, so it is correct even where another install's mirrored plan sensor overwrites this one's. Read-only."
     },
+    "replay_price_offsets": {
+      "name": "Replay price offsets",
+      "description": "Replays the price consolidation's learned offsets over this install's stored price error history (21 days): each source's error scored with hindsight, as today, and with the offset known when the forecast was issued, for several offset memories, with the blend rebuilt the same way. For comparing scoring methods before a change. Read-only."
+    },
     "export_decision_inputs": {
       "name": "Export decision inputs",
       "description": "Returns what the Solver decided on in a past window: each solve's first two hours of rows (prices with their source, load, solar, battery, SoC, grid), the full horizon every 30 minutes and whenever the dispatch direction changed, the resolved settings, the price and forecast sources' state at the time, and on each full horizon every price source's own forecast series. Kept 48 hours (heads) and 7 days (full horizons). Read-only; at most 24 hours per call.",
