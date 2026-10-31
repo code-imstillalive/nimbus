@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Grid Prices shows "AEMO's own price forecast" with the other AEMO sources.** In 0.94.503 it sat inside the collapsed Advanced section, so it couldn't be found where the docs said. 0.94.503's validation line said the setting was exercised through the options flow, but it was set through the API, never on the screen; the field was in the form, only out of view. A test now keeps every "Source" field on Grid Prices visible.
+
 ## [0.94.503] - 2026-11-01
 
 **Every price source is checked against the wholesale price, and the Price sources table adds up.**
