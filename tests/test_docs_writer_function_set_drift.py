@@ -863,6 +863,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # nimbus #2190: the price cross-check (solver_inputs/rrp_crosscheck.py),
         # a report only. The docs copy has no consolidation sources to check.
         "_amber_detailed",
+        "as_of",
         "_is_localvolts_spot",
         "_iso",
         "_key",

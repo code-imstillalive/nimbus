@@ -105,7 +105,18 @@ def test_each_source_reaches_the_rrp_and_disagreement_and_staleness_are_reported
     assert [s["source"] for s in stale] == ["c"] and stale[0]["intervals"] >= 2
 
     # test_the_published_report_carries_every_source_and_the_factor
-    report = rc.report(second, stale, SITE)
+    ages = {
+        "a": "2026-10-31T00:00:00+00:00",
+        "b": None,
+        "c": "2026-10-30T21:30:00+00:00",
+    }
+    report = rc.report(second, stale, SITE, ages)
+    assert [s["as_of"] for s in report["sources"]] == [ages["a"], None, ages["c"]]
+    assert (
+        rc.as_of({"attributes": {"forecast_generated_at": "x"}, "last_updated": "y"})
+        == "x"
+    )
+    assert rc.as_of({"attributes": {}, "last_updated": "y"}) == "y"
     assert report["site_loss_factor"] == pytest.approx(SITE)
     assert [s["source"] for s in report["sources"]] == ["a", "b", "c"]
     assert report["stale"] == stale and report["tolerance"] == rc.TOLERANCE

@@ -5616,18 +5616,22 @@ def rrp_crosscheck_report(cfg: dict, now: datetime) -> dict | None:
     tni, dlf_code = price_inputs._loss_factor_codes(sys.modules[__name__], cfg)
     site_factor = price_inputs.loss_factors.site_factor(tni, dlf_code, now).value
     reads = []
+    ages: dict[str, str | None] = {}
     for entity_id in entity_ids:
         try:
             st = ha_get(entity_id)
         except Exception as e:  # noqa: BLE001 - an unreadable source is reported, not fatal
             _LOGGER.debug("Nimbus #2190: %s unreadable: %s", entity_id, e)
             st = {}
+        ages[entity_id] = rrp_crosscheck.as_of(st)
         reads.append(
             rrp_crosscheck.read_source(
                 entity_id, st.get("state"), st.get("attributes"), site_factor, now
             )
         )
-    return rrp_crosscheck.report(reads, _RRP_STALE_WATCH.update(reads), site_factor)
+    return rrp_crosscheck.report(
+        reads, _RRP_STALE_WATCH.update(reads), site_factor, ages
+    )
 
 
 def apply_price_consolidation(

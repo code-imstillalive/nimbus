@@ -162,6 +162,23 @@ def read_source(
     return SourceRead(label, KIND_CURRENT, 1.0, {_key(now): value})
 
 
+#: Where each source shape says when its figures were made, newest first.
+AGE_KEYS = ("forecast_generated_at", "source_updated", "last_update")
+
+
+def as_of(state: Mapping[str, Any] | None) -> str | None:
+    """When a source's figures were made: its own forecast or update stamp,
+    else the entity's `last_updated`. Shown beside a disagreement, so an
+    old forecast is told apart from a wrong one (#2205)."""
+    state = state or {}
+    attrs = state.get("attributes") or {}
+    for key in AGE_KEYS:
+        if attrs.get(key):
+            return str(attrs[key])
+    value = state.get("last_updated")
+    return None if value is None else str(value)
+
+
 def _iso(key: int) -> str:
     return datetime.fromtimestamp(key * INTERVAL_SECONDS, UTC).isoformat()
 
@@ -227,9 +244,17 @@ class StaleWatch:
 
 
 def report(
-    reads: list[SourceRead], stale: list[dict[str, Any]], site_factor: float | None
+    reads: list[SourceRead],
+    stale: list[dict[str, Any]],
+    site_factor: float | None,
+    ages: Mapping[str, str | None] | None = None,
 ) -> dict[str, Any]:
-    """The published `rrp_crosscheck` attribute."""
+    """The published `rrp_crosscheck` attribute. `ages` is each source's
+    `as_of()`, shown per source and on each listed disagreement."""
+    ages = ages or {}
+    compared = compare(reads)
+    for row in compared["worst"]:
+        row["as_of"] = {label: ages.get(label) for label in row["rrp"]}
     return {
         "tolerance": TOLERANCE,
         "site_loss_factor": None if site_factor is None else round(site_factor, 6),
@@ -240,9 +265,10 @@ def report(
                 "divisor": None if r.divisor is None else round(r.divisor, 6),
                 "intervals": len(r.points),
                 "reason": r.reason,
+                "as_of": ages.get(r.label),
             }
             for r in reads
         ],
-        **compare(reads),
+        **compared,
         "stale": stale,
     }
