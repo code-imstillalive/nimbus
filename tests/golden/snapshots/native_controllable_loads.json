@@ -15052,6 +15052,7 @@
       "reserve_shadow_price_now": 0,
       "risk_aversion": 0.25,
       "risk_aversion_active": true,
+      "rrp_crosscheck": null,
       "salvage_value": 0.15,
       "signal_role": "battery",
       "solar_delivery_ratio": null,

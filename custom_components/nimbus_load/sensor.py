@@ -3694,8 +3694,15 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     # each source's running error and, for the Solver tab's Price sources
     # table, every source's next 24 prices -- a live display over 2 KB, not
     # history (caught by test_solver_push_attribute_size_budget, #625).
+    # "rrp_crosscheck" (nimbus #2190): a live comparison, not history.
     _unrecorded_attributes = frozenset(
-        {"forecast", "batteries", "stochastic_paths", "price_consolidation"}
+        {
+            "forecast",
+            "batteries",
+            "stochastic_paths",
+            "price_consolidation",
+            "rrp_crosscheck",
+        }
     )
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:

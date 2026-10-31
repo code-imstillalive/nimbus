@@ -19246,6 +19246,45 @@
       "reserve_shadow_price_now": 0.0,
       "risk_aversion": 0.25,
       "risk_aversion_active": true,
+      "rrp_crosscheck": {
+       "compared_intervals": 1,
+       "disagreeing_intervals": 1,
+       "site_loss_factor": null,
+       "sources": [
+        {
+         "as_of": null,
+         "divisor": 1.0,
+         "intervals": 1,
+         "kind": "current_price",
+         "reason": null,
+         "source": "sensor.fake_spot_now"
+        },
+        {
+         "as_of": null,
+         "divisor": 1.0,
+         "intervals": 289,
+         "kind": "pd7day",
+         "reason": null,
+         "source": "sensor.fake_spot_forecast"
+        }
+       ],
+       "stale": [],
+       "tolerance": 0.005,
+       "worst": [
+        {
+         "as_of": {
+          "sensor.fake_spot_forecast": null,
+          "sensor.fake_spot_now": null
+         },
+         "rrp": {
+          "sensor.fake_spot_forecast": 0.142,
+          "sensor.fake_spot_now": 0.136
+         },
+         "spread": 0.006,
+         "start": "2026-09-20T09:20:00+00:00"
+        }
+       ]
+      },
       "salvage_value": 0.12,
       "signal_role": "battery",
       "solar_delivery_ratio": null,
@@ -19992,6 +20031,16 @@
     {
      "method": "NATIVE_GET",
      "path": "/api/states/sensor.fake_sell_flex",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_spot_now",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_spot_forecast",
      "query": ""
     },
     {
@@ -39188,6 +39237,45 @@
       "reserve_shadow_price_now": 0.0,
       "risk_aversion": 0.25,
       "risk_aversion_active": true,
+      "rrp_crosscheck": {
+       "compared_intervals": 1,
+       "disagreeing_intervals": 1,
+       "site_loss_factor": null,
+       "sources": [
+        {
+         "as_of": null,
+         "divisor": 1.0,
+         "intervals": 1,
+         "kind": "current_price",
+         "reason": null,
+         "source": "sensor.fake_spot_now"
+        },
+        {
+         "as_of": null,
+         "divisor": 1.0,
+         "intervals": 289,
+         "kind": "pd7day",
+         "reason": null,
+         "source": "sensor.fake_spot_forecast"
+        }
+       ],
+       "stale": [],
+       "tolerance": 0.005,
+       "worst": [
+        {
+         "as_of": {
+          "sensor.fake_spot_forecast": null,
+          "sensor.fake_spot_now": null
+         },
+         "rrp": {
+          "sensor.fake_spot_forecast": 0.142,
+          "sensor.fake_spot_now": 0.136
+         },
+         "spread": 0.006,
+         "start": "2026-09-20T09:25:00+00:00"
+        }
+       ]
+      },
       "salvage_value": 0.12,
       "signal_role": "battery",
       "solar_delivery_ratio": null,
@@ -39749,6 +39837,16 @@
     {
      "method": "NATIVE_GET",
      "path": "/api/states/sensor.fake_sell_flex",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_spot_now",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_spot_forecast",
      "query": ""
     },
     {

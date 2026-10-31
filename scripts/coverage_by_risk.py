@@ -79,6 +79,7 @@ RISK_TIERS: list[tuple[str, str, int]] = [
     ("solver_inputs/price_consolidation.py", "prices", 1),
     ("solver_inputs/price_freshness.py", "prices", 1),
     ("solver_inputs/price_error_history.py", "prices", 1),
+    ("solver_inputs/rrp_crosscheck.py", "prices", 2),
     ("solver_inputs/battery_soc.py", "batteries and loads", 1),
     ("solver_inputs/battery_participants.py", "batteries and loads", 1),
     ("solver_inputs/extra_batteries.py", "batteries and loads", 1),

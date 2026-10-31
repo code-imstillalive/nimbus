@@ -16311,38 +16311,6 @@
           0.08,
           0.0676
          ],
-         "correction": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-         ],
          "sources": {
           "aemo_markup": [
            0.03,
@@ -16443,14 +16411,12 @@
          ]
         },
         "now": {
-         "consolidated": 0.0701,
-         "correction": 0.0,
+         "consolidated": 0.05,
          "settled": 0.0701,
          "sources": {
           "aemo_markup": 0.03,
           "primary": 0.0701
          },
-         "spread": 0.0401,
          "time": "2026-09-21T00:05:00+10:00"
         },
         "samples": {},
@@ -16502,38 +16468,6 @@
           0.1495,
           0.135,
           0.1226
-         ],
-         "correction": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
          ],
          "sources": {
           "aemo_markup": [
@@ -16635,14 +16569,12 @@
          ]
         },
         "now": {
-         "consolidated": 0.1801,
-         "correction": 0.0,
+         "consolidated": 0.1051,
          "settled": 0.1801,
          "sources": {
           "aemo_markup": 0.03,
           "primary": 0.1801
          },
-         "spread": 0.1501,
          "time": "2026-09-21T00:05:00+10:00"
         },
         "samples": {},
@@ -16666,6 +16598,32 @@
       "reserve_shadow_price_now": 0.0,
       "risk_aversion": 0.25,
       "risk_aversion_active": true,
+      "rrp_crosscheck": {
+       "compared_intervals": 1,
+       "disagreeing_intervals": 0,
+       "site_loss_factor": null,
+       "sources": [
+        {
+         "as_of": null,
+         "divisor": 1.0,
+         "intervals": 1,
+         "kind": "current_price",
+         "reason": null,
+         "source": "sensor.fake_spot_now"
+        },
+        {
+         "as_of": null,
+         "divisor": 1.0,
+         "intervals": 289,
+         "kind": "pd7day",
+         "reason": null,
+         "source": "sensor.fake_spot_forecast"
+        }
+       ],
+       "stale": [],
+       "tolerance": 0.005,
+       "worst": []
+      },
       "salvage_value": 0.12,
       "signal_role": "battery",
       "solar_delivery_ratio": null,
@@ -17364,6 +17322,16 @@
     },
     {
      "method": "GET",
+     "path": "/api/states/sensor.fake_spot_now",
+     "query": ""
+    },
+    {
+     "method": "GET",
+     "path": "/api/states/sensor.fake_spot_forecast",
+     "query": ""
+    },
+    {
+     "method": "GET",
      "path": "/api/states/sensor.fake_battery_soc",
      "query": ""
     },
@@ -17400,7 +17368,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 370392 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=335492B, batteries=23205B, price_consolidation=4725B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 370390 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=335492B, batteries=23205B, price_consolidation=4317B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   },
@@ -33643,38 +33611,6 @@
           0.0676,
           0.058
          ],
-         "correction": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
-         ],
          "sources": {
           "aemo_markup": [
            0.03,
@@ -33775,14 +33711,12 @@
          ]
         },
         "now": {
-         "consolidated": 0.0701,
-         "correction": 0.0,
+         "consolidated": 0.05,
          "settled": 0.0701,
          "sources": {
           "aemo_markup": 0.03,
           "primary": 0.0701
          },
-         "spread": 0.0401,
          "time": "2026-09-21T00:10:00+10:00"
         },
         "samples": {},
@@ -33834,38 +33768,6 @@
           0.135,
           0.1226,
           0.113
-         ],
-         "correction": [
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0
          ],
          "sources": {
           "aemo_markup": [
@@ -33967,14 +33869,12 @@
          ]
         },
         "now": {
-         "consolidated": 0.1801,
-         "correction": 0.0,
+         "consolidated": 0.1051,
          "settled": 0.1801,
          "sources": {
           "aemo_markup": 0.03,
           "primary": 0.1801
          },
-         "spread": 0.1501,
          "time": "2026-09-21T00:10:00+10:00"
         },
         "samples": {},
@@ -33998,6 +33898,32 @@
       "reserve_shadow_price_now": 0.0,
       "risk_aversion": 0.25,
       "risk_aversion_active": true,
+      "rrp_crosscheck": {
+       "compared_intervals": 1,
+       "disagreeing_intervals": 0,
+       "site_loss_factor": null,
+       "sources": [
+        {
+         "as_of": null,
+         "divisor": 1.0,
+         "intervals": 1,
+         "kind": "current_price",
+         "reason": null,
+         "source": "sensor.fake_spot_now"
+        },
+        {
+         "as_of": null,
+         "divisor": 1.0,
+         "intervals": 289,
+         "kind": "pd7day",
+         "reason": null,
+         "source": "sensor.fake_spot_forecast"
+        }
+       ],
+       "stale": [],
+       "tolerance": 0.005,
+       "worst": []
+      },
       "salvage_value": 0.12,
       "signal_role": "battery",
       "solar_delivery_ratio": null,
@@ -34507,6 +34433,16 @@
     {
      "method": "GET",
      "path": "/api/states/sensor.fake_sell_flex",
+     "query": ""
+    },
+    {
+     "method": "GET",
+     "path": "/api/states/sensor.fake_spot_now",
+     "query": ""
+    },
+    {
+     "method": "GET",
+     "path": "/api/states/sensor.fake_spot_forecast",
      "query": ""
     },
     {

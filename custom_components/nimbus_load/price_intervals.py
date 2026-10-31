@@ -261,18 +261,22 @@ _AMBER_MAX_INTERVAL = timedelta(minutes=30)
 
 
 # nimbus #1698 (Mark Purcell): Amber Express's `spot_per_kwh` is AEMO's
-# wholesale price for the SAME interval in the SAME response as `per_kwh`, but
-# GST-inclusive (measured 10 Oct 2026: 1.0998-1.1001 x AEMO RRP over four
-# intervals), so it is divided by this to sit on the ex-GST RRP basis the
-# rest of Nimbus's wholesale series use.
-AMBER_SPOT_GST_FACTOR = 1.10
+# wholesale price for the SAME interval in the SAME response as `per_kwh`,
+# times a measured 1.10 (1.0998-1.1001 x AEMO RRP over four intervals on
+# 10 Oct 2026; 1.1000 and 1.1003 on 31 Oct). Its cause is not established
+# (Mark, 31 Oct: not to be labelled GST), so this is a measured multiplier,
+# divided out to sit on the RRP basis the rest of Nimbus's wholesale series
+# use. It is not the site's loss factor: Amber's own feed-in `per_kwh` /
+# RRP gives that (#2190).
+AMBER_SPOT_MULTIPLIER = 1.10
 
 
 def amber_spot_in_progress(
     detailed: Any, now: datetime
 ) -> tuple[datetime, float] | None:
     """The interval in progress at `now` from an Amber Express
-    `detailedForecast`: (its start, `spot_per_kwh` ex GST), or None.
+    `detailedForecast`: (its start, `spot_per_kwh` / `AMBER_SPOT_MULTIPLIER`),
+    or None.
 
     The start is `end_time - duration` (Amber's own `start_time` reads one
     second in). A first post can still carry the previous interval's spot
@@ -290,7 +294,7 @@ def amber_spot_in_progress(
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
         if start <= now < end and end > start and math.isfinite(spot):
-            return start, spot / AMBER_SPOT_GST_FACTOR
+            return start, spot / AMBER_SPOT_MULTIPLIER
     return None
 
 

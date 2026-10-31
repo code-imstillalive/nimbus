@@ -242,6 +242,10 @@ try:
 except ImportError:
     from solver_inputs import price_consolidation  # type: ignore[no-redef]
 try:
+    from .solver_inputs import rrp_crosscheck
+except ImportError:
+    from solver_inputs import rrp_crosscheck  # type: ignore[no-redef]
+try:
     from .solver_inputs import solar_quantiles
 except ImportError:
     from solver_inputs import solar_quantiles  # type: ignore[no-redef]
@@ -5368,7 +5372,7 @@ def _wholesale_by_interval(
 ) -> dict[int, tuple[datetime, float]]:
     """The regional AEMO sensor's settled value per interval, overlaid with
     nimbus #1698's same-poll wholesale: where the retailer's own response
-    carried the interval's wholesale (Amber Express `spot_per_kwh`, ex GST),
+    carried the interval's wholesale (Amber Express `spot_per_kwh` / 1.10),
     it wins for that interval, as it shares the retail price's poll and so has
     no cross-sensor timing (a late AEMO post keyed into the wrong interval)."""
     aemo_history = (
@@ -5584,6 +5588,50 @@ def _loss_factor(prices: object) -> dict:
     codes are configured; empty otherwise."""
     lf = getattr(prices, "loss_factor", None)
     return {"loss_factor": lf} if lf else {}
+
+
+# nimbus #2190: kept across cycles, so a source that stays put while two
+# others move is seen.
+_RRP_STALE_WATCH = rrp_crosscheck.StaleWatch()
+
+
+def rrp_crosscheck_report(cfg: dict, now: datetime) -> dict | None:
+    """nimbus #2190 (Mark Purcell's design): every price source the
+    household lists for comparison, plus the regional AEMO sensors, brought
+    back to the RRP and compared per interval, current and future. A report
+    only: no price, plan or dispatch reads it. None when fewer than two
+    sources are configured."""
+    entity_ids = [
+        e
+        for e in (
+            cfg.get("solver_regional_spot_current_price_sensor"),
+            cfg.get("solver_regional_spot_forecast_sensor"),
+            *(cfg.get("solver_price_comparison_sensors") or []),
+        )
+        if e
+    ]
+    entity_ids = list(dict.fromkeys(entity_ids))
+    if len(entity_ids) < 2:
+        return None
+    tni, dlf_code = price_inputs._loss_factor_codes(sys.modules[__name__], cfg)
+    site_factor = price_inputs.loss_factors.site_factor(tni, dlf_code, now).value
+    reads = []
+    ages: dict[str, str | None] = {}
+    for entity_id in entity_ids:
+        try:
+            st = ha_get(entity_id)
+        except Exception as e:  # noqa: BLE001 - an unreadable source is reported, not fatal
+            _LOGGER.debug("Nimbus #2190: %s unreadable: %s", entity_id, e)
+            st = {}
+        ages[entity_id] = rrp_crosscheck.as_of(st)
+        reads.append(
+            rrp_crosscheck.read_source(
+                entity_id, st.get("state"), st.get("attributes"), site_factor, now
+            )
+        )
+    return rrp_crosscheck.report(
+        reads, _RRP_STALE_WATCH.update(reads), site_factor, ages
+    )
 
 
 def apply_price_consolidation(
@@ -9742,6 +9790,8 @@ def main() -> None:
         export_price_source,
     )
 
+    rrp_crosscheck_result = rrp_crosscheck_report(cfg, now)
+
     # nimbus #1778 (Mark Purcell): while the P5MIN false-spike flag holds,
     # forward spikes in the SCHEDULING prices -- whatever the source, after
     # blending -- are replaced; the current interval keeps its real price.
@@ -10118,6 +10168,7 @@ def main() -> None:
         ),
         price_source_freshness=price_source_freshness,
         price_consolidation=price_consolidation_result,
+        rrp_crosscheck=rrp_crosscheck_result,
         stochastic=_assembly.stochastic,
         stochastic_paths=_assembly.stochastic_paths,
         solar_quantiles=solar_quantile_result,
