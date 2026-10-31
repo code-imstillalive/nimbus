@@ -151,6 +151,23 @@ def test_lts_source_drops_insane_means():
     values = [v for _, v in result]
     assert values == [2.0], f"insane value must be dropped, got {values}"
 
+    # test_a_sensor_with_no_state_yet_uses_the_statistics_stored_unit (1 Nov
+    # 2026): an MQTT-fed solar copy had no state in the first seconds after a
+    # restart, so its watts were read as kW and 859 good rows dropped.
+    _install_lts_rows([{"start": now - timedelta(hours=1), "mean": 1706.7}])
+    stats = sys.modules["homeassistant.components.recorder.statistics"]
+    with patch.object(
+        stats,
+        "get_metadata",
+        MagicMock(return_value={"sensor.test_load": (1, {"unit_of_measurement": "W"})}),
+    ):
+        watts = _run(
+            coord._async_fetch_training_history(
+                "sensor.test_load", now - timedelta(hours=24), now, convert_power=True
+            )
+        )
+    assert [round(v, 4) for _, v in watts] == [1.7067]
+
     # test_the_same_implausible_point_warns_only_on_its_first_read
     getattr(coordinator_module, "_IMPLAUSIBLE_POINTS_WARNED", set()).clear()
     with (
