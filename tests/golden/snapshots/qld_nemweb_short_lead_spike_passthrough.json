@@ -15053,6 +15053,38 @@
           0.1176,
           0.1305
          ],
+         "correction": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+         ],
          "sources": {
           "aemo_markup": [
            0.0809,
@@ -15153,12 +15185,14 @@
          ]
         },
         "now": {
-         "consolidated": 0.0762,
+         "consolidated": 0.0715,
+         "correction": 0.0,
          "settled": 0.0715,
          "sources": {
           "aemo_markup": 0.0809,
           "primary": 0.0715
          },
+         "spread": 0.0094,
          "time": "2026-08-05T07:31:00+10:00"
         },
         "samples": {},
@@ -15210,6 +15244,38 @@
           0.2008,
           0.2376,
           0.2505
+         ],
+         "correction": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
          ],
          "sources": {
           "aemo_markup": [
@@ -15311,12 +15377,14 @@
          ]
         },
         "now": {
-         "consolidated": 0.1962,
+         "consolidated": 0.1915,
+         "correction": 0.0,
          "settled": 0.1915,
          "sources": {
           "aemo_markup": 0.2009,
           "primary": 0.1915
          },
+         "spread": 0.0094,
          "time": "2026-08-05T07:31:00+10:00"
         },
         "samples": {},
@@ -15673,7 +15741,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 378577 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=343710B, batteries=23578B, price_consolidation=4360B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 378983 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=343710B, batteries=23578B, price_consolidation=4766B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   }
