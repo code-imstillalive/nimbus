@@ -13,6 +13,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 **Power history is read in the right unit even when a sensor has not reported yet.**
 
 - **Long-term history in the right unit** (#2222). A power sensor with no state yet (an MQTT-fed copy in the first seconds after a restart) had its hourly history read with no unit, so watts were taken as kW and good rows dropped as implausible (859 on the test box on 1 Nov). The unit stored with the statistics is now used when the live state has none. Installs whose power sensors are local and ready at start-up were not affected.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 06fbe8a3** (`release/0.94.505`, installed through HACS untagged and restarted at 10:40 AEST, 1 Nov; read through 10:45). 123 of the 127 Nimbus entities carrying a version read 0.94.505; the other four are the daily reports. None of the 384 Nimbus entities unavailable; plan `optimal`. After the restart the only long-term rows dropped as implausible are the grid meter copy's two genuinely corrupt means (8 and 5 million kW), as on every start; no solar rows, where 0.94.504's start dropped 859. That one start doesn't prove the start-up race recurred, since the solar copy may simply have been ready in time. The fix itself is proved by its test failing without it on CI (run 41252721588). No new WARNING or ERROR.
+- Consumer check: no setting, entity or attribute is added, moved or renamed. A power sensor with no state yet keeps its long-term history in its stored unit instead of having it dropped.
 
 ## [0.94.504] - 2026-11-01
 
