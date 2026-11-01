@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.505] - 2026-11-01
+
+**Power history is read in the right unit even when a sensor has not reported yet.**
+
+- **Long-term history in the right unit** (#2222). A power sensor with no state yet (an MQTT-fed copy in the first seconds after a restart) had its hourly history read with no unit, so watts were taken as kW and good rows dropped as implausible (859 on the test box on 1 Nov). The unit stored with the statistics is now used when the live state has none. Installs whose power sensors are local and ready at start-up were not affected.
+
 ## [0.94.504] - 2026-11-01
 
 **The price consolidation scores every source fairly, and Grid Prices shows every price source.**
@@ -17,6 +23,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Grid Prices shows "AEMO's own price forecast" with the other AEMO sources.** In 0.94.503 it sat inside the collapsed Advanced section, out of view, not where the docs placed it.
 - **Advanced sections show their labels.** On Grid Prices and Sources, the fields inside Advanced showed raw names such as `solver_price_comparison_sensors`; they now show the same labels and help text as elsewhere.
 - **Correction to 0.94.503's validation line:** the AEMO forecast setting was set, cleared and set through the API, not on the screen, which was never opened. That is how the hidden field was missed.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 37c8fb4c** (`release/0.94.504`, installed through HACS untagged and restarted at 09:21 AEST, 1 Nov; read through 09:30). 123 of the 127 Nimbus entities carrying a version read 0.94.504; the other four are the daily reports. None of the 384 Nimbus entities unavailable; plan `optimal`; cross-check comparing 5 sources; `nimbus_load.replay_price_offsets` registered. **Grid Prices checked on the form itself** (options flow stepped through the API to the Grid Prices step, then cancelled, nothing saved): "AEMO's own price forecast" is at the top, between the regional forecast and the regional price now, and only the postcode, price event and two envelope fields sit in Advanced. Home Assistant serves the Advanced sections' labels ("Optional: price sources to record for comparison only", not the raw key). The scoring change runs in the tracker every cycle; its effect on the blend is to be measured going forward (#1786). Log: no new Nimbus WARNING or ERROR from this release. One older fault showed on this start and is fixed separately: the test box's MQTT-fed solar copy had no state yet when its hourly history was read, so watts were taken as kW and 859 rows dropped as implausible. The production install's local solar sensor is unaffected (none in its log).
+- Consumer check: one new read-only service (`nimbus_load.replay_price_offsets`). The consolidation's per-source scores and offsets change meaning (fair, slower offset from 1 h out, no spike pairs), which matters only where consolidation is switched live. "AEMO's own price forecast" moves up from Advanced on Grid Prices with its stored value unchanged. No setting is moved in storage and no entity renamed.
 
 ## [0.94.503] - 2026-11-01
 

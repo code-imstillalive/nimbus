@@ -215,6 +215,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.505",
+        "1 Nov 2026",
+        (
+            (
+                "**Training history:** a power sensor that has not reported "
+                "yet after a restart keeps its history in the right unit."
+            ),
+        ),
+    ),
+    (
         "0.94.504",
         "1 Nov 2026",
         (
