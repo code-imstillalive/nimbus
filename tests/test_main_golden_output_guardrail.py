@@ -661,6 +661,7 @@ _EXPECTED_ATTRS["price_consolidation"]["import"]["next"] = {
         "2026-09-07T05:30:00+10:00",
         "2026-09-07T06:00:00+10:00",
     ],
+    "starts": {},
 }
 _EXPECTED_ATTRS["price_consolidation"]["export"]["next"] = {
     "consolidated": [
@@ -761,6 +762,7 @@ _EXPECTED_ATTRS["price_consolidation"]["export"]["next"] = {
         "2026-09-07T05:30:00+10:00",
         "2026-09-07T06:00:00+10:00",
     ],
+    "starts": {},
 }
 
 # Household, 21 Oct 2026: the table's Now column reads each side's interval
