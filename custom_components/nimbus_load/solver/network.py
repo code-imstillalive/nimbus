@@ -3307,6 +3307,20 @@ def _build_plan_once(
     )
     for t, short in block_short.items():
         p.set_cost(short, block_short_penalty_rate * hours[t])
+    # nimbus #2228: the battery sell margin. sold[t] >= grid_export[t] -
+    # solar_used[t] is the export the solar in that period can't account
+    # for, so it came from a battery; at a positive cost the LP holds sold[t]
+    # at exactly that. Energy the battery puts into the house is never in
+    # it. Off (no variables) at 0.
+    if grid.battery_sell_margin > 0 and batteries:
+        for t in range(n):
+            sold = p.add_variable(f"battery_sold_{t}", lb=0.0)
+            p.add_ub_constraint(
+                {grid_export[t]: 1.0, solar_used[t]: -1.0, sold: -1.0},
+                0.0,
+                name=f"battery_sold_{t}",
+            )
+            p.set_cost(sold, grid.battery_sell_margin * hours[t])
     # nimbus issue #1480: per-battery (charge, discharge) loss tie-break
     # rates, recorded where they are priced so the solved total can be
     # reported without re-deriving the formula.

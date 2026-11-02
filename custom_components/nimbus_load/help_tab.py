@@ -1789,6 +1789,10 @@ SETTINGS: dict[str, tuple[str, str]] = {
         "The reserve is sold only when the price beats this margin.",
         "$/kWh.",
     ),
+    "solver_battery_sell_margin": (
+        "A cost on each kWh the battery sells to the grid; covering the house is not charged.",
+        "$/kWh; 0 = off.",
+    ),
     "solver_export_floor_price": (
         "Under this export price, spare solar fills the battery before any is sold. A full battery still exports.",
         "$/kWh; 0 = off.",

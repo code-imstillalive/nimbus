@@ -1735,6 +1735,15 @@ def assemble_and_solve_plan(
                 0.0,  # const.DEFAULT_SOLVER_EXPORT_FLOOR_PRICE
             ),
         ),
+        # nimbus #2228: cost on battery energy sold to the grid.
+        battery_sell_margin=max(
+            0.0,
+            _cfg_num(
+                cfg,
+                "solver_battery_sell_margin",
+                0.0,  # const.DEFAULT_SOLVER_BATTERY_SELL_MARGIN
+            ),
+        ),
     )
     solar = elements.SolarConfig(
         forecast_kw=np.array(solar_kw),

@@ -270,6 +270,7 @@ tune these directly, no need to re-run the wizard. Every entry in
 | `number.nimbus_solver_solar_running_low_confirm_minutes` | Solar Running Low Confirm: every reading must stay below *On Below* for this long before it turns on; 0 = on at the first low reading | 10.0 | 0-60 | min |
 | `number.nimbus_solver_battery_reserve_percent` | Battery Reserve: The bottom share of the battery kept back between the hold times | 0.0 | 0-100 | % |
 | `number.nimbus_solver_battery_reserve_release_price` | Battery Reserve Release Price: The reserve is sold only when the price beats this margin | 0.0 | 0-20 | $/kWh |
+| `number.nimbus_solver_battery_sell_margin` | Battery Sell Margin: A cost on each kWh the battery sells to the grid; covering the house is not charged | 0.0 | 0-1 | $/kWh |
 | `number.nimbus_solver_export_floor_price` | Don't Sell Below: Under this export price, spare solar fills the battery before any is sold. A full battery still exports | 0.0 | 0-20 | $/kWh |
 | `number.nimbus_solver_period0_hysteresis` | Direction Change Margin: Keeps the battery charging, holding or discharging unless a switch saves more than this | 0.01 | 0-1 | $ |
 | `number.nimbus_solver_charge_taper_start_percent` | Charge Taper Start: SoC at which the charge limit starts to fall | 90.0 | 50-100 | % |

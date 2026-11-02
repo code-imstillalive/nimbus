@@ -78,6 +78,7 @@ from .const import (
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
+    CONF_SOLVER_BATTERY_SELL_MARGIN,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
     CONF_SOLVER_CHARGE_BY_PERCENT,
     CONF_SOLVER_CHARGE_COST,
@@ -138,6 +139,7 @@ from .const import (
     DEFAULT_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     DEFAULT_SOLVER_BATTERY_RESERVE_PERCENT,
     DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
+    DEFAULT_SOLVER_BATTERY_SELL_MARGIN,
     DEFAULT_SOLVER_CHARGE_BY_PERCENT,
     DEFAULT_SOLVER_CHARGE_COST,
     DEFAULT_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
@@ -460,6 +462,16 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         20,
         0.01,
+        _CURRENCY_PER_KWH,
+    ),
+    # nimbus #2228: the cost on battery energy sold to the grid (const.py).
+    _SolverNumberDescription(
+        CONF_SOLVER_BATTERY_SELL_MARGIN,
+        "Battery Sell Margin",
+        DEFAULT_SOLVER_BATTERY_SELL_MARGIN,
+        0,
+        1,
+        0.005,
         _CURRENCY_PER_KWH,
     ),
     # nimbus issue #1654, option A: period-0 direction hysteresis (const.py).
