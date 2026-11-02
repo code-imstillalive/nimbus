@@ -236,7 +236,7 @@ tune these directly, no need to re-run the wizard. Every entry in
 | `number.nimbus_solver_grid_max_import_kw` | Grid Max Import | 0.1 | 0.1-1000 | kW |
 | `number.nimbus_solver_grid_max_export_kw` | Grid Max Export | 0.1 | 0.1-1000 | kW |
 | `number.nimbus_solver_charge_cost` | Charge Cost | 0.01 | 0-10 | $/kWh |
-| `number.nimbus_solver_discharge_cost` | Discharge Cost | 0.01 | 0-10 | $/kWh |
+| `number.nimbus_solver_discharge_cost` | Discharge Cost: on every kWh out of the battery, house and grid alike; to guard only against selling, use Battery Sell Margin | 0.01 | 0-10 | $/kWh |
 | `number.nimbus_solver_salvage_value` | Salvage Value | 0.15 | 0-10 | $/kWh |
 | `number.nimbus_solver_degradation_cost_per_kwh` | Battery Degradation Cost | 0.0 | 0-10 | $/kWh |
 | `number.nimbus_solver_p2p_bonus_price` | P2P Bonus Price | 0.0 | 0-10 | $/kWh |
