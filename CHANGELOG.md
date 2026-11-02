@@ -8,11 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.506] - 2026-11-03
+
+**A new Battery Sell Margin prices battery energy sold to the grid, so a guard against selling cheap no longer keeps the battery off the house.**
+
+- **Battery Sell Margin** (#2228, #2229, reviewed by Mark Purcell). Discharge Cost prices every kWh out of the battery, whether it covers the house or is sold. Raised to stop the plan selling now against a low near-term forecast (#1749), it also kept the battery off the house: on the reference household on 3 Nov, at 5c it held about 18 % overnight and bought from the grid at 18-20c. The new setting (Solver tab, beside Discharge cost; $/kWh, 0 = off) prices only export the period's solar can't account for, i.e. battery energy sold. Covering the house and exporting solar are never charged, and committed P2P blocks are exempt, as "Don't sell below" already exempts them. To keep a sell guard without blocking the house, lower Discharge Cost to the wear cost and put the rest in the margin (the reference household: 0.01 and 0.04). At the default 0 nothing changes.
 ## [0.94.505] - 2026-11-01
 
 **Power history is read in the right unit even when a sensor has not reported yet.**
 
 - **Long-term history in the right unit** (#2222). A power sensor with no state yet (an MQTT-fed copy in the first seconds after a restart) had its hourly history read with no unit, so watts were taken as kW and good rows dropped as implausible (859 on the test box on 1 Nov). The unit stored with the statistics is now used when the live state has none. Installs whose power sensors are local and ready at start-up were not affected.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 06fbe8a3** (`release/0.94.505`, installed through HACS untagged and restarted at 10:40 AEST, 1 Nov; read through 10:45). 123 of the 127 Nimbus entities carrying a version read 0.94.505; the other four are the daily reports. None of the 384 Nimbus entities unavailable; plan `optimal`. After the restart the only long-term rows dropped as implausible are the grid meter copy's two genuinely corrupt means (8 and 5 million kW), as on every start; no solar rows, where 0.94.504's start dropped 859. That one start doesn't prove the start-up race recurred, since the solar copy may simply have been ready in time. The fix itself is proved by its test failing without it on CI (run 41252721588). No new WARNING or ERROR.
+- Consumer check: no setting, entity or attribute is added, moved or renamed. A power sensor with no state yet keeps its long-term history in its stored unit instead of having it dropped.
 
 ## [0.94.504] - 2026-11-01
 

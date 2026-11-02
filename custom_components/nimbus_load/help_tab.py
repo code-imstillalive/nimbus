@@ -215,6 +215,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.506",
+        "3 Nov 2026",
+        (
+            (
+                "**Battery Sell Margin:** a cost on battery energy sold to the "
+                "grid only, so a guard against selling cheap no longer stops "
+                "the battery covering the house."
+            ),
+        ),
+    ),
+    (
         "0.94.505",
         "1 Nov 2026",
         (
