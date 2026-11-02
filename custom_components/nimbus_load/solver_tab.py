@@ -437,10 +437,10 @@ _CONSOLIDATION_SOURCES = {
         "{% else %}"
         "**Price sources**{% if spread is not none %}: they differ now by {{ (spread * 100) | round(1) }}¢{% endif %}\n\n"
         "{% set mae = imp.get('mae_by_source_and_lead') or {} %}"
-        "{% set w = (imp.get('weights') or {}).get('5-60 min') or {} %}"
+        "{% set allw = imp.get('weights') or {} %}{% set w = allw.get('5-60 min') or {} %}"
         "{% set nx = imp.get('next') or {} %}{% set times = nx.get('times') or [] %}"
         "{% set srcs = nx.get('sources') or {} %}{% set blend = nx.get('consolidated') or [] %}"
-        "{% set corr = nx.get('correction') or [] %}"
+        "{% set corr = nx.get('correction') or [] %}{% set starts = nx.get('starts') or {} %}"
         "{% set prim = srcs.get('primary') or [] %}"
         "{% set nw = imp.get('now') or {} %}{% set nsrc = nw.get('sources') or {} %}"
         f"{{% set y = '{_NOW_COLOUR}' %}}"
@@ -451,7 +451,17 @@ _CONSOLIDATION_SOURCES = {
         "{% for t in times %}| {{ as_timestamp(t) | timestamp_custom('%H:%M') }} {% endfor %}|\n"
         "|---|---|---|---|---|---{% if nw %}|---{% endif %}{% for t in times %}|---{% endfor %}|\n"
         "{% for n in names %}{% set m = mae.get(n) or {} %}{% set v = srcs.get(n) or [] %}"
-        "| {{ label.get(n, n) }} | {{ ((w.get(n) * 100) | round(0) | int ~ '%') if w.get(n) is not none else '—' }} "
+        # Household, 2 Nov 2026 ("i thought it was supposed to be a
+        # contributing % to the whole total? it is useless there"): a source
+        # with no share over the next hour shows its share where it does
+        # count, and when its prices start.
+        "{% set st = starts.get(n) %}"
+        "| {{ label.get(n, n) }}{% if st %}<br>*prices from {{ as_timestamp(st) | timestamp_custom('%a %H:%M') }}*{% endif %} | "
+        "{% if w.get(n) is not none %}{{ (w.get(n) * 100) | round(0) | int ~ '%' }}"
+        "{% else %}{% set ns = namespace(s='—') %}"
+        "{% for b in ['1-4 h', '4-24 h'] %}{% set wb = (allw.get(b) or {}).get(n) %}"
+        "{% if ns.s == '—' and wb is not none %}{% set ns.s = (wb * 100) | round(0) | int ~ '% (' ~ b ~ ')' %}{% endif %}{% endfor %}"
+        "{{ ns.s }}{% endif %} "
         "{% for b in buckets %}| {{ ((m.get(b) * 100) | round(1) ~ '¢') if m.get(b) is not none else '—' }} {% endfor %}"
         "{% if nw %}| <font color='{{ y }}'>**{{ c(nsrc.get(n)) }}**</font> {% endif %}"
         "{% for i in range(times | length) %}| {{ ((v[i] * 100) | round(1)) if i < v | length and v[i] is not none else '—' }} {% endfor %}|\n"
@@ -473,7 +483,7 @@ _CONSOLIDATION_SOURCES = {
         "| {% if b is not none and p0 is not none %}<font color='violet'>{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}</font>{% endif %} {% endfor %}|\n"
         "{% endif %}"
         "\n*Now: the interval running now. "
-        "Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend; — while it is still being scored, when it does not count. "
+        "Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend over the next hour; a source with no price that close shows its share where it does count, in brackets; — while it is still being scored, when it does not count. "
         "Learned correction: what the blend adds for each source's usual error, so Blend = the sources' weighted price + the correction; none for Now, whose price is settled. Prices in ¢/kWh.*"
         "{% endif %}"
     ),
