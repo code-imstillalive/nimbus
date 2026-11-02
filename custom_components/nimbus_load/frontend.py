@@ -81,6 +81,10 @@ _CARDS: tuple[_CardAsset, ...] = (
     # shipped card was Solver-side and a household could see its
     # forecasts only as raw sensor attributes.
     _CardAsset("nimbus-forecast-card.js", "nimbus-forecast-card"),
+    # Household, 3 Nov 2026: "Nimbus tabs" -- adds a release's updated tabs
+    # beside the household's own, from the browser on their click (Nimbus
+    # itself writes no dashboard; see the card's header).
+    _CardAsset("nimbus-tabs-card.js", "nimbus-tabs-card"),
 )
 
 
