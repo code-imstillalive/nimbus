@@ -239,6 +239,104 @@ def test_a_circuit_naming_an_unknown_load_is_refused_by_name():
     assert expected > 0
     assert plan.export_floor_penalty_cost == pytest.approx(expected, rel=1e-6)
 
+    # test_the_sell_margin_prices_battery_exports_not_covering_the_house
+    # (#2228, household 3 Nov 2026: a 5c discharge cost, set to stop selling
+    # against a low forecast (#1749), also kept the battery off the house
+    # all night at 18-20c). The margin prices only export the solar can't
+    # account for.
+    _solver_lp._lex_calibration_failed_until = 0.0
+
+    def _margin_plan(imp, exp, dc, margin, soc, pv=None):
+        n = len(imp)
+        return build_plan(
+            periods=PeriodGrid(np.ones(n)),
+            grid=GridConfig(
+                import_price=np.array(imp),
+                export_price=np.array(exp),
+                import_limit_kw=40.0,
+                export_limit_kw=40.0,
+                battery_sell_margin=margin,
+            ),
+            batteries=[
+                BatteryConfig(
+                    name="home",
+                    capacity_kwh=50.0,
+                    initial_soc_kwh=soc,
+                    min_soc_kwh=1.0,
+                    max_soc_kwh=50.0,
+                    max_charge_kw=20.0,
+                    max_discharge_kw=20.0,
+                    charge_efficiency=0.9263,
+                    discharge_efficiency=0.9263,
+                    charge_cost=0.005,
+                    discharge_cost=dc,
+                    salvage_value=0.12,
+                )
+            ],
+            solar=SolarConfig(forecast_kw=np.zeros(n) if pv is None else np.array(pv)),
+            loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        )
+
+    night = ([0.18, 0.18, 0.115, 0.115], [0.11, 0.11, 0.06, 0.06])
+    held = _margin_plan(*night, dc=0.05, margin=0.0, soc=20.0)
+    assert float(held.batteries[0].discharge_kw[0]) == pytest.approx(0.0, abs=1e-6)
+    covered = _margin_plan(*night, dc=0.01, margin=0.04, soc=20.0)
+    assert float(covered.batteries[0].discharge_kw[0]) > 0.9
+    # The #1749 trade: sell now at 10c, buy back at 5c. Sold at 0.01 with no
+    # margin, not sold with the margin.
+    trade = ([0.12, 0.05, 0.05], [0.10, 0.02, 0.02])
+    assert (
+        float(_margin_plan(*trade, dc=0.01, margin=0.0, soc=49.0).grid_export_kw[0])
+        > 1.0
+    )
+    assert float(
+        _margin_plan(*trade, dc=0.01, margin=0.04, soc=49.0).grid_export_kw[0]
+    ) == pytest.approx(0.0, abs=1e-6)
+    # Solar export is never charged: same plan and cost either way.
+    sunny = ([0.2, 0.2], [0.1, 0.1])
+    a = _margin_plan(*sunny, dc=0.01, margin=0.0, soc=50.0, pv=[5.0, 5.0])
+    b = _margin_plan(*sunny, dc=0.01, margin=0.04, soc=50.0, pv=[5.0, 5.0])
+    np.testing.assert_allclose(a.grid_export_kw, b.grid_export_kw, atol=1e-6)
+    assert a.total_cost == pytest.approx(b.total_cost, abs=1e-6)
+    # A committed P2P block is exempt (Mark Purcell, #2229), the same
+    # periods export_floor_price exempts: same plan and cost either way.
+    pinned = np.array([5.0, np.nan, np.nan])
+
+    def _pinned(margin):
+        return build_plan(
+            periods=PeriodGrid(np.ones(3)),
+            grid=GridConfig(
+                import_price=np.array(trade[0]),
+                export_price=np.array(trade[1]),
+                import_limit_kw=40.0,
+                export_limit_kw=40.0,
+                fixed_export_kw=pinned,
+                battery_sell_margin=margin,
+            ),
+            batteries=[
+                BatteryConfig(
+                    name="home",
+                    capacity_kwh=50.0,
+                    initial_soc_kwh=30.0,
+                    min_soc_kwh=1.0,
+                    max_soc_kwh=50.0,
+                    max_charge_kw=20.0,
+                    max_discharge_kw=20.0,
+                    charge_efficiency=0.9263,
+                    discharge_efficiency=0.9263,
+                    charge_cost=0.005,
+                    discharge_cost=0.01,
+                    salvage_value=0.12,
+                )
+            ],
+            solar=SolarConfig(forecast_kw=np.zeros(3)),
+            loads=[LoadConfig(name="house", forecast_kw=np.ones(3))],
+        )
+
+    free, margined = _pinned(0.0), _pinned(0.04)
+    assert float(margined.grid_export_kw[0]) == pytest.approx(5.0, abs=1e-6)
+    assert free.total_cost == pytest.approx(margined.total_cost, abs=1e-6)
+
 
 def _tank_plan(n=24, **coupling):
     th = {

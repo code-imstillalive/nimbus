@@ -1583,6 +1583,12 @@ DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = 0.0
 # = off, plans unchanged. See solver/elements.py's GridConfig.
 CONF_SOLVER_EXPORT_FLOOR_PRICE: Final = "solver_export_floor_price"
 DEFAULT_SOLVER_EXPORT_FLOOR_PRICE: Final = 0.0
+# nimbus #2228 (household, 3 Nov 2026: "it is making no economical sense"):
+# a cost on each kWh the battery sends to the grid, and only that. Discharge
+# Cost prices every discharged kWh, so raising it to stop selling against a
+# low forecast (#1749) also stopped the battery covering the house. 0 = off.
+CONF_SOLVER_BATTERY_SELL_MARGIN: Final = "solver_battery_sell_margin"
+DEFAULT_SOLVER_BATTERY_SELL_MARGIN: Final = 0.0
 # nimbus issue #1654, option A: keep the battery's period-0 direction
 # (charge / hold / discharge, the dispatch deadband's three classes) unless
 # switching saves more than this ($ over the horizon). 18 Oct 05:25-06:56 the

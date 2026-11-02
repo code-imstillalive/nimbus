@@ -2839,12 +2839,17 @@ def _build_plan_once(
     # committed part it is then a constant, which changes no decision and is
     # left out of the published plan cost like the rest of the penalty.
     export_floor_exempt0 = False  # #1990: read again by the offer curve
+    # nimbus #2228 (Mark Purcell, review of #2229): the battery sell margin
+    # skips the same committed periods. A sale already promised at an agreed
+    # price is not the forecast trade either guard-rail is there to stop.
+    sell_margin_exempt = np.zeros(n, dtype=bool)
     if grid.fixed_export_kw is not None:
         committed = np.asarray(grid.fixed_export_kw, dtype=float)[:n] > 0
         if spike_overrides_p2p_at_t0 and n:
             committed[0] = False
         export_floor_exempt0 = bool(n and committed[0])
         export_floor_penalty = np.where(committed, 0.0, export_floor_penalty)
+        sell_margin_exempt[: len(committed)] = committed
 
     # Mechanism 3 continued: sheddable loads' own effective (pessimistic-
     # leaning) demand -- both the shed ceiling and the balance-equation
@@ -3307,6 +3312,22 @@ def _build_plan_once(
     )
     for t, short in block_short.items():
         p.set_cost(short, block_short_penalty_rate * hours[t])
+    # nimbus #2228: the battery sell margin. sold[t] >= grid_export[t] -
+    # solar_used[t] is the export the solar in that period can't account
+    # for, so it came from a battery; at a positive cost the LP holds sold[t]
+    # at exactly that. Energy the battery puts into the house is never in
+    # it. Off (no variables) at 0.
+    if grid.battery_sell_margin > 0 and batteries:
+        for t in range(n):
+            if sell_margin_exempt[t]:
+                continue  # a committed block (see sell_margin_exempt above)
+            sold = p.add_variable(f"battery_sold_{t}", lb=0.0)
+            p.add_ub_constraint(
+                {grid_export[t]: 1.0, solar_used[t]: -1.0, sold: -1.0},
+                0.0,
+                name=f"battery_sold_{t}",
+            )
+            p.set_cost(sold, grid.battery_sell_margin * hours[t])
     # nimbus issue #1480: per-battery (charge, discharge) loss tie-break
     # rates, recorded where they are priced so the solved total can be
     # reported without re-deriving the formula.

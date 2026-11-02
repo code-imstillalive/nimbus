@@ -336,6 +336,12 @@ class GridConfig:
     # grid_net stays the real cash flow. 0.0 (the default) = off,
     # byte-identical to before.
     export_floor_price: float = 0.0
+    # nimbus #2228: $/kWh on battery energy exported, i.e. on export above
+    # the solar used in the same period (`grid_export - solar_used`, floored
+    # at 0). Covering the house is not charged, unlike the battery's
+    # discharge_cost, which prices every discharged kWh. 0.0 = off,
+    # byte-identical to before.
+    battery_sell_margin: float = 0.0
 
     def __post_init__(self) -> None:
         # nimbus issue #493: both may now be a per-period array -- check
@@ -347,6 +353,9 @@ class GridConfig:
             raise ValueError(msg)
         if not self.export_floor_price >= 0:
             msg = "export_floor_price must be >= 0 (0 = off)"
+            raise ValueError(msg)
+        if not self.battery_sell_margin >= 0:
+            msg = "battery_sell_margin must be >= 0 (0 = off)"
             raise ValueError(msg)
         if not np.isscalar(self.import_limit_kw) and len(
             np.asarray(self.import_limit_kw)

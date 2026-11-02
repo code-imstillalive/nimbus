@@ -212,6 +212,7 @@ _COSTS: _Card = (
     [
         ("solver_charge_cost", "Charge cost"),
         ("solver_discharge_cost", "Discharge cost"),
+        ("solver_battery_sell_margin", "Sell margin"),
         ("solver_degradation_cost_per_kwh", "Battery wear cost"),
         ("solver_salvage_value", "Value left at end"),
         (
