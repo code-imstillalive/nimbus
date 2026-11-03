@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.510] - 2026-11-03
+
+**Device setup no longer counts a Load on the whole-house sensor as a second device.**
+
+- **A Load forecasting the house is the house** (#2244, #2245, raised by Mark Purcell). A Load on the same sensor as the whole-house cross-check is a normal way to forecast the house, but importing the settings into device setup made it a second load device, so the dry run reported `binding_source_duplicate` and refused shadow mode. The Load now joins the house's own power reading (its history and source are recorded there) instead of adding a device. A Load on any other sensor is unchanged.
+
 ## [0.94.509] - 2026-11-03
 
 **Fixes from the HACS store review: admin-only services, escaped card text, and nothing blocking Home Assistant's event loop.**
@@ -17,6 +23,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **No 15-second freeze with a thermal load and a weather forecast** (#2240). The dispatch step waited, on Home Assistant's own event loop, for a forecast scheduled on that same loop: on an install with a thermal controllable load and the Solver's weather forecast set, Home Assistant stopped for 15 seconds every solve and the ambient forecast never arrived. It is now awaited properly.
 - **Device setup's history pairing and the load forecast's occupancy profile run off the event loop** (#2240), so opening Device setup or a retrain no longer stalls Home Assistant on a fast power sensor or a long history.
 - The controllable-load schedule sensors use Home Assistant's own time zone instead of building one each update (#2240).
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at ee8dc21b** (`release/0.94.509`, installed through HACS untagged and restarted at 13:42 AEST, 3 Nov; read through 13:52). 123 of the 127 Nimbus entities carrying a version read 0.94.509; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal`; Discharge Cost and Battery Sell Margin kept their values over the restart. The served dispatch card carries the escaping. With the Solver's weather forecast set (`weather.forecast_home`) and the test box's thermal controllable loads, devhub's API answered 341 requests over 3 minutes at 0.37 s at most, no stall. **Not reproduced:** the 15 s freeze itself; on 0.94.508 with the same settings, 458 requests over 4 minutes also answered within 0.47 s, so the fix rests on the code path and its test, not on a before/after measurement. The admin-only services were not called as a non-admin user (no such login on the test box); their registration is covered by test. Log: no new Nimbus WARNING or ERROR from this release. The first solves after the restart ran 12-20 s (one hit the 20 s limit), as after 0.94.508's restart at 11:54; no solver code changed.
+- Consumer check: three services (`set_controllable_load`, `device_contract_set_mode`, `device_contract_confirm`) now refuse a non-admin user. No setting, entity or attribute is added, moved or renamed. Plans are unchanged.
 
 ## [0.94.508] - 2026-11-03
 
