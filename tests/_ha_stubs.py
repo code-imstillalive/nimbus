@@ -691,6 +691,24 @@ def install_ha_stubs() -> None:
         async_get=MagicMock(),
     )
     module("homeassistant.helpers.storage", Store=_StubStore)
+
+    def _register_admin_service(
+        hass, domain, service, service_func, schema=None, supports_response=None
+    ):
+        # Real HA wraps the handler in an admin check on the caller; here the
+        # wrapper is marked so a test can see which services are admin-only.
+        async def handler(call):
+            return await service_func(call)
+
+        handler.admin_only = True
+        hass.services.async_register(
+            domain, service, handler, schema=schema, supports_response=supports_response
+        )
+
+    module(
+        "homeassistant.helpers.service",
+        async_register_admin_service=_register_admin_service,
+    )
     # nimbus #1550: select.py's pricing-source select re-detects providers
     # once HA has started.
     module("homeassistant.helpers.start", async_at_started=MagicMock())

@@ -123,6 +123,20 @@ def test_every_service_registers_once_and_unloads_completely(monkeypatch):
     assert hass.services.handlers == {}
     svc.async_unregister_services(hass)  # and twice is harmless
 
+    # test_services_that_write_the_configuration_are_admin_only: HACS review
+    # (hacs/default#12099, 2 Nov 2026).
+    hass = _hass()
+    admin = {
+        s
+        for (_d, s), h in hass.services.handlers.items()
+        if getattr(h, "admin_only", False)
+    }
+    assert admin == {
+        svc.SERVICE_SET_CONTROLLABLE_LOAD,
+        svc.SERVICE_DEVICE_CONTRACT_SET_MODE,
+        svc.SERVICE_DEVICE_CONTRACT_CONFIRM,
+    }
+
     # --- argument parsing -------------------------------------------------------------
     # test_a_window_bound_is_any_iso_time_read_as_local_when_naive
     for value, expected in [
