@@ -88,7 +88,10 @@ async def async_hourly_forecast(hass, entity_id: str) -> list[dict] | None:
                 blocking=True,
                 return_response=True,
             )
-        except Exception:  # noqa: BLE001 -- an optional input: no forecast, no ambient
+        except Exception as err:  # noqa: BLE001 -- an optional input: no forecast, no ambient
+            solver_shared._LOGGER.debug(
+                "Nimbus: hourly forecast from %s unavailable: %s", entity_id, err
+            )
             return None
         hourly = (response or {}).get(entity_id, {}).get("forecast")
     else:

@@ -14,6 +14,7 @@ more than one test module without double-registering anything odd.
 
 from __future__ import annotations
 
+import datetime
 import sys
 import types
 from enum import StrEnum
@@ -745,5 +746,8 @@ def install_ha_stubs() -> None:
         CoordinatorEntity=_StubCoordinatorEntity,
     )
     module("homeassistant.loader", async_get_integration=MagicMock())
-    module("homeassistant.util", dt=MagicMock())
+    # HA's cached zone: a real tzinfo, so a datetime can be converted to it.
+    dt_stub = MagicMock()
+    dt_stub.get_default_time_zone.return_value = datetime.UTC
+    module("homeassistant.util", dt=dt_stub)
     module("homeassistant.util.unit_conversion", PowerConverter=_StubPowerConverter)
