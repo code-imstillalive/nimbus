@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.513] - 2026-11-04
+
+**The Nimbus Tabs card no longer calls a tab "changed" just because you renamed it.**
+
+- **A renamed tab reads up to date** (#2254, found on the reference household). Renaming or moving a tab in Home Assistant's own view editor adds an empty list of cards (and sometimes badges) to it. The Tabs card compared tabs exactly, so the household's freshly added and renamed Topology, Control Panel, Regret and Help tabs read *changed* a minute later. Empty lists are now ignored; any real content still counts. If you added tabs with an earlier release and renamed them, **Check for updates** now shows them as up to date. There is nothing to delete or add again.
+
 ## [0.94.512] - 2026-11-04
 
 **Device setup's discovery stops asking about what your setup already reads, and no longer asks you to pick one of several grid energy statistics.**
@@ -15,6 +21,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **A source for something your device setup already reads is an alternative, not a question** (#2251, found by Mark Purcell). After importing your settings, discovery asked "which one" again for the grid's import and export price and their forecasts whenever more than one provider publishes them (Amber, Amber Express, LocalVolts v2). Answering would have replaced what your setup already uses. Now each other source is shown as an alternative, not ticked, as for any source you confirmed. A question about something not yet set up is unchanged.
 - **Grid energy split across several statistics is no longer a choice** (#2251). When the Energy Dashboard lists two or more grid import (or export) statistics, for example grid-to-house and grid-to-battery, Home Assistant adds them together. Picking one would undercount, so discovery names them in a `grid_energy_summed` finding and binds none. The grid's power reading covers what device setup needs.
 - A price-forecast source accepted from discovery keeps its forecast marking (#2251).
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 15052119** (`release/0.94.512`, installed through HACS untagged and restarted at 07:25 AEST, 4 Nov; read through 07:28). 123 of the 127 Nimbus entities carrying a version read 0.94.512; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal` on the first solve; all 61 Solver numbers kept their values over the restart. `nimbus_load.device_contract_discover` (device setup `active`, revision 3) returned no differences, no questions and only findings, as before. **Not exercised live:** the test box has no Energy Dashboard and no price-provider integration, so neither fix can arise there. Both rest on their tests, which failed on CI before the fix (#2251: runs 41713727200 and 41715771823). Log: no new Nimbus WARNING or ERROR from this release (the test EV below its floor and short of its departure target, the test weather feed read during the restart and the test-feed meter rows are existing).
+- Consumer check: no setting, entity or attribute is added, moved or renamed. Discovery's output on an install with a stored device setup can change: a `several_sources` question about a role already bound becomes `alternative` differences, and several grid energy statistics give a `grid_energy_summed` finding instead of a question. A stored device setup is unchanged.
 
 ## [0.94.511] - 2026-11-03
 
