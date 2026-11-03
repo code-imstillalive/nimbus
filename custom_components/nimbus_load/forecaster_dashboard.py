@@ -89,6 +89,14 @@ STANDARD_VIEWS: tuple[dict[str, Any], ...] = (
         "card": "custom:nimbus-regret-card",
         "title": "Regret",
         "path": "regret",
+        # Household, 1 Sep 2026: "a set of 3 day cards going back 3 days"
+        # (the card's days_ago). The standard tab kept one card until 3 Nov,
+        # when the Nimbus Tabs card offered it beside the household's own.
+        "cards": (
+            {"days_ago": 1},
+            {"days_ago": 2},
+            {"days_ago": 3},
+        ),
     },
     {
         # nimbus #1823: setting Nimbus up so every tab works, and what every
