@@ -1368,7 +1368,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
             '<text x="125" y="118" text-anchor="middle" fill="#e8eaf0" font-size="26" font-weight="700">' + soc.toFixed(0) + '%</text>' +
           '</svg>' +
           '<div class="gauge-status">' +
-            '<div class="dir" style="color:' + dirColor + '">' + dir + '</div>' +
+            '<div class="dir" style="color:' + dirColor + '">' + nimbusEscape(dir) + '</div>' +
             (kwTriple
               ? '<div class="kw-triple">' +
                   '<span><b>Grid</b> ' + kwTriple.grid.toFixed(1) + ' kW</span>' +
@@ -1378,7 +1378,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
               : '<div class="kw">' + (isIdle ? 'Idle' : Math.abs(bkw).toFixed(1) + ' kW') + '</div>') +
             '<div class="range-labels"><span>' + minSoc + '% floor</span><span>' + maxSoc + '% ceiling</span></div>' +
           '</div>' +
-          '<div class="reasoning">' + reasoning + '</div>' +
+          '<div class="reasoning">' + nimbusEscape(reasoning) + '</div>' +
         '</div>' +
         '<div class="section-label" style="margin:8px 0 6px;">Risk Sliders -- how much the plan hedges against forecast being wrong</div>' +
         '<div class="risk-row">' + riskSliders + '</div>' +
@@ -1456,9 +1456,9 @@ class NimbusDispatchCardV4 extends HTMLElement {
       '</div>' + // .col-right
       '</div>' + // .layout-grid
         '<div class="footer">' +
-          '<span class="chip"><span class="dot" style="background:' + statusColor + '"></span>Solver: ' + solverStatus + (clamped !== undefined ? ' (' + clamped + ' clamped)' : '') + '</span>' +
+          '<span class="chip"><span class="dot" style="background:' + statusColor + '"></span>Solver: ' + nimbusEscape(solverStatus) + (clamped !== undefined ? ' (' + clamped + ' clamped)' : '') + '</span>' +
           '<span class="chip">Solved in ' + (solveSecs !== undefined ? solveSecs + 's' : '?') + ' at ' + lastSolvedStr + '</span>' +
-          healthChips.map((h) => '<span class="chip"><span class="dot" style="background:' + okColor(h.ent) + '"></span>' + h.label + '</span>').join('') +
+          healthChips.map((h) => '<span class="chip"><span class="dot" style="background:' + okColor(h.ent) + '"></span>' + nimbusEscape(h.label) + '</span>').join('') +
           // Direct household ask (2026-09-07, Mark Purcell via phone):
           // "a button on the control card which calls action solve
           // now... rather than waiting for it to do it all on next
@@ -1563,6 +1563,12 @@ class NimbusDispatchCardV4 extends HTMLElement {
 // Matching key: tag, id and first class. A section that appears or goes
 // above the table (a banner, a note) would otherwise shift every later
 // sibling onto the wrong node, and the table's scroll box was rebuilt anyway.
+// HACS review (hacs/default#12099, 2 Nov 2026): entity states and card
+// config strings are escaped before they go into innerHTML.
+function nimbusEscape(text) {
+  return String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function nimbusPatchKey(n) {
   if (n.nodeType !== 1) return '#' + n.nodeType;
   const cls = (n.getAttribute('class') || '').trim().split(/\s+/)[0] || '';

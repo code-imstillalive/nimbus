@@ -1127,24 +1127,33 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return []
         events = await self._async_fetch_occupancy_history(entity_id, start, end)
         start_l, end_l = dt_util.as_local(start), dt_util.as_local(end)
-        t = start_l.replace(
-            minute=(start_l.minute // RESAMPLE_MINUTES) * RESAMPLE_MINUTES,
-            second=0,
-            microsecond=0,
-        ) + timedelta(minutes=RESAMPLE_MINUTES)
-        grid: list[datetime] = []
-        while t < end_l:
-            grid.append(t)
-            t += timedelta(minutes=RESAMPLE_MINUTES)
-        values = resample_last_value(
-            load_events, grid, max_staleness=timedelta(minutes=3 * RESAMPLE_MINUTES)
-        )
-        profile = occupancy_model.build_profile(
-            grid, values, events, now=end_l, slot_minutes=RESAMPLE_MINUTES
-        )
-        kept, test = occupancy_model.holds_up(
-            grid, values, events, slot_minutes=RESAMPLE_MINUTES
-        )
+
+        def _build():
+            # CPU-heavy over the whole training window: run in the executor,
+            # never on the event loop (HACS review, hacs/default#12099).
+            t = start_l.replace(
+                minute=(start_l.minute // RESAMPLE_MINUTES) * RESAMPLE_MINUTES,
+                second=0,
+                microsecond=0,
+            ) + timedelta(minutes=RESAMPLE_MINUTES)
+            grid: list[datetime] = []
+            while t < end_l:
+                grid.append(t)
+                t += timedelta(minutes=RESAMPLE_MINUTES)
+            values = resample_last_value(
+                load_events,
+                grid,
+                max_staleness=timedelta(minutes=3 * RESAMPLE_MINUTES),
+            )
+            profile = occupancy_model.build_profile(
+                grid, values, events, now=end_l, slot_minutes=RESAMPLE_MINUTES
+            )
+            kept, test = occupancy_model.holds_up(
+                grid, values, events, slot_minutes=RESAMPLE_MINUTES
+            )
+            return profile, kept, test, occupancy_model.away_periods(events, end_l)
+
+        profile, kept, test, spans = await self.hass.async_add_executor_job(_build)
         self._occupancy = {
             "entity_id": entity_id,
             "events": events,
@@ -1152,7 +1161,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "kept": bool(kept and profile is not None),
             "test": test,
         }
-        return occupancy_model.away_periods(events, end_l)
+        return spans
 
     async def _async_occupancy_bootstrap(self) -> None:
         """A model loaded from disk at start-up has no away profile until the

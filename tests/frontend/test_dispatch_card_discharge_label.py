@@ -120,8 +120,8 @@ def test_export_branch_still_uses_the_plain_discharge_label():
         in src
     )
     assert "'<div class=\"reasoning\">' + nimbusEscape(reasoning) + '</div>'" in src
-    assert "'</span>' + nimbusEscape(h.label) + '</span>'" in src
-    assert "'Solver: ' + nimbusEscape(solverStatus)" in src
+    assert "></span>' + nimbusEscape(h.label) + '</span>'" in src
+    assert "Solver: ' + nimbusEscape(solverStatus)" in src
     regret = (CARD_JS.parent / "nimbus-regret-card.js").read_text(encoding="utf-8")
     assert "${this._escape(this._config.title || this._defaultTitle())}" in regret
     fn = re.search(r"function nimbusEscape\(text\) \{.*?\n\}", src, re.DOTALL)

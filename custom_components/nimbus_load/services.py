@@ -34,6 +34,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.util import dt as dt_util
 
 from . import solver_runtime
@@ -948,6 +949,10 @@ def async_register_services(hass: HomeAssistant) -> None:
     add, edit, reload). HA's own service registry is domain-scoped, not
     entry-scoped, so a second registration for the same (domain, service)
     would otherwise raise on a hub reload.
+
+    The services that write the configuration (set_controllable_load,
+    device_contract_set_mode, device_contract_confirm) are admin-only
+    (HACS review, hacs/default#12099, 2 Nov 2026).
     """
     if not hass.services.has_service(DOMAIN, SERVICE_RETRAIN):
 
@@ -1035,7 +1040,8 @@ def async_register_services(hass: HomeAssistant) -> None:
         async def _handle_device_contract_set_mode(call: ServiceCall):
             return await _async_handle_device_contract_set_mode(hass, call)
 
-        hass.services.async_register(
+        async_register_admin_service(
+            hass,
             DOMAIN,
             SERVICE_DEVICE_CONTRACT_SET_MODE,
             _handle_device_contract_set_mode,
@@ -1060,7 +1066,8 @@ def async_register_services(hass: HomeAssistant) -> None:
         async def _handle_device_contract_confirm(call: ServiceCall):
             return await _async_handle_device_contract_confirm(hass, call)
 
-        hass.services.async_register(
+        async_register_admin_service(
+            hass,
             DOMAIN,
             SERVICE_DEVICE_CONTRACT_CONFIRM,
             _handle_device_contract_confirm,
@@ -1111,7 +1118,8 @@ def async_register_services(hass: HomeAssistant) -> None:
         async def _handle_set_controllable_load(call: ServiceCall):
             return await _async_handle_set_controllable_load(hass, call)
 
-        hass.services.async_register(
+        async_register_admin_service(
+            hass,
             DOMAIN,
             SERVICE_SET_CONTROLLABLE_LOAD,
             _handle_set_controllable_load,
