@@ -8,11 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.511] - 2026-11-03
+
+**A Power Flow tab: your site's live power, drawn as an animated flow, with the Control Panel's forecast table beside it.**
+
+- **Power Flow tab** (#2243). A new standard tab between Solver and Topology, built by the new `custom:nimbus-flow-card` from what Nimbus is already set up with. It has no settings of its own:
+  - your inverters, each with its PV strings while they produce and its battery towers (level, health, temperature);
+  - the house, with the circuits Nimbus forecasts shown as small bubbles while they draw;
+  - the grid, with the price being paid or earned this period (marked P2P when that rate applies);
+  - your EV, with its charge level, shown as one node off the house.
+
+  Dots run along each line, faster for more power, coloured by source. A badge shows whether the battery is following the plan, and turns amber after two minutes off it. A pill compares solar with its forecast, and the footer gives the plan's next change. Beside the flow is the Control Panel's own forecast table (the same card, table only). Underneath is today's totals in one row: solar, house, imported, exported, battery in and out. The Nimbus Tabs card lists it as "not on this dashboard" and adds it under its own name when you press it; your own tabs are untouched.
+- The forecast table's title is no longer clipped at its left edge when it is shown on its own.
+- `sensor.nimbus_topology_config`: an EV or other battery participant's power source now carries `participant: true` and `power_positive_is_charge`, so a card can tell it from an inverter and read its direction.
+
 ## [0.94.510] - 2026-11-03
 
 **Device setup no longer counts a Load on the whole-house sensor as a second device.**
 
 - **A Load forecasting the house is the house** (#2244, #2245, raised by Mark Purcell). A Load on the same sensor as the whole-house cross-check is a normal way to forecast the house, but importing the settings into device setup made it a second load device, so the dry run reported `binding_source_duplicate` and refused shadow mode. The Load now joins the house's own power reading (its history and source are recorded there) instead of adding a device. A Load on any other sensor is unchanged.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at c42d7036** (`release/0.94.510`, installed through HACS untagged and restarted at 16:58 AEST, 3 Nov; read through 17:03). 123 of the 127 Nimbus entities carrying a version read 0.94.510; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal`. Device setup on the test box (active) still reads a clean dry run: 0 problems, 0 conflicts, 0 changes. The test box has no Load on its whole-house sensor, so the fix itself was not exercised there; it is proved by its test, which failed before the fix on CI. Log: no new Nimbus WARNING or ERROR from this release (the first solves after a restart hitting the 20 s limit, the test EV below its floor, the test weather feed and the test-feed meter rows are existing).
+- Consumer check: no setting, entity or attribute is added, moved or renamed. On an install with a Load on its whole-house sensor, device setup's dry run no longer reports `binding_source_duplicate` for it.
 
 ## [0.94.509] - 2026-11-03
 
