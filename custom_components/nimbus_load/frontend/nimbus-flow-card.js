@@ -21,6 +21,8 @@
 // it is the Control Panel's table by construction.
 // Anything not set up is left out: a site with no inverters set up gets one
 // combined "Solar & battery" node, and one with no towers draws none.
+// An EV (a battery participant) is not an inverter: it is drawn once, off
+// House, with its SoC in its ring.
 
 const FLOW_COLORS = {
   solar: "#f5b53d",
@@ -122,7 +124,12 @@ class NimbusFlowCard extends HTMLElement {
     const loadForecast = cfg.solver_load_forecast_sensor || "";
     const houseSensor = this._attrs(loadForecast).source_sensor || "";
 
-    const sources = (topo.power_sources || []).map((ps) => ({
+    // A battery participant (an EV) comes through as a derived power source
+    // with a tower of its own; every other source is an inverter.
+    const isEv = (ps) => !!ps.participant || (!!ps.derived && ps.subentry_id !== "derived_home" && !ps.power_source_dc_sensor);
+    const allSources = topo.power_sources || [];
+    const evIds = new Set(allSources.filter(isEv).map((ps) => ps.subentry_id));
+    const sources = allSources.filter((ps) => !isEv(ps)).map((ps) => ({
       id: ps.subentry_id,
       name: ps.power_source_name || "Inverter",
       dc: ps.power_source_dc_sensor || "",
@@ -133,15 +140,24 @@ class NimbusFlowCard extends HTMLElement {
       label: s.pv_string_label || s.pv_string_entity,
       source: s.pv_string_power_source,
     }));
-    const towers = (topo.battery_towers || []).map((t) => ({
+    const towers = (topo.battery_towers || []).filter((t) => !evIds.has(t.battery_tower_power_source)).map((t) => ({
       title: t.title || "Tower",
       soc: t.battery_tower_soc_sensor,
       soh: t.battery_tower_soh_sensor,
       temp: t.battery_tower_temperature_sensor,
       source: t.battery_tower_power_source,
     }));
+    const evs = allSources.filter(isEv).map((ps) => {
+      const tower = (topo.battery_towers || []).find((t) => t.battery_tower_power_source === ps.subentry_id) || {};
+      return {
+        name: tower.title || ps.power_source_name || "EV",
+        power: ps.power_source_battery_sensor || "",
+        soc: tower.battery_tower_soc_sensor || "",
+        chargeSign: ps.power_positive_is_charge ? 1 : -1, // reading x sign = + charging
+      };
+    });
     const loads = (topo.controllable_loads || []).filter((l) => l && l.power_sensor);
-    return { cfg, battSign, switchboard, gridSensor, battSensor, solarSensor, socSensor, houseSensor, sources, strings, towers, loads };
+    return { cfg, battSign, switchboard, gridSensor, battSensor, solarSensor, socSensor, houseSensor, sources, strings, towers, evs, loads };
   }
 
   // The circuits inside House: every Nimbus power signal whose source is a
@@ -253,6 +269,16 @@ class NimbusFlowCard extends HTMLElement {
       }
     });
 
+    // EVs off House: charging draws from it, discharging feeds it.
+    const evs = site.evs.map((e, k) => {
+      drawn.add(e.power);
+      const raw = this._kw(e.power);
+      const charge = isNaN(raw) ? 0 : raw * e.chargeSign; // + = charging
+      if (charge > FLOW_MIN_KW) flows.push({ from: "house", to: "ev" + k, kw: charge, colour: grid > FLOW_MIN_KW ? "grid" : "solar" });
+      else if (charge < -FLOW_MIN_KW) flows.push({ from: "ev" + k, to: "house", kw: -charge, colour: "battery" });
+      return { ...e, charge, socPct: this._num(e.soc) };
+    });
+
     // Plan check: the battery against the plan's current period, held for
     // FLOW_OFF_PLAN_SECONDS before it counts.
     let offPlan = false;
@@ -276,7 +302,7 @@ class NimbusFlowCard extends HTMLElement {
       }
     }
 
-    return { site, plan, p0, invs, house, grid, solarTotal, totalBatt, flows, ghosts, offPlan, circuits: this._circuits(site, drawn) };
+    return { site, plan, p0, invs, evs, house, grid, solarTotal, totalBatt, flows, ghosts, offPlan, circuits: this._circuits(site, drawn) };
   }
 
   // --- drawing ----------------------------------------------------------------
@@ -298,15 +324,22 @@ class NimbusFlowCard extends HTMLElement {
         pos["str" + j] = { x: p.x + (q - (mine.length - 1) / 2) * 120, y: 62, r: 26 };
       });
     });
-    // Towers beside their inverter: the left inverter's on the left, the
-    // others' on the right.
+    // Towers beside their inverter: the left half's in a column on the left,
+    // the rest in a column on the right, each column spaced to fit.
+    const cols = { left: [], right: [] };
     m.invs.forEach((inv, k) => {
-      const mine = m.site.towers.map((t, j) => ({ t, j })).filter(({ t }) => t.source === inv.id);
-      const left = n > 1 ? k < n / 2 : true;
-      mine.forEach(({ j }, q) => {
-        const p = pos["inv" + k];
-        pos["tow" + j] = { x: left ? 70 : W - 70, y: p.y - (mine.length - 1) * 70 + q * 140, r: 32 };
+      const side = n > 1 && k >= n / 2 ? "right" : "left";
+      m.site.towers.forEach((t, j) => { if (t.source === inv.id) cols[side].push(j); });
+    });
+    for (const [side, js] of Object.entries(cols)) {
+      const c = js.length, step = Math.min(140, 380 / Math.max(1, c)), r = step < 110 ? 26 : 32;
+      js.forEach((j, q) => {
+        pos["tow" + j] = { x: side === "left" ? 70 : W - 70, y: invY + (q - (c - 1) / 2) * step, r };
       });
+    }
+    // EVs bottom right, clear of Grid.
+    m.evs.forEach((_, k) => {
+      pos["ev" + k] = { x: W - 70 - k * 110, y: 600, r: 32 };
     });
     return { W, H: 690, pos };
   }
@@ -491,6 +524,22 @@ class NimbusFlowCard extends HTMLElement {
       this._el("text", { x: p.x, y: p.y + p.r + 14, class: "lbl s" }, G.nodes).textContent = t.title.replace(/^.*·\s*/, "");
       const extra = [isNaN(soh) ? null : "health " + Math.round(soh) + "%", isNaN(temp) ? null : Math.round(temp) + "°C"].filter(Boolean).join(" · ");
       if (extra) this._el("text", { x: p.x, y: p.y + p.r + 27, class: "lbl s" }, G.nodes).textContent = extra;
+    });
+
+    // EVs: SoC arc, power and name underneath.
+    m.evs.forEach((e, k) => {
+      const p = pos["ev" + k];
+      this._el("circle", { cx: p.x, cy: p.y, r: p.r, class: "ring", stroke: C.battery }, G.nodes);
+      if (!isNaN(e.socPct)) {
+        const r2 = p.r - 6, c = 2 * Math.PI * r2;
+        this._el("circle", { cx: p.x, cy: p.y, r: r2, fill: "none", stroke: C.line, "stroke-width": 4 }, G.nodes);
+        this._el("circle", { cx: p.x, cy: p.y, r: r2, fill: "none", stroke: C.battery, "stroke-width": 4, opacity: 0.6,
+          "stroke-dasharray": `${(c * e.socPct) / 100} ${c}`, transform: `rotate(-90 ${p.x} ${p.y})` }, G.nodes);
+      }
+      this._el("text", { x: p.x, y: p.y + 4, class: "small" }, G.nodes).textContent = isNaN(e.socPct) ? "—" : Math.round(e.socPct) + "%";
+      this._el("text", { x: p.x, y: p.y + p.r + 14, class: "lbl s" }, G.nodes).textContent = e.name;
+      const what = e.charge > FLOW_MIN_KW ? "charging " + flowKwText(e.charge) : e.charge < -FLOW_MIN_KW ? "supplying " + flowKwText(e.charge) : "idle";
+      this._el("text", { x: p.x, y: p.y + p.r + 27, class: "lbl s" }, G.nodes).textContent = what;
     });
 
     // Inverters, House, Grid.

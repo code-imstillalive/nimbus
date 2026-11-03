@@ -80,6 +80,7 @@ from .const import (
     CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
     CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
     CONF_BATTERY_PARTICIPANT_NAME,
+    CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
     CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
     CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
     CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
@@ -3028,6 +3029,10 @@ class NimbusTopologyConfigSensor(SensorEntity):
                     ),
                     CONF_POWER_SOURCE_DC_SENSOR: None,
                     "derived": True,
+                    "participant": True,
+                    "power_positive_is_charge": bool(
+                        data.get(CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE)
+                    ),
                 }
             )
             battery_towers.append(

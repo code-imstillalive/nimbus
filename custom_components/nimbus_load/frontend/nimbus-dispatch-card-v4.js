@@ -1349,7 +1349,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         (this.config.table_only
           ? '.col-left, .chart-col, .footer .chip, .footer ~ * { display:none !important; }' +
             '.chart-table-grid { display:block !important; }' +
-            '.card { padding: 0 !important; background: none !important; border: none !important; box-shadow: none !important; }' +
+            '.card { padding: 0 0 0 4px !important; background: none !important; border: none !important; box-shadow: none !important; }' +
             '.footer { border-top: none !important; margin-top: 12px !important; padding-top: 0 !important; }' +
             '.ftable-wrap { max-height: var(--nimbus-ftable-height, 640px) !important; }'
           : '') +
