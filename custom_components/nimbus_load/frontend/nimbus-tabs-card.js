@@ -17,10 +17,14 @@
 // What it does, on the dashboard it is placed on:
 //   1. "Check for updates": reads this dashboard and the standard tabs from
 //      the installed Nimbus, and lists each standard tab as up to date,
-//      changed, or missing (matched by the tab's path: solver, help, ...).
+//      changed, or missing. A tab is the household's own when it sits at the
+//      standard path (solver, help, ...), or at "<path>-new" once a kept
+//      "(new)" copy has been renamed, or has no path and the standard title.
+//      Names and paths are left out of the comparison.
 //   2. "Add updated tabs beside mine": for each changed tab, puts the new
 //      version right after the existing one, as "<Title> (new)" at
-//      "<path>-new"; a missing tab is added under its own name. An earlier
+//      "<path>-new" (or at "<path>" when theirs is the renamed copy at
+//      "<path>-new"); a missing tab is added under its own name. An earlier
 //      "(new)" copy is replaced, since it was proposed by this card. The
 //      household's own tabs are never changed or removed.
 //
@@ -42,6 +46,28 @@ function nimbusTabsCanonical(value) {
       .join(",") + "}";
   }
   return JSON.stringify(value);
+}
+
+function nimbusTabsSame(view, tab) {
+  // Equal in content; the tab's name and path are the household's own to
+  // change, so they are left out of the comparison.
+  return nimbusTabsCanonical({ ...view, path: tab.path, title: tab.title }) === nimbusTabsCanonical(tab);
+}
+
+function nimbusTabsFind(views, tab) {
+  // The household's own copy of a standard tab, and where a proposed new
+  // version of it goes. Theirs is the tab at its standard path; or, once
+  // they have kept a "(new)" copy and renamed it, the tab at "<path>-new";
+  // or a tab with no path under the standard title (tabs made by hand).
+  const alt = tab.path + NIMBUS_TABS_NEW;
+  let mine = views.findIndex((v) => v.path === tab.path);
+  if (mine < 0) {
+    mine = views.findIndex((v) => v.path === alt && !String(v.title || "").endsWith(" (new)"));
+  }
+  if (mine < 0) mine = views.findIndex((v) => !v.path && v.title === tab.title);
+  const offerPath = mine >= 0 && views[mine].path === alt ? tab.path : alt;
+  const offered = views.findIndex((v, i) => i !== mine && v.path === offerPath);
+  return { mine, offered, offerPath };
 }
 
 class NimbusTabsCard extends HTMLElement {
@@ -101,13 +127,11 @@ class NimbusTabsCard extends HTMLElement {
       const { config, standard } = await this._load();
       const views = (config && config.views) || [];
       const items = standard.map((tab) => {
-        const mine = views.find((v) => v.path === tab.path);
-        const offered = views.find((v) => v.path === tab.path + NIMBUS_TABS_NEW);
-        const want = nimbusTabsCanonical(tab);
+        const { mine, offered } = nimbusTabsFind(views, tab);
         let status;
-        if (!mine) status = "missing";
-        else if (nimbusTabsCanonical(mine) === want) status = "same";
-        else if (offered && nimbusTabsCanonical({ ...offered, path: tab.path, title: tab.title }) === want) status = "offered";
+        if (mine >= 0 && nimbusTabsSame(views[mine], tab)) status = "same";
+        else if (offered >= 0 && nimbusTabsSame(views[offered], tab)) status = "offered";
+        else if (mine < 0) status = "missing";
         else status = "changed";
         return { title: tab.title, path: tab.path, status };
       });
@@ -134,19 +158,21 @@ class NimbusTabsCard extends HTMLElement {
       const views = (config && config.views) ? [...config.views] : [];
       const added = [];
       for (const tab of standard) {
-        const mineIdx = views.findIndex((v) => v.path === tab.path);
-        if (mineIdx >= 0 && nimbusTabsCanonical(views[mineIdx]) === nimbusTabsCanonical(tab)) continue;
-        if (mineIdx < 0) {
-          views.push(JSON.parse(JSON.stringify(tab)));
-          added.push(tab.title);
+        const { mine, offered, offerPath } = nimbusTabsFind(views, tab);
+        if (mine >= 0 && nimbusTabsSame(views[mine], tab)) continue;
+        if (offered >= 0 && nimbusTabsSame(views[offered], tab)) continue;
+        const copy = JSON.parse(JSON.stringify(tab));
+        if (mine < 0) {
+          // Not on this dashboard: added under its own name and path.
+          if (offered >= 0) views[offered] = copy;
+          else views.push(copy);
+          added.push(copy.title);
           continue;
         }
-        const copy = JSON.parse(JSON.stringify(tab));
-        copy.path = tab.path + NIMBUS_TABS_NEW;
+        copy.path = offerPath;
         copy.title = tab.title + " (new)";
-        const offeredIdx = views.findIndex((v) => v.path === copy.path);
-        if (offeredIdx >= 0) views[offeredIdx] = copy;
-        else views.splice(mineIdx + 1, 0, copy);
+        if (offered >= 0) views[offered] = copy;
+        else views.splice(mine + 1, 0, copy);
         added.push(copy.title);
       }
       if (!added.length) {
