@@ -23,7 +23,15 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.nimbus_load import forecaster_dashboard as dash
 from custom_components.nimbus_load.const import DOMAIN
 
-STANDARD = ["Forecaster", "Solver", "Topology", "Control Panel", "Regret", "Help"]
+STANDARD = [
+    "Forecaster",
+    "Solver",
+    "Power Flow",
+    "Topology",
+    "Control Panel",
+    "Regret",
+    "Help",
+]
 MUSHROOM = "custom:mushroom-number-card"
 
 
