@@ -8,11 +8,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.507] - 2026-11-03
+
+**A Nimbus Tabs card brings a release's updated tabs to your dashboard, beside your own, without any YAML.**
+
+- **Nimbus Tabs card** (#2232). When a release changes a standard tab (0.94.506 added Battery Sell Margin to the Solver tab), press **Check for updates** on the card to see which tabs changed, then **Add updated tabs beside mine**: each changed tab is added right after yours as "<Tab> (new)", and your own tabs are never changed or removed. It is first on the standard Help tab and in the card picker ("Nimbus Tabs"). It saves from your browser on your click, the way the dashboard editor does; Nimbus itself still writes no dashboard. Storage-mode dashboards only. See docs/dashboards.md.
+
 ## [0.94.506] - 2026-11-03
 
 **A new Battery Sell Margin prices battery energy sold to the grid, so a guard against selling cheap no longer keeps the battery off the house.**
 
 - **Battery Sell Margin** (#2228, #2229, reviewed by Mark Purcell). Discharge Cost prices every kWh out of the battery, whether it covers the house or is sold. Raised to stop the plan selling now against a low near-term forecast (#1749), it also kept the battery off the house: on the reference household on 3 Nov, at 5c it held about 18 % overnight and bought from the grid at 18-20c. The new setting (Solver tab, beside Discharge cost; $/kWh, 0 = off) prices only export the period's solar can't account for, i.e. battery energy sold. Covering the house and exporting solar are never charged, and committed P2P blocks are exempt, as "Don't sell below" already exempts them. To keep a sell guard without blocking the house, lower Discharge Cost to the wear cost and put the rest in the margin (the reference household: 0.01 and 0.04). At the default 0 nothing changes.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 20edb90a** (`release/0.94.506`, installed through HACS untagged and restarted at 08:00 AEST, 3 Nov; read through 08:05). 123 of the 127 Nimbus entities carrying a version read 0.94.506; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal`. `number.nimbus_solver_battery_sell_margin` ("Nimbus Battery Sell Margin") exists at 0, range 0-1, step 0.005. Set through the API to the reference household's intended values (Discharge Cost 0.01, Battery Sell Margin 0.04): the Solver config sensor read both, and the next solve (08:03) was `optimal`. The margin's effect on dispatch is covered by the solver tests in #2229 (house cover at 18c, no buy-back sale, solar export and committed P2P blocks not charged); the test box's own battery is simulated, so it was not judged from its plan. The Solver tab template's new "Sell margin" row was not checked on a dashboard: the test box's Solver tab is a pasted copy. Log: no new Nimbus WARNING or ERROR from this release (only the existing drift notes, the test EV's departure target, two implausible test-feed meter rows and the test weather feed).
+- Consumer check: one new number entity, `number.nimbus_solver_battery_sell_margin`, default 0 (off: plans unchanged). No setting moved in storage, no entity renamed. Installs that raised Discharge Cost to stop selling cheap can now set it back to the wear cost and use the margin for sales only.
 ## [0.94.505] - 2026-11-01
 
 **Power history is read in the right unit even when a sensor has not reported yet.**
