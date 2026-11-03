@@ -13,6 +13,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 **Device setup no longer counts a Load on the whole-house sensor as a second device.**
 
 - **A Load forecasting the house is the house** (#2244, #2245, raised by Mark Purcell). A Load on the same sensor as the whole-house cross-check is a normal way to forecast the house, but importing the settings into device setup made it a second load device, so the dry run reported `binding_source_duplicate` and refused shadow mode. The Load now joins the house's own power reading (its history and source are recorded there) instead of adding a device. A Load on any other sensor is unchanged.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at c42d7036** (`release/0.94.510`, installed through HACS untagged and restarted at 16:58 AEST, 3 Nov; read through 17:03). 123 of the 127 Nimbus entities carrying a version read 0.94.510; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal`. Device setup on the test box (active) still reads a clean dry run: 0 problems, 0 conflicts, 0 changes. The test box has no Load on its whole-house sensor, so the fix itself was not exercised there; it is proved by its test, which failed before the fix on CI. Log: no new Nimbus WARNING or ERROR from this release (the first solves after a restart hitting the 20 s limit, the test EV below its floor, the test weather feed and the test-feed meter rows are existing).
+- Consumer check: no setting, entity or attribute is added, moved or renamed. On an install with a Load on its whole-house sensor, device setup's dry run no longer reports `binding_source_duplicate` for it.
 
 ## [0.94.509] - 2026-11-03
 
