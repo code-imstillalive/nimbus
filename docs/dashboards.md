@@ -260,6 +260,9 @@ gold, battery green, grid blue).
   its PV strings above it while they produce, and its battery towers beside
   it with their level, health and temperature, feeding the house and the
   grid. Without inverters set up, one combined "Solar & battery" node.
+  Towers sit in a column on their inverter's side.
+- **Your EV** (a battery participant) is one node off the house, with its
+  charge level in the ring and whether it is charging, supplying or idle.
 - **The price now,** on the grid: what is being paid or earned this period,
   marked P2P when the P2P rate applies.
 - **On or off plan:** the battery is checked against the plan's current
