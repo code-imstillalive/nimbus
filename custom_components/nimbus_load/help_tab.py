@@ -215,6 +215,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.508",
+        "3 Nov 2026",
+        (
+            (
+                "**Nimbus Tabs card** knows a tab you kept and renamed; "
+                "**Regret** shows three days."
+            ),
+        ),
+    ),
+    (
         "0.94.507",
         "3 Nov 2026",
         (

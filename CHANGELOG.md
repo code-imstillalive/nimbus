@@ -8,11 +8,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.508] - 2026-11-03
+
+**The Nimbus Tabs card knows tabs you have kept and renamed, and the standard Regret tab shows three days.**
+
+- **Nimbus Tabs card recognises your kept tabs** (#2236). After adding "Topology (new)" and "Help (new)", the reference household kept them, deleted their old tabs and renamed the copies back. The copies keep their "-new" web address, so the card would have called those tabs missing and added them again; a tab with no web address (a Forecaster tab made by hand) was added as a second "Forecaster". The card now treats a renamed copy, or a tab with no address under the standard name, as yours; it compares content only, not name or address; and a newer version goes at whichever address is free.
+- **Regret tab: three days** (#2235). The standard Regret tab had one card (yesterday); it now has three, yesterday and the two days before, as the reference household's own Regret tab has. The Tabs card offers it as "Regret (new)" beside yours.
+
 ## [0.94.507] - 2026-11-03
 
 **A Nimbus Tabs card brings a release's updated tabs to your dashboard, beside your own, without any YAML.**
 
 - **Nimbus Tabs card** (#2232). When a release changes a standard tab (0.94.506 added Battery Sell Margin to the Solver tab), press **Check for updates** on the card to see which tabs changed, then **Add updated tabs beside mine**: each changed tab is added right after yours as "<Tab> (new)", and your own tabs are never changed or removed. It is first on the standard Help tab and in the card picker ("Nimbus Tabs"). It saves from your browser on your click, the way the dashboard editor does; Nimbus itself still writes no dashboard. Storage-mode dashboards only. See docs/dashboards.md.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at eecb3489** (`release/0.94.507`, installed through HACS untagged and restarted at 10:47 AEST, 3 Nov; read through 10:52). 123 of the 127 Nimbus entities carrying a version read 0.94.507; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal`; Battery Sell Margin still reads its set 0.04 after the restart. `/nimbus_load/nimbus-tabs-card.js` served (HTTP 200) and registered as `nimbus-tabs-card.js?v=0.94.507`. `nimbus_load.get_dashboard` returns the six standard tabs with the Nimbus Tabs card first on Help. The card itself was used on screen by the household on the test box on 3 Nov at the #2232 commit (identical card file): "very clever feature - LOVE IT!!!!". Log: no new Nimbus WARNING or ERROR from this release (the flex-telemetry clamp note, two implausible test-feed meter rows and the test weather feed are existing).
+- Consumer check: one new bundled card, `custom:nimbus-tabs-card`, and `nimbus_load.get_dashboard`'s Help tab gains it as its first card. No setting, entity or attribute is added, moved or renamed. Nimbus still writes no dashboard; the card saves only on the user's click, beside their own tabs.
 
 ## [0.94.506] - 2026-11-03
 
