@@ -1,0 +1,74 @@
+blueprint:
+  name: Nimbus site import guard
+  description: >-
+    Keeps grid import under the Solver's Site Import Limit whatever is
+    charging the battery: Nimbus's plan, a manual setting or another
+    automation. While the battery charges and Nimbus's allowed charge
+    (sensor.nimbus_battery_allowed_charge_kw, from the live grid meter) is
+    below the charge power set on your inverter, it lowers that setting to
+    the allowance, at once and on a 10-second check. It never raises it.
+
+    A household's supply tripped with a 30 kW grid charge, a 10.7 kW car,
+    hot water, the pool and a toaster (nimbus #2257). Set the Site Import
+    Limit to the supply's trip point less room for an appliance switching
+    on (for example 44 kW against 46 kW).
+  domain: automation
+  source_url: https://github.com/code-imstillalive/nimbus/blob/main/blueprints/automation/nimbus/site_import_guard.yaml
+  input:
+    allowed_charge_sensor:
+      name: Nimbus allowed charge
+      description: >-
+        sensor.nimbus_battery_allowed_charge_kw. Unavailable (no Site Import
+        Limit set) means the guard does nothing.
+      default: sensor.nimbus_battery_allowed_charge_kw
+      selector:
+        entity:
+          filter:
+            - integration: nimbus_load
+              domain: sensor
+    charge_power_number:
+      name: Charge power setting
+      description: >-
+        The number entity that sets your battery's charge power, in kW
+        (the one your dispatch actions write).
+      selector:
+        entity:
+          filter:
+            - domain: number
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input allowed_charge_sensor
+  - trigger: time_pattern
+    seconds: /10
+
+variables:
+  allowed_entity: !input allowed_charge_sensor
+  power_entity: !input charge_power_number
+  allowed_raw: "{{ states(allowed_entity) }}"
+  charging_kw: "{{ state_attr(allowed_entity, 'charging_kw') | float(0) }}"
+  setting_kw: "{{ states(power_entity) | float(0) }}"
+  new_kw: "{{ ((allowed_raw | float(0)) * 10) | round(0, 'floor') / 10 }}"
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ is_number(allowed_raw) and charging_kw > 0.5
+         and new_kw < setting_kw - 0.2 }}
+
+actions:
+  - action: number.set_value
+    target:
+      entity_id: "{{ power_entity }}"
+    data:
+      value: "{{ new_kw }}"
+  - action: logbook.log
+    data:
+      name: Nimbus site import guard
+      message: >-
+        charge setting {{ setting_kw }} kW above the allowance; lowered to
+        {{ new_kw }} kW (grid {{ state_attr(allowed_entity, 'grid_kw') }} kW,
+        limit {{ state_attr(allowed_entity, 'site_import_limit_kw') }} kW)

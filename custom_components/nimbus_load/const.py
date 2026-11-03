@@ -930,6 +930,20 @@ CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY: Final = "solver_max_discharge_live_entity
 CONF_SOLVER_EFFICIENCY_PERCENT: Final = "solver_efficiency_percent"
 CONF_SOLVER_GRID_MAX_IMPORT_KW: Final = "solver_grid_max_import_kw"
 CONF_SOLVER_GRID_MAX_EXPORT_KW: Final = "solver_grid_max_export_kw"
+# nimbus #2257: the site's live import limit -- its supply's trip point less
+# a margin for an appliance switching on (the reference household: 44 kW
+# against about 46). Not a planning preference like Grid Max Import: it is
+# compared with the live meter at dispatch (site_limit.py). 0 = off, the
+# default, so nothing changes until a household sets it.
+CONF_SOLVER_SITE_IMPORT_LIMIT_KW: Final = "solver_site_import_limit_kw"
+DEFAULT_SOLVER_SITE_IMPORT_LIMIT_KW: Final = 0.0
+# The Forecaster's grid sensor reads positive while importing (Home
+# Assistant's Energy Dashboard convention). Off for a meter that reads the
+# other way.
+CONF_SOLVER_GRID_METER_POSITIVE_IS_IMPORT: Final = (
+    "solver_grid_meter_positive_is_import"
+)
+DEFAULT_SOLVER_GRID_METER_POSITIVE_IS_IMPORT: Final = True
 # nimbus issue #493 (Signals 4/7 of #489, item 1 -- Mark Purcell's own
 # authorized next step, real target: Open Dynamic Export's own
 # `opModExpLimW`/`opModImpLimW` MQTT publish, a SA-Power-Networks-

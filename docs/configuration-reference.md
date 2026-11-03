@@ -235,6 +235,7 @@ tune these directly, no need to re-run the wizard. Every entry in
 | `number.nimbus_solver_efficiency_percent` | Round-Trip Efficiency | 95.0 | 50-100 | % |
 | `number.nimbus_solver_grid_max_import_kw` | Grid Max Import | 0.1 | 0.1-1000 | kW |
 | `number.nimbus_solver_grid_max_export_kw` | Grid Max Export | 0.1 | 0.1-1000 | kW |
+| `number.nimbus_solver_site_import_limit_kw` | Site Import Limit: compared with the live grid meter, not planned against; the battery's charge is held so import stays at or below it (`sensor.nimbus_battery_allowed_charge_kw`). Your supply's trip point less room for an appliance switching on. 0 = off | 0.0 | 0-1000 | kW |
 | `number.nimbus_solver_charge_cost` | Charge Cost | 0.01 | 0-10 | $/kWh |
 | `number.nimbus_solver_discharge_cost` | Discharge Cost: on every kWh out of the battery, house and grid alike; to guard only against selling, use Battery Sell Margin | 0.01 | 0-10 | $/kWh |
 | `number.nimbus_solver_salvage_value` | Salvage Value | 0.15 | 0-10 | $/kWh |

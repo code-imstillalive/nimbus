@@ -49,6 +49,7 @@ from .const import (
     CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     CONF_SOLVER_DISPATCH_DRY_RUN,
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
+    CONF_SOLVER_GRID_METER_POSITIVE_IS_IMPORT,
     CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     CONF_SOLVER_OFFER_CURVE_ENABLED,
     CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
@@ -61,6 +62,7 @@ from .const import (
     DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     DEFAULT_SOLVER_DISPATCH_DRY_RUN,
     DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED,
+    DEFAULT_SOLVER_GRID_METER_POSITIVE_IS_IMPORT,
     DEFAULT_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
     DEFAULT_SOLVER_PRICE_CONSOLIDATION_LIVE,
@@ -321,6 +323,16 @@ async def async_setup_entry(
                 CONF_SOLVER_STOCHASTIC_DISPATCH,
                 "Stochastic Dispatch",
                 DEFAULT_SOLVER_STOCHASTIC_DISPATCH,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus #2257: the sign of the Forecaster's grid sensor, read by
+            # sensor.nimbus_battery_allowed_charge_kw.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_GRID_METER_POSITIVE_IS_IMPORT,
+                "Grid Meter Positive Is Import",
+                DEFAULT_SOLVER_GRID_METER_POSITIVE_IS_IMPORT,
                 sw_version,
                 shared_store,
             ),

@@ -127,3 +127,25 @@ def test_the_solver_and_forecaster_use_it():
     src = (FE / "nimbus-forecast-card.js").read_text(encoding="utf-8")
     at = src.index('id: "soc", show: true')
     assert "v < 0 ? ''" in src[at : at + 400]
+
+    # test_2257_the_allowed_charge_keeps_import_under_the_site_limit: 4 Nov 2026,
+    # a 46 kW supply tripped (a 30 kW grid charge, a 10.7 kW EV, hot water and
+    # pool, a toaster). The battery may charge what it charges now plus the
+    # headroom the meter shows; nothing is guessed when a reading is missing.
+    import site_limit as sl
+
+    # Charging 30 kW, meter importing 48 kW, limit 44: drop to 26 kW.
+    got = sl.allowed_charge_kw(44, 48, -30, battery_positive_is_charge=False)
+    assert got == 26
+    # The same site with the meter's sign the other way.
+    got = sl.allowed_charge_kw(
+        44, -48, -30, battery_positive_is_charge=False, grid_positive_is_import=False
+    )
+    assert got == 26
+    # Discharging: only the meter's headroom counts; never below 0.
+    assert sl.allowed_charge_kw(44, 50, 5, battery_positive_is_charge=True) == 0
+    assert sl.allowed_charge_kw(44, 2, 0, battery_positive_is_charge=True) == 42
+    # Off (0) or a reading missing: unknown, never 0.
+    assert sl.allowed_charge_kw(0, 10, -5, battery_positive_is_charge=False) is None
+    assert sl.allowed_charge_kw(44, None, -5, battery_positive_is_charge=False) is None
+    assert sl.allowed_charge_kw(44, 10, None, battery_positive_is_charge=False) is None
