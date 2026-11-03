@@ -47,6 +47,7 @@ def test_renamed_and_pathless_tabs_are_the_households_own():
         {"title": "Forecaster", "path": "forecaster", "cards": [3]},
         {"title": "Regret", "path": "regret", "cards": [4]},
         {"title": "Solver", "path": "solver", "cards": [5]},
+        {"title": "Control Panel", "path": "control-panel", "sections": [7]},
     ]
     views = [
         {"title": "Forecaster", "cards": [3]},
@@ -55,6 +56,14 @@ def test_renamed_and_pathless_tabs_are_the_households_own():
         {"title": "Regret", "path": "regret", "cards": [4]},
         {"title": "Solver", "path": "solver", "cards": [6]},
         {"title": "Solver (new)", "path": "solver-new", "cards": [5]},
+        # Renamed in Home Assistant's view editor, which adds empty lists.
+        {
+            "title": "Control Panel",
+            "path": "control-panel",
+            "sections": [7],
+            "cards": [],
+            "badges": [],
+        },
     ]
     res = subprocess.run(
         ["node", "-e", src + SCRIPT % (json.dumps(views), json.dumps(standard))],
@@ -84,3 +93,6 @@ def test_renamed_and_pathless_tabs_are_the_households_own():
         "offerPath": "solver-new",
         "same": False,
     }
+    # NUC1, 4 Nov: the view editor's empty "cards"/"badges" are not a change,
+    # so a tab added a minute earlier and renamed reads up to date.
+    assert got["control-panel"]["mine"] == 6 and got["control-panel"]["same"] is True
