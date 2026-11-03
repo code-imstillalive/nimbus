@@ -245,7 +245,7 @@ class NimbusRegretCard extends HTMLElement {
       <ha-card>
         <div class="head">
           <div>
-            <div class="title">${this._config.title || this._defaultTitle()}</div>
+            <div class="title">${this._escape(this._config.title || this._defaultTitle())}</div>
             <div class="sub" id="sub"></div>
           </div>
           <button class="refresh" id="refreshBtn">Refresh</button>

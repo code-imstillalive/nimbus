@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import functools
 import logging
 from datetime import timedelta
 from typing import Any
@@ -1342,8 +1343,8 @@ async def _async_history(
 ) -> dict[str, list[tuple[Any, float | None]]]:
     from homeassistant.components.recorder import get_instance, history
 
-    def _read() -> dict[str, list[Any]]:
-        return history.get_significant_states(
+    def _read() -> dict[str, list[tuple[Any, float | None]]]:
+        raw = history.get_significant_states(
             hass,
             start,
             end,
@@ -1351,9 +1352,10 @@ async def _async_history(
             significant_changes_only=False,
             no_attributes=True,
         )
+        # Built here, off the event loop (HACS review, hacs/default#12099).
+        return {eid: _series(list(states)) for eid, states in raw.items()}
 
-    raw = await get_instance(hass).async_add_executor_job(_read)
-    return {eid: _series(list(states)) for eid, states in raw.items()}
+    return await get_instance(hass).async_add_executor_job(_read)
 
 
 async def _async_add_history_pairing(hass: Any, proposal: Any, regs: dict) -> Any:
@@ -1383,8 +1385,19 @@ async def _async_add_history_pairing(hass: Any, proposal: Any, regs: dict) -> An
         for device_id, ids in candidates.items()
     }
     statistics = {stat: histories[stat] for stat in counters if stat in histories}
-    return device_discovery.add_history_pairing(
-        proposal, offered, statistics, start, end, registry_ids=regs
+    # The resolver re-sorts days of history per candidate: seconds of CPU for
+    # a fast power sensor, so never on the event loop (HACS review,
+    # hacs/default#12099, 2 Nov 2026).
+    return await hass.async_add_executor_job(
+        functools.partial(
+            device_discovery.add_history_pairing,
+            proposal,
+            offered,
+            statistics,
+            start,
+            end,
+            registry_ids=regs,
+        )
     )
 
 

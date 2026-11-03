@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import pathlib
 import re
+import shutil
+import subprocess
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 CARD_JS = (
@@ -107,3 +109,33 @@ def test_export_branch_still_uses_the_plain_discharge_label():
     assert "kW left to export at" in block
     assert "still leaves " in block and "coming from the grid at" in block
     assert "exactly covers the" in block and "no grid import or export needed" in block
+
+    # test_entity_values_and_config_strings_are_escaped: HACS review
+    # (hacs/default#12099, 2 Nov 2026). The mode select's state, the health
+    # check labels and the Solver status go into innerHTML; so does the
+    # regret card's configured title.
+    src = CARD_JS.read_text(encoding="utf-8")
+    assert (
+        "'<div class=\"dir\" style=\"color:' + dirColor + '\">' + nimbusEscape(dir) + '</div>'"
+        in src
+    )
+    assert "'<div class=\"reasoning\">' + nimbusEscape(reasoning) + '</div>'" in src
+    assert "></span>' + nimbusEscape(h.label) + '</span>'" in src
+    assert "Solver: ' + nimbusEscape(solverStatus)" in src
+    regret = (CARD_JS.parent / "nimbus-regret-card.js").read_text(encoding="utf-8")
+    assert "${this._escape(this._config.title || this._defaultTitle())}" in regret
+    fn = re.search(r"function nimbusEscape\(text\) \{.*?\n\}", src, re.DOTALL)
+    assert fn is not None
+    if shutil.which("node"):
+        out = subprocess.run(
+            [
+                "node",
+                "-e",
+                fn.group(0) + 'console.log(nimbusEscape(`<img src=x onerror="a">&\'`))',
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        ).stdout.strip()
+        assert out == "&lt;img src=x onerror=&quot;a&quot;&gt;&amp;&#39;"

@@ -14,6 +14,7 @@ more than one test module without double-registering anything odd.
 
 from __future__ import annotations
 
+import datetime
 import sys
 import types
 from enum import StrEnum
@@ -691,6 +692,24 @@ def install_ha_stubs() -> None:
         async_get=MagicMock(),
     )
     module("homeassistant.helpers.storage", Store=_StubStore)
+
+    def _register_admin_service(
+        hass, domain, service, service_func, schema=None, supports_response=None
+    ):
+        # Real HA wraps the handler in an admin check on the caller; here the
+        # wrapper is marked so a test can see which services are admin-only.
+        async def handler(call):
+            return await service_func(call)
+
+        handler.admin_only = True
+        hass.services.async_register(
+            domain, service, handler, schema=schema, supports_response=supports_response
+        )
+
+    module(
+        "homeassistant.helpers.service",
+        async_register_admin_service=_register_admin_service,
+    )
     # nimbus #1550: select.py's pricing-source select re-detects providers
     # once HA has started.
     module("homeassistant.helpers.start", async_at_started=MagicMock())
@@ -727,5 +746,8 @@ def install_ha_stubs() -> None:
         CoordinatorEntity=_StubCoordinatorEntity,
     )
     module("homeassistant.loader", async_get_integration=MagicMock())
-    module("homeassistant.util", dt=MagicMock())
+    # HA's cached zone: a real tzinfo, so a datetime can be converted to it.
+    dt_stub = MagicMock()
+    dt_stub.get_default_time_zone.return_value = datetime.UTC
+    module("homeassistant.util", dt=dt_stub)
     module("homeassistant.util.unit_conversion", PowerConverter=_StubPowerConverter)

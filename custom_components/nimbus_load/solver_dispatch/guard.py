@@ -66,6 +66,40 @@ except ImportError:  # pragma: no cover - standalone/cron path
     from solver import network  # type: ignore[no-redef]
 
 
+async def async_hourly_forecast(hass, entity_id: str) -> list[dict] | None:
+    """The hourly temperature forecast for a thermal load's ambient
+    projection, awaited on the event loop.
+
+    HACS review (hacs/default#12099, 2 Nov 2026): the guard's `_update_all()`
+    runs on the event loop and called solver_writer's executor-side
+    `_fetch_weather_hourly_forecast`, which waits on a coroutine scheduled on
+    that same loop: Home Assistant froze for its 15 s timeout every solve
+    and the forecast never arrived. Same two entity shapes as that helper:
+    `weather.*` through `weather.get_forecasts`, `sensor.*` through its
+    `forecast` attribute. None on any failure, as before."""
+    if not entity_id:
+        return None
+    if entity_id.split(".", 1)[0] == "weather":
+        try:
+            response = await hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"entity_id": entity_id, "type": "hourly"},
+                blocking=True,
+                return_response=True,
+            )
+        except Exception as err:  # noqa: BLE001 -- an optional input: no forecast, no ambient
+            solver_shared._LOGGER.debug(
+                "Nimbus: hourly forecast from %s unavailable: %s", entity_id, err
+            )
+            return None
+        hourly = (response or {}).get(entity_id, {}).get("forecast")
+    else:
+        state = hass.states.get(entity_id)
+        hourly = state.attributes.get("forecast") if state is not None else None
+    return hourly if isinstance(hourly, list) and hourly else None
+
+
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by name)
     -- see this package's `__init__.py` for the full reasoning. In short: a
@@ -1127,8 +1161,8 @@ def apply_commanded_state_guard(
                             # mirrors()'s own use of this helper.
                             ambient_forecast_points: list[dict[str, object]] = []
                             if weather_entity_id:
-                                _hourly = sw._fetch_weather_hourly_forecast(
-                                    weather_entity_id
+                                _hourly = await async_hourly_forecast(
+                                    solver_shared.NATIVE.hass, weather_entity_id
                                 )
                                 if _hourly:
                                     ambient_forecast_points = [

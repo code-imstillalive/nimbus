@@ -56,11 +56,17 @@ class AwayProfile:
         return self.kw[slot % len(self.kw)]
 
 
-def away_at(occupancy_events: Sequence[tuple[datetime, float]], t: datetime) -> bool:
+def away_at(
+    occupancy_events: Sequence[tuple[datetime, float]],
+    t: datetime,
+    times: Sequence[datetime] | None = None,
+) -> bool:
     """True when the last occupancy event at or before `t` says away. Before
     the first event, or after a NaN (unknown), the house counts as home: the
-    forecast then stays exactly as it is without occupancy."""
-    times = [e[0] for e in occupancy_events]
+    forecast then stays exactly as it is without occupancy. `times` are the
+    events' times, built once by a caller that asks for many `t`."""
+    if times is None:
+        times = [e[0] for e in occupancy_events]
     i = bisect_right(times, t) - 1
     if i < 0:
         return False
@@ -170,8 +176,9 @@ def build_profile(
     for t, v in zip(times, values, strict=True):
         days.setdefault(t.date(), []).append((t, v))
     away_days = []
+    event_times = [e[0] for e in occupancy_events]
     for day, rows in days.items():
-        shares = [away_at(occupancy_events, t) for t, _ in rows]
+        shares = [away_at(occupancy_events, t, event_times) for t, _ in rows]
         if rows and sum(shares) >= AWAY_DAY_SHARE * (24 * 60 // slot_minutes):
             away_days.append(day)
     kind: Literal["base_load", "learned_away"]
@@ -218,6 +225,7 @@ def holds_up(
     away history and measured better from the first day.
     """
     slots_per_day = 24 * 60 // slot_minutes
+    event_times = [e[0] for e in occupancy_events]
     days: dict = {}
     for t, v in zip(times, values, strict=True):
         days.setdefault(t.date(), []).append((t, v))
@@ -225,7 +233,7 @@ def holds_up(
         d
         for d, rows in sorted(days.items())
         if len(rows) == slots_per_day
-        and sum(away_at(occupancy_events, t) for t, _ in rows)
+        and sum(away_at(occupancy_events, t, event_times) for t, _ in rows)
         >= AWAY_DAY_SHARE * slots_per_day
     ]
     if not away:

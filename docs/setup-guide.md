@@ -1411,6 +1411,8 @@ From Developer Tools → Actions, or any automation:
 
 **Configure → Device setup** does the same from the hub's own settings, with no actions to type: in `legacy`, a **dry run** of what the device setup would build from your settings, and a tick to move to `shadow` when it is clean; in `shadow` or `active`, **Review what Nimbus finds** (new sources, renames and new devices ticked, an alternative to a source you confirmed never), **Edit a source** (choose another sensor for one thing a device measures; Nimbus checks it reads, with its unit, before saving), **Control** (allow Nimbus to run a controllable load, one load at a time, recorded with who and when; untick to stop it at once; finishing setup never allows it) and **Mode**. The actions below remain for automations.
 
+Three of these change your settings, so only an administrator can run them: `nimbus_load.set_controllable_load`, `nimbus_load.device_contract_set_mode` and `nimbus_load.device_contract_confirm`.
+
 | Service | Does |
 |---|---|
 | `nimbus_load.retrain` | Force an immediate retrain. Blank entity = everything |

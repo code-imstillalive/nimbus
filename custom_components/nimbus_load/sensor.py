@@ -21,7 +21,6 @@ import re
 import time
 from collections import deque
 from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -44,6 +43,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
+from homeassistant.util import dt as dt_util
 
 from . import (
     done_condition,
@@ -1938,10 +1938,9 @@ def _today_mean_import_price(hass: HomeAssistant, now: datetime) -> float | None
         return None
     # The install's own day, not UTC's: in Brisbane a UTC date runs 10:00 to
     # 10:00, so the "day's price" averaged the wrong periods every morning.
-    try:
-        zone = ZoneInfo(str(getattr(hass.config, "time_zone", None) or "UTC"))
-    except (ZoneInfoNotFoundError, ValueError):
-        zone = ZoneInfo("UTC")
+    # HA's own cached zone: building a ZoneInfo here ran on the event loop
+    # (HACS review, hacs/default#12099, 2 Nov 2026).
+    zone = dt_util.get_default_time_zone()
     today = now.astimezone(zone).date()
     prices = []
     for entry in forecast:

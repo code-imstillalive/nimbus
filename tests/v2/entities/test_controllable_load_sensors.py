@@ -8,10 +8,12 @@ sensor files.
 from __future__ import annotations
 
 import importlib
+import inspect
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -137,8 +139,14 @@ def test_the_schedule_view_is_told_the_kind_the_tank_and_todays_price(views):
     assert kw["done_condition_met"] is False  # 58.5 is below its own 60 setpoint
 
 
-def test_todays_mean_import_price_reads_only_todays_plan():
+def test_todays_mean_import_price_reads_only_todays_plan(monkeypatch):
     # test_todays_mean_import_price_reads_only_todays_plan
+    # The install's zone comes from HA's own cached one, never a ZoneInfo
+    # built on the event loop (HACS review, hacs/default#12099, 2 Nov 2026).
+    zone = {"tz": UTC}
+    monkeypatch.setattr(sm.dt_util, "get_default_time_zone", lambda: zone["tz"])
+    src = inspect.getsource(sm._today_mean_import_price)
+    assert "ZoneInfo(" not in src
     for forecast, mean in [
         (None, None),
         ([], None),
@@ -173,7 +181,7 @@ def test_todays_mean_import_price_reads_only_todays_plan():
             )
         }
     )
-    hass.config.time_zone = "Australia/Brisbane"
+    zone["tz"] = ZoneInfo("Australia/Brisbane")
     morning = datetime(2026, 10, 27, 23, 30, tzinfo=UTC)
     assert sm._today_mean_import_price(hass, morning) == pytest.approx(0.3)
 
