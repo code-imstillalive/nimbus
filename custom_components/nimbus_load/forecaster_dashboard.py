@@ -222,6 +222,23 @@ def dashboard_config(resolve: Any = None) -> dict[str, Any]:
             if resolve is None:
                 continue
             view = resolve(view)
+        if spec["key"] == "help":
+            # Household, 3 Nov 2026: the card that adds a release's updated
+            # tabs beside the household's own, first on the Help tab so every
+            # install has it once the tabs are pasted.
+            view["sections"] = [
+                {
+                    "type": "grid",
+                    "column_span": 4,
+                    "cards": [
+                        {
+                            "type": "custom:nimbus-tabs-card",
+                            "grid_options": {"columns": "full", "rows": "auto"},
+                        }
+                    ],
+                },
+                *view["sections"],
+            ]
         views.append(view)
     return {"title": DASHBOARD_TITLE, "views": views}
 

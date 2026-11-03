@@ -53,6 +53,27 @@ is.
 
 <a id="full-three-view-nimbus-dashboard-copy-paste"></a>
 
+### Keeping the tabs up to date: the Nimbus Tabs card
+
+A release can change a standard tab (for example a new setting on the Solver
+tab). The **Nimbus Tabs** card (`custom:nimbus-tabs-card`, first on the Help
+tab; or add it from the card picker by searching "nimbus") brings those
+changes to your dashboard without any YAML:
+
+1. Press **Check for updates**. The card compares this dashboard's tabs with
+   the installed release and lists each as up to date, changed or missing.
+2. Press **Add updated tabs beside mine**. Each changed tab is added right
+   after yours as **"<Tab> (new)"**; a missing tab is added under its own
+   name. **Your own tabs are never changed or removed**, and pressing it
+   again replaces only the "(new)" copies it added.
+3. Look at the new tab; when you're happy, delete your old one (and rename
+   the new one if you like).
+
+It works on the dashboard the card is on, needs an admin login (as any
+dashboard edit does), and saves the same way the dashboard editor does:
+from your browser, on your click. Nimbus itself still writes no dashboard.
+A YAML-mode dashboard can't be changed this way; the card says so.
+
 ## Full four-view "Nimbus" dashboard (copy-paste)
 
 One complete dashboard — Control Panel / Regret / Topology / Forecaster,

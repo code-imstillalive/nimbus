@@ -35,6 +35,7 @@ CARDS = {
     "nimbus-dispatch-card-v4.js": ["nimbus-dispatch-card-v4"],
     "nimbus-forecast-card.js": ["nimbus-forecast-card"],
     "nimbus-regret-card.js": ["nimbus-regret-card"],
+    "nimbus-tabs-card.js": ["nimbus-tabs-card"],
     "nimbus-topology-card.js": ["nimbus-topology-card", "switchboard-topology-card"],
 }
 
