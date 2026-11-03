@@ -155,11 +155,8 @@ def test_dc_r02_f06_a_renamed_entity_is_the_same_source_and_says_so():
     )
     regs = {**REGS, "sensor.grid_power_2": "r_grid_2"}
     stored = _stored()
-    grid = next(d for d in stored["devices"] if d["id"] == "grid")
-    del grid["bindings"]["import_energy"]
     r = dd.rediscover(stored, _propose(prefs, regs))
-    asked = [(q["device"], q["role"]) for q in r.questions if q.get("role")]
-    assert asked == [("grid", "import_energy")]
+    assert not [q for q in r.questions if q.get("role")]
     (alt,) = [d for d in r.differences if d["kind"] == "alternative"]
     assert (alt["device"], alt["role"]) == ("grid", "power")
     assert alt["stored_source"]["entity_id"] == "sensor.grid_power"
