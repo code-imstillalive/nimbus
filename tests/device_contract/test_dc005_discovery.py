@@ -227,6 +227,40 @@ def test_1528_a_full_energy_dashboard_gives_the_whole_site_with_no_typed_entity(
         ("fixed_price_not_proposed", 0.28)
     ]
 
+    # test_grid_energy_in_several_statistics_is_a_sum_not_a_choice
+    # Home Assistant adds a grid's flow_from (and flow_to) statistics together,
+    # so they are parts of one total, not alternatives (Cottonwood, 4 Nov).
+    prefs = {
+        "energy_sources": [
+            {
+                "type": "grid",
+                "flow_from": [
+                    {"stat_energy_from": "sensor.grid_to_house_kwh"},
+                    {"stat_energy_from": "sensor.grid_to_battery_kwh"},
+                ],
+                "flow_to": [{"stat_energy_to": "sensor.house_to_grid_kwh"}],
+            }
+        ]
+    }
+    p = dd.propose_from_energy_dashboard(prefs)
+    grid = _device(p.document, "grid")
+    assert "import_energy" not in grid["bindings"]
+    assert grid["bindings"]["export_energy"]["source"]["statistic_id"] == (
+        "sensor.house_to_grid_kwh"
+    )
+    assert not [q for q in p.questions if q.get("role") == "import_energy"]
+    assert [
+        (f["code"], f["role"], f["statistic_ids"])
+        for f in p.findings
+        if f["code"] == "grid_energy_summed"
+    ] == [
+        (
+            "grid_energy_summed",
+            "import_energy",
+            ["sensor.grid_to_house_kwh", "sensor.grid_to_battery_kwh"],
+        )
+    ]
+
     # test_dc_r15_discovery_is_pure: No Home Assistant import, so it cannot call a service.
     tree = ast.parse((_PKG / "device_discovery.py").read_text(encoding="utf-8"))
     imported = {
