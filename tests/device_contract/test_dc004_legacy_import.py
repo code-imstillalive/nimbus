@@ -104,6 +104,21 @@ def test_every_subentry_is_mapped_or_kept_never_dropped():
     ids = [d["id"] for d in res.document["devices"] if d.get("history_subentry_id")]
     assert ids == ["pool", "pool_2"]
 
+    # test_a_load_on_the_whole_house_sensor_is_the_house_not_a_second_device:
+    # nimbus #2244 (Mark Purcell): a Load forecasting the house reads the
+    # same sensor as the whole-house cross-check, and the import made it a
+    # second load device: binding_source_duplicate on a normal setup.
+    sub = _sub("hl", "load", "House load", load_sensor="sensor.house_power")
+    res = di.import_legacy(_snapshot(subentries=[sub]))
+    assert res.problems == []
+    loads = [d for d in res.document["devices"] if d["kind"] == "load"]
+    assert [d["id"] for d in loads] == ["load_house"]
+    power = _device(res.document, "load_house")["bindings"]["power"]
+    assert power["source"]["entity_id"] == "sensor.house_power"
+    assert power["history_subentry_id"] == "hl"
+    assert "subentry:hl.load_sensor" in power["provenance"]["also_source_paths"]
+    assert "hl" not in {u["subentry_id"] for u in res.unmapped}
+
     # test_a_power_signal_on_another_sensor_is_a_conflict
     sub = _sub(
         "g1",

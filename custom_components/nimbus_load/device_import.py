@@ -600,6 +600,24 @@ def _map_subentries(
                     f"subentry:{sid}.load_sensor"
                 )
         elif kind == "load":
+            # nimbus #2244 (Mark Purcell): a Load on the same sensor as the
+            # whole house is the house's own load forecast, not a second
+            # device. It joins load_house's power binding (its history and
+            # its source path), as a power signal on that sensor does.
+            entity = _text(data.get("load_sensor"))
+            house_power = (
+                (by_id.get("load_house") or {}).get("bindings", {}).get("power")
+            )
+            if (
+                entity
+                and house_power
+                and house_power.get("source", {}).get("entity_id") == entity
+            ):
+                house_power.setdefault("history_subentry_id", sid)
+                house_power["provenance"].setdefault("also_source_paths", []).append(
+                    f"subentry:{sid}.load_sensor"
+                )
+                continue
             ident = _unique(_slug(sub.get("title"), "load"), taken)
             device: dict[str, Any] = {
                 "id": ident,
