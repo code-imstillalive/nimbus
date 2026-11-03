@@ -61,6 +61,7 @@ F_FIXED_PRICE = "fixed_price_not_proposed"
 F_INCLUDED_IN_UNKNOWN = "included_in_unknown_statistic"
 F_SOLAR_FORECAST = "solar_forecast_config_entry"
 F_NO_ENERGY_DASHBOARD = "no_energy_dashboard"
+F_GRID_ENERGY_SUMMED = "grid_energy_summed"
 
 _GRID_ID = "grid"
 _HOUSE_ID = "load_house"
@@ -254,8 +255,25 @@ def propose_from_energy_dashboard(
         _fixed_prices(raw, src.index, b)
 
     regs = b.registry_ids
-    b.one(grid, "import_energy", grid_roles["import_energy"], _statistic_maker())
-    b.one(grid, "export_energy", grid_roles["export_energy"], _statistic_maker())
+    for role in ("import_energy", "export_energy"):
+        stats = list(dict.fromkeys(stat for stat, _ev in grid_roles[role]))
+        if len(stats) > 1:
+            # Home Assistant adds a grid's statistics together: they are
+            # parts of one total, not alternatives. DC-001 binds one
+            # statistic, so the role stays empty and the parts are named.
+            b.findings.append(
+                {
+                    "code": F_GRID_ENERGY_SUMMED,
+                    "device": grid["id"],
+                    "role": role,
+                    "statistic_ids": stats,
+                    "message": "the Energy Dashboard adds these statistics "
+                    "together for the grid; one binding cannot hold their "
+                    "sum, so none is proposed",
+                }
+            )
+            continue
+        b.one(grid, role, grid_roles[role], _statistic_maker())
     b.one(grid, "power", grid_roles["power"], _entity_maker(regs, "import"))
     b.one(grid, "import_price", grid_roles["import_price"], _entity_maker(regs))
     b.one(grid, "export_price", grid_roles["export_price"], _entity_maker(regs))
@@ -642,11 +660,15 @@ def _profile_binding(
 
 def _candidate(binding: Mapping[str, Any]) -> dict[str, Any]:
     source = binding["source"]
-    return {
+    out = {
         "source": source.get("entity_id") or source.get("statistic_id"),
         "binding_source": copy.deepcopy(source),
         "evidence": copy.deepcopy(binding["provenance"]["evidence"]),
     }
+    # A forecast's quality, so accepting the candidate keeps it.
+    if binding.get("normalization"):
+        out["normalization"] = copy.deepcopy(binding["normalization"])
+    return out
 
 
 def add_provider_profiles(
@@ -1076,6 +1098,43 @@ def rediscover(
         matched_stored.add(target["id"])
         as_stored[found["id"]] = target["id"]
         _compare_bindings(target, found, present_registry_ids, out)
+
+    # Only an empty role is proposed into. A "which one" about a role the
+    # stored device already binds becomes an alternative per other candidate
+    # (decision 5), so answering it can never replace the stored binding.
+    by_id = {d["id"]: d for d in stored_devices}
+    kept: list[dict[str, Any]] = []
+    for question in out.questions:
+        target = by_id.get(as_stored.get(question.get("device"), ""))
+        held = ((target or {}).get("bindings") or {}).get(question.get("role"))
+        if (
+            question.get("code") not in (Q_SEVERAL_SOURCES, Q_CONFIRM_MATCH)
+            or target is None
+            or held is None
+        ):
+            kept.append(question)
+            continue
+        old = held.get("source") or {}
+        offered: set[Any] = set()
+        for cand in question.get("candidates") or ():
+            new = cand.get("binding_source")
+            if not new or _same_source(old, new) or cand.get("source") in offered:
+                continue
+            offered.add(cand.get("source"))
+            out.differences.append(
+                {
+                    "kind": D_ALTERNATIVE,
+                    "device": target["id"],
+                    "role": question["role"],
+                    "stored_source": copy.deepcopy(old),
+                    "stored_confirmed": bool(
+                        (held.get("provenance") or {}).get("confirmed")
+                    ),
+                    # Whole, so a sign or forecast normalization is kept.
+                    "candidate": copy.deepcopy(dict(cand)),
+                }
+            )
+    out.questions = kept
 
     for question in out.questions:
         if question.get("device") in as_stored:

@@ -140,3 +140,35 @@ def test_dc_r02_f06_a_renamed_entity_is_the_same_source_and_says_so():
     r = dd.rediscover(stored, _propose())
     (q,) = [q for q in r.questions if q["code"] == "device_match_ambiguous"]
     assert q["stored_devices"] == ["load_pool", "load_pool_twin"]
+
+    # test_a_role_the_stored_document_binds_is_never_asked_again
+    # DC-005: only an empty role is proposed into; a stored binding is kept
+    # and a different source is an alternative (decision 5), never a
+    # "which one" question whose answer would replace it.
+    prefs = copy.deepcopy(PREFS)
+    prefs["energy_sources"].append(
+        {
+            "type": "grid",
+            "stat_energy_from": "sensor.grid_in_2_kwh",
+            "stat_rate": "sensor.grid_power_2",
+        }
+    )
+    regs = {**REGS, "sensor.grid_power_2": "r_grid_2"}
+    stored = _stored()
+    r = dd.rediscover(stored, _propose(prefs, regs))
+    assert not [q for q in r.questions if q.get("role")]
+    (alt,) = [d for d in r.differences if d["kind"] == "alternative"]
+    assert (alt["device"], alt["role"]) == ("grid", "power")
+    assert alt["stored_source"]["entity_id"] == "sensor.grid_power"
+    assert alt["candidate"]["source"] == "sensor.grid_power_2"
+    choose = {"device": "grid", "role": "power", "entity_id": "sensor.grid_power_2"}
+    _, refusals, _ = dd.apply_confirmation(
+        stored, r, [{"kind": "several_sources", **choose}]
+    )
+    assert refusals
+    document, refusals, changed = dd.apply_confirmation(
+        stored, r, [{"kind": "alternative", **choose}]
+    )
+    assert not refusals and changed == [("grid", "power")]
+    new_grid = next(d for d in document["devices"] if d["id"] == "grid")
+    assert new_grid["bindings"]["power"]["source"]["entity_id"] == "sensor.grid_power_2"
