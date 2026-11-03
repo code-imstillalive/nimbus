@@ -573,7 +573,12 @@ _ROOT = Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_l
 # inert` immediately, and the only sanctioned way past that is to add an
 # entry here with an issue number and a reason. Deliberately not a
 # blanket "ignore unknown fields".
-KNOWN_INERT: dict[str, str] = {}
+KNOWN_INERT: dict[str, str] = {
+    # nimbus #2257: not a plan input by design. It is compared with the live
+    # meter at dispatch (sensor.nimbus_battery_allowed_charge_kw); the plan
+    # keeps using Grid Max Import.
+    "solver_site_import_limit_kw": "#2257: read at dispatch, not by the solve",
+}
 
 
 def _solver_number_fields() -> set[str]:

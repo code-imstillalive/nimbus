@@ -377,14 +377,15 @@ conditions:
   # capping) the charge, and by at least 0.5 kW: no write on every meter tick.
   - condition: template
     value_template: >-
-      {% if trigger.id != 'allowed' %}true{% else %}
-        {% set f = trigger.from_state.state if trigger.from_state else 'x' %}
-        {% set t = trigger.to_state.state if trigger.to_state else 'x' %}
-        {% set cap = plan_power_kw | float(0) %}
-        {{ plan_kw < 0 and is_number(f) and is_number(t)
-           and (f | float < cap or t | float < cap)
-           and ((t | float) - (f | float)) | abs >= 0.5 }}
-      {% endif %}
+      {{ trigger.id != 'allowed'
+         or (plan_kw < 0
+             and trigger.from_state is not none and trigger.to_state is not none
+             and is_number(trigger.from_state.state)
+             and is_number(trigger.to_state.state)
+             and ((trigger.from_state.state | float(0)) < plan_power_kw | float(0)
+                  or (trigger.to_state.state | float(0)) < plan_power_kw | float(0))
+             and ((trigger.to_state.state | float(0))
+                  - (trigger.from_state.state | float(0))) | abs >= 0.5) }}
 
 actions:
   - choose:

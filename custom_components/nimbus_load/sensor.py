@@ -601,6 +601,9 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
 # a dashboard -- those stay wizard-only, sourced from entry.options exactly
 # as before.
 _SOLVER_NUMBER_ENTITY_KEYS = (
+    # nimbus #2257: read at dispatch (sensor.nimbus_battery_allowed_charge_kw),
+    # exposed here like every Solver number.
+    CONF_SOLVER_SITE_IMPORT_LIMIT_KW,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
@@ -714,6 +717,7 @@ _SOLVER_TIME_ENTITY_KEYS = (
 # combined number-or-boolean entity type. See switch.py's own module
 # docstring for the full "why this exists" story.
 _SOLVER_SWITCH_ENTITY_KEYS = (
+    CONF_SOLVER_GRID_METER_POSITIVE_IS_IMPORT,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     # Issue #232 follow-up: moved out of the wizard's solver_grid step
     # into switch.nimbus_solve_on_price_change (see switch.py's own
