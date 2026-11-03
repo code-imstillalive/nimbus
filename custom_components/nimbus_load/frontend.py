@@ -85,6 +85,10 @@ _CARDS: tuple[_CardAsset, ...] = (
     # beside the household's own, from the browser on their click (Nimbus
     # itself writes no dashboard; see the card's header).
     _CardAsset("nimbus-tabs-card.js", "nimbus-tabs-card"),
+    # Household, 3 Nov 2026: the Power Flow tab -- a live animated flow
+    # through the site Nimbus is set up with, beside the Control Panel's
+    # own forecast table.
+    _CardAsset("nimbus-flow-card.js", "nimbus-flow-card"),
 )
 
 

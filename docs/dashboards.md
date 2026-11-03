@@ -1,4 +1,4 @@
-# Dashboards — Control Panel, Regret, Topology and Forecaster cards
+# Dashboards — Control Panel, Power Flow, Regret, Topology and Forecaster cards
 
 Four ready-made Lovelace cards ship with this integration (issue #364,
 Mark Purcell) — no `www/` file copy, no manual Settings -> Dashboards ->
@@ -40,6 +40,7 @@ It holds six tabs, in this order:
 | **Forecaster** | `custom:nimbus-forecast-card` ×2 | Power Signals and Load Forecasts (needs ApexCharts Card) |
 | **Solver** | standard Home Assistant cards | solve status, plan against the measured battery, money, EPR and regret, the risk sliders, and every Solver setting grouped into **Basic settings**, **P2P (optional)** and **Advanced settings** (issue #1594) |
 | **Topology** | `custom:nimbus-topology-card` | the site diagram, discovered from your Nimbus config |
+| **Power Flow** | `custom:nimbus-flow-card` | a live animated flow through your inverters, strings and battery towers to the house and grid, the price being paid or earned now, whether the plan is being followed, the circuits drawing now, the Control Panel's forecast table beside it and today's totals |
 | **Control Panel** | `custom:nimbus-dispatch-card-v4` | the plan and live dispatch; battery and solar follow the Solver settings |
 | **Regret** | `custom:nimbus-regret-card` ×3 | yesterday's dispatch and the two days before, each against the best possible plan |
 | **Help** | standard Home Assistant cards | setting Nimbus up and what every figure means (issue #1823) |
@@ -248,6 +249,35 @@ sections:
 **Optional fields:** `ev_charger_power_entity` (adds an "+ EV CHARGING" note to the status line when the load exceeds 0.05kW), `p2p_threshold_entity` (adds a "Tonight's P2P Threshold" stat), `health_checks` (footer status chips — omit for none), `battery_power_positive_is_charge` (nimbus issue #388 — a `true`/`false` override for the sign the card applies to `battery_power_entity`; almost never needed, since the card already auto-detects this from the Solver's own `solver_battery_power_positive_is_charge` setting on `sensor.nimbus_solver_config` — the same flag a SigEnergy-style install already sets during the Solver wizard's Battery step. Only set this explicitly if that sensor is unavailable for some reason).
 
 **Always-on, not configurable** (these are Nimbus's own stable, hub-level entity names, not household-specific): the Solver's own `number.nimbus_solver_*` tuning/risk entities, `sensor.nimbus_solver_battery_forecast` (the plan itself), and `sensor.nimbus_solver_quality_report` (yesterday's EPR/P2P stats).
+
+## Nimbus Power Flow Card (`custom:nimbus-flow-card`) — "Power Flow"
+
+What is happening right now, as a live animated flow. Dots run along each
+line, faster for more power, coloured by where the energy comes from (solar
+gold, battery green, grid blue).
+
+- **Your site, drawn from Nimbus's setup:** each inverter (a Power Source),
+  its PV strings above it while they produce, and its battery towers beside
+  it with their level, health and temperature, feeding the house and the
+  grid. Without inverters set up, one combined "Solar & battery" node.
+- **The price now,** on the grid: what is being paid or earned this period,
+  marked P2P when the P2P rate applies.
+- **On or off plan:** the battery is checked against the plan's current
+  period. Off by more than about 1.5 kW (or a quarter of the plan) for two
+  minutes, the badge turns amber and a planned line that isn't happening
+  shows as a grey dashed ghost.
+- **Solar against forecast,** while the plan expects solar.
+- **The circuits drawing now:** small bubbles under House, one per Nimbus
+  power signal drawing over about 50 W, and any controllable load with a
+  power sensor.
+- **The plan table beside it** is the Control Panel card's own forecast
+  table (`custom:nimbus-dispatch-card-v4` with `table_only: true`), so the
+  two always match.
+- **Today's totals** from the Switchboard's daily sensors (solar, house,
+  import, export, battery in and out); a tile without a sensor is left out.
+
+It has no settings: everything comes from Nimbus. Add it from the card
+picker ("Nimbus Power Flow") or use the standard **Power Flow** tab.
 
 ## Nimbus Regret Card (`custom:nimbus-regret-card`) — "Regret"
 
