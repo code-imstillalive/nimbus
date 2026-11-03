@@ -155,8 +155,10 @@ async def test_the_same_devices_power_sensor_is_offered_as_a_question(
         prefs,
         hist,
         now,
+        # new=, not side_effect=: the HA test harness runs a Mock passed to
+        # async_add_executor_job inline on the loop, which would hide the fix.
         patch.object(
-            device_contract_ha.device_discovery, "add_history_pairing", side_effect=spy
+            device_contract_ha.device_discovery, "add_history_pairing", new=spy
         ),
     ):
         await device_contract_ha.async_discover(hass, entry)
