@@ -1341,6 +1341,18 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // never trigger the grid than to unwind everything that grew
         // around it (#391/#395/#400/#407).
         '.layout-grid { display:block; }' +
+        // Household, 3 Nov 2026: the Power Flow tab shows this card's own
+        // forecast table beside the flow ("SAME means SAME"), so the table
+        // can never drift from the Control Panel's. `table_only: true`
+        // hides everything else and lets the table fill the height it is
+        // given (--nimbus-ftable-height, set by the flow card).
+        (this.config.table_only
+          ? '.col-left, .chart-col, .footer .chip, .footer ~ * { display:none !important; }' +
+            '.chart-table-grid { display:block !important; }' +
+            '.card { padding: 0 0 0 4px !important; background: none !important; border: none !important; box-shadow: none !important; }' +
+            '.footer { border-top: none !important; margin-top: 12px !important; padding-top: 0 !important; }' +
+            '.ftable-wrap { max-height: var(--nimbus-ftable-height, 640px) !important; }'
+          : '') +
       '</style>' +
       '<div class="card">' +
       '<div class="layout-grid">' +

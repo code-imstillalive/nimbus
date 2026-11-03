@@ -72,6 +72,16 @@ STANDARD_VIEWS: tuple[dict[str, Any], ...] = (
         "match": ("sensor.nimbus_solver_lp_status",),
     },
     {
+        # Household, 3 Nov 2026: what is happening now, what the plan says
+        # for now and whether it is followed, as a live animated flow through
+        # the site set up for the Topology card, with the Control Panel's own
+        # forecast table beside it and today's totals underneath.
+        "key": "power_flow",
+        "card": "custom:nimbus-flow-card",
+        "title": "Power Flow",
+        "path": "power-flow",
+    },
+    {
         "key": "topology",
         "card": "custom:nimbus-topology-card",
         "match": ("custom:nimbus-topology-card", "custom:switchboard-topology-card"),
