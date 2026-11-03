@@ -539,7 +539,7 @@ def test_a_device_still_disobeying_after_the_days_resends_is_warned_about_once(
         _recorder(mp, history)
         asked = []
 
-        def forecast(entity_id):
+        async def forecast(_hass, entity_id):
             asked.append(entity_id)
             return [
                 {
@@ -550,7 +550,10 @@ def test_a_device_still_disobeying_after_the_days_resends_is_warned_about_once(
                 "not a forecast",
             ]
 
-        mp.setattr(sw, "_fetch_weather_hourly_forecast", forecast)
+        # Awaited on the loop, never the blocking executor-side fetch (HACS
+        # review, hacs/default#12099, 2 Nov 2026: that froze HA 15 s a solve).
+        mp.setattr(guard, "async_hourly_forecast", forecast)
+        mp.setattr(sw, "_fetch_weather_hourly_forecast", None)
         _heater(site, 55.0, seed={"thermal_rates_learned_day_key": ""})
         plan = SimpleNamespace(
             sheddable_loads=[],
@@ -609,7 +612,11 @@ def test_a_device_still_disobeying_after_the_days_resends_is_warned_about_once(
         recorder.get_instance = lambda _hass: Instance()
         recorder.history = SimpleNamespace(state_changes_during_period=changes)
         mp.setitem(sys.modules, "homeassistant.components.recorder", recorder)
-        mp.setattr(sw, "_fetch_weather_hourly_forecast", lambda _e: None)
+
+        async def no_forecast(_hass, _entity_id):
+            return None
+
+        mp.setattr(guard, "async_hourly_forecast", no_forecast)
         _heater(site, 55.0, seed={"thermal_rates_learned_day_key": ""})
         plan = SimpleNamespace(
             sheddable_loads=[],

@@ -11,6 +11,7 @@ from __future__ import annotations
 import itertools
 import math
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import _ml_path  # noqa: F401  (ml/ reaches up to const.py)
@@ -87,6 +88,20 @@ def test_the_schedule_feature_wraps_midnight():
     assert not occ.away_at(events, OCC_T0 + timedelta(hours=20))
     # Unknown (NaN) counts as home, so the forecast stays as it is.
     assert not occ.away_at([(OCC_T0, float("nan"))], OCC_T0 + timedelta(hours=1))
+    # HACS review (hacs/default#12099, 2 Nov 2026): the event times are built
+    # once per profile, not on every call, and the profile is built off the
+    # event loop.
+    times = [e[0] for e in events]
+    assert occ.away_at(events, OCC_T0 + timedelta(hours=8), times=times)
+    assert not occ.away_at(events, OCC_T0 + timedelta(hours=20), times=times)
+    coord = (Path(occ.__file__).parents[1] / "coordinator.py").read_text(
+        encoding="utf-8"
+    )
+    refresh = coord.split("async def _async_refresh_occupancy(", 1)[1].split(
+        "\n    async def ", 1
+    )[0]
+    assert "async_add_executor_job" in refresh
+    assert "occupancy_model.build_profile(" not in refresh
     assert occ.away_periods(events, OCC_T0 + timedelta(days=1)) == [
         (OCC_T0 + timedelta(hours=8), OCC_T0 + timedelta(hours=20))
     ]

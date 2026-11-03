@@ -7,6 +7,7 @@ only thing patched. Synthetic only (household: "100% safe")."""
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -138,6 +139,28 @@ async def test_the_same_devices_power_sensor_is_offered_as_a_question(
     assert c["source"] == "sensor.bat_power"
     assert c["binding_source"]["registry_id"]
     assert c["normalization"]["native_positive_direction"] == "discharge"
+
+    # test_the_pairing_runs_off_the_event_loop: HACS review
+    # (hacs/default#12099, 2 Nov 2026). The resolver re-sorts days of history
+    # per candidate; on the loop it stalls Home Assistant for seconds.
+    threads = []
+    real = device_contract_ha.device_discovery.add_history_pairing
+
+    def spy(*args, **kwargs):
+        threads.append(threading.get_ident())
+        return real(*args, **kwargs)
+
+    prefs, hist, now = _patches()
+    with (
+        prefs,
+        hist,
+        now,
+        patch.object(
+            device_contract_ha.device_discovery, "add_history_pairing", side_effect=spy
+        ),
+    ):
+        await device_contract_ha.async_discover(hass, entry)
+    assert threads and hass.loop_thread_id not in threads
 
 
 async def test_a_counter_on_no_device_is_a_finding(hass: HomeAssistant, hass_storage):
