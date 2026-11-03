@@ -48,10 +48,22 @@ function nimbusTabsCanonical(value) {
   return JSON.stringify(value);
 }
 
+function nimbusTabsBare(view) {
+  // Home Assistant's view editor adds an empty "cards" (and sometimes
+  // "badges") list to a sections view when it is renamed or moved; an empty
+  // list is no content, so it is not a change (NUC1, 4 Nov 2026).
+  const out = { ...view };
+  for (const k of ["cards", "badges"]) {
+    if (Array.isArray(out[k]) && out[k].length === 0) delete out[k];
+  }
+  return out;
+}
+
 function nimbusTabsSame(view, tab) {
   // Equal in content; the tab's name and path are the household's own to
   // change, so they are left out of the comparison.
-  return nimbusTabsCanonical({ ...view, path: tab.path, title: tab.title }) === nimbusTabsCanonical(tab);
+  return nimbusTabsCanonical(nimbusTabsBare({ ...view, path: tab.path, title: tab.title })) ===
+    nimbusTabsCanonical(nimbusTabsBare(tab));
 }
 
 function nimbusTabsFind(views, tab) {
