@@ -118,11 +118,8 @@ def test_registered_before_the_swap_still_reaches_has_registry():
                 where,
             )
 
-
-@needs_node
-def test_registered_after_the_swap_is_registered_once():
-    """HA's registry already in place: one registration, nothing thrown when
-    the settle-time checks run."""
+    # test_registered_after_the_swap_is_registered_once: HA's registry already
+    # in place: one registration, nothing thrown when the settle-time checks run.
     for card in sorted(CARDS):
         result = _run(card, "late")
         assert result["threw"] is None, result
