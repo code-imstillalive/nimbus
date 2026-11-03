@@ -8,12 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.509] - 2026-11-03
+
+**Fixes from the HACS store review: admin-only services, escaped card text, and nothing blocking Home Assistant's event loop.**
+
+- **Services that change your settings need an administrator** (#2240): `set_controllable_load`, `device_contract_set_mode` and `device_contract_confirm`. A non-admin user can no longer call them.
+- **The dispatch and regret cards escape what they display** (#2240): the mode select's state, health-check labels, the Solver status and the regret card's title.
+- **No 15-second freeze with a thermal load and a weather forecast** (#2240). The dispatch step waited, on Home Assistant's own event loop, for a forecast scheduled on that same loop: on an install with a thermal controllable load and the Solver's weather forecast set, Home Assistant stopped for 15 seconds every solve and the ambient forecast never arrived. It is now awaited properly.
+- **Device setup's history pairing and the load forecast's occupancy profile run off the event loop** (#2240), so opening Device setup or a retrain no longer stalls Home Assistant on a fast power sensor or a long history.
+- The controllable-load schedule sensors use Home Assistant's own time zone instead of building one each update (#2240).
+
 ## [0.94.508] - 2026-11-03
 
 **The Nimbus Tabs card knows tabs you have kept and renamed, and the standard Regret tab shows three days.**
 
 - **Nimbus Tabs card recognises your kept tabs** (#2236). After adding "Topology (new)" and "Help (new)", the reference household kept them, deleted their old tabs and renamed the copies back. The copies keep their "-new" web address, so the card would have called those tabs missing and added them again; a tab with no web address (a Forecaster tab made by hand) was added as a second "Forecaster". The card now treats a renamed copy, or a tab with no address under the standard name, as yours; it compares content only, not name or address; and a newer version goes at whichever address is free.
 - **Regret tab: three days** (#2235). The standard Regret tab had one card (yesterday); it now has three, yesterday and the two days before, as the reference household's own Regret tab has. The Tabs card offers it as "Regret (new)" beside yours.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at efa3ff64** (`release/0.94.508`, installed through HACS untagged and restarted at 11:54 AEST, 3 Nov; read through 12:00). 123 of the 127 Nimbus entities carrying a version read 0.94.508; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal`; Discharge Cost 0.01 and Battery Sell Margin 0.04 kept their set values over the restart. The served `nimbus-tabs-card.js` carries the new matching (`nimbusTabsFind`). `nimbus_load.get_dashboard` returns the Regret tab with three regret cards, `days_ago` 1, 2 and 3. The card's matching against the reference household's renamed tabs (Topology and Help at "-new" paths, a Forecaster tab with no path) is proved by #2236's test, run in node against that layout; the card was not pressed on screen for this release. Log: no new Nimbus WARNING or ERROR from this release (only the existing drift notes, two implausible test-feed meter rows and the test weather feed).
+- Consumer check: no setting, entity or attribute is added, moved or renamed. The Tabs card now treats a renamed "(new)" tab, or a path-less tab under the standard name, as the user's own, so it no longer offers a duplicate of a tab already kept. The standard Regret tab gains two cards; a user's own Regret tab is untouched.
 
 ## [0.94.507] - 2026-11-03
 
