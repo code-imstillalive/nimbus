@@ -215,6 +215,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.509",
+        "3 Nov 2026",
+        (
+            (
+                "Store review fixes: settings-changing actions need an admin; "
+                "no more event-loop stalls."
+            ),
+        ),
+    ),
+    (
         "0.94.508",
         "3 Nov 2026",
         (
