@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.512] - 2026-11-04
+
+**Device setup's discovery stops asking about what your setup already reads, and no longer asks you to pick one of several grid energy statistics.**
+
+- **A source for something your device setup already reads is an alternative, not a question** (#2251, found by Mark Purcell). After importing your settings, discovery asked "which one" again for the grid's import and export price and their forecasts whenever more than one provider publishes them (Amber, Amber Express, LocalVolts v2). Answering would have replaced what your setup already uses. Now each other source is shown as an alternative, not ticked, as for any source you confirmed. A question about something not yet set up is unchanged.
+- **Grid energy split across several statistics is no longer a choice** (#2251). When the Energy Dashboard lists two or more grid import (or export) statistics, for example grid-to-house and grid-to-battery, Home Assistant adds them together. Picking one would undercount, so discovery names them in a `grid_energy_summed` finding and binds none. The grid's power reading covers what device setup needs.
+- A price-forecast source accepted from discovery keeps its forecast marking (#2251).
+
 ## [0.94.511] - 2026-11-03
 
 **A Power Flow tab: your site's live power, drawn as an animated flow, with the Control Panel's forecast table beside it.**
@@ -21,6 +29,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Dots run along each line, faster for more power, coloured by source. A badge shows whether the battery is following the plan, and turns amber after two minutes off it. A pill compares solar with its forecast, and the footer gives the plan's next change. Beside the flow is the Control Panel's own forecast table (the same card, table only). Underneath is today's totals in one row: solar, house, imported, exported, battery in and out. The Nimbus Tabs card lists it as "not on this dashboard" and adds it under its own name when you press it; your own tabs are untouched.
 - The forecast table's title is no longer clipped at its left edge when it is shown on its own.
 - `sensor.nimbus_topology_config`: an EV or other battery participant's power source now carries `participant: true` and `power_positive_is_charge`, so a card can tell it from an inverter and read its direction.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at d2b83d1b** (`release/0.94.511`, installed through HACS untagged and restarted at 19:36 AEST, 3 Nov; read through 19:40). 123 of the 127 Nimbus entities carrying a version read 0.94.511; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal` on the first solve (19:37); all 61 Solver numbers kept their values over the restart. `sensor.nimbus_topology_config` marks the test EV `participant: true`, `power_positive_is_charge: true`; the two inverters carry neither. `nimbus_load.get_dashboard` returns Power Flow third, between Solver and Topology, as one full-width `custom:nimbus-flow-card`. Opened on screen at 19:37: Inverter 1 at 13.0 kW with Towers 2 and 4 on the left, Inverter 2 idle with Towers 1 and 3 on the right, the test EV once (5 %, idle), house 1.5 kW with six circuits, grid exporting 11.3 kW at "Selling 33.4c · P2P", On plan, the forecast table beside it with its title whole, today's six totals in one row; no browser console errors. The browser loaded the cards as `?v=0.94.511`, so an update needs no cache clear. The Control Panel's own table is unchanged. **Not seen on screen:** PV strings (night, 0 W, so hidden by design), an EV charging, and the off-plan amber state. Log: no new Nimbus WARNING or ERROR from this release (the first solves after a restart, the test EV below its floor, the test weather feed read during the restart and the test-feed meter rows are existing).
+- Consumer check: the standard dashboard gains a Power Flow tab (a user's own tabs are untouched; the Tabs card offers it). `sensor.nimbus_topology_config` gains `participant` and `power_positive_is_charge` on battery-participant power sources; nothing is moved or renamed. Plans are unchanged.
 
 ## [0.94.510] - 2026-11-03
 
