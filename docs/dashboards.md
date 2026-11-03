@@ -41,7 +41,7 @@ It holds six tabs, in this order:
 | **Solver** | standard Home Assistant cards | solve status, plan against the measured battery, money, EPR and regret, the risk sliders, and every Solver setting grouped into **Basic settings**, **P2P (optional)** and **Advanced settings** (issue #1594) |
 | **Topology** | `custom:nimbus-topology-card` | the site diagram, discovered from your Nimbus config |
 | **Control Panel** | `custom:nimbus-dispatch-card-v4` | the plan and live dispatch; battery and solar follow the Solver settings |
-| **Regret** | `custom:nimbus-regret-card` | each day's dispatch against the best possible plan |
+| **Regret** | `custom:nimbus-regret-card` ×3 | yesterday's dispatch and the two days before, each against the best possible plan |
 | **Help** | standard Home Assistant cards | setting Nimbus up and what every figure means (issue #1823) |
 
 Every tab has a title and no icon, and is a 4-column **sections** view, so you
@@ -67,7 +67,10 @@ changes to your dashboard without any YAML:
    name. **Your own tabs are never changed or removed**, and pressing it
    again replaces only the "(new)" copies it added.
 3. Look at the new tab; when you're happy, delete your old one (and rename
-   the new one if you like).
+   the new one if you like). The card still knows it as yours after the
+   rename, though its web address keeps the "-new" ending. A tab you made
+   by hand with no web address counts as yours when it has the standard
+   name (Forecaster, Solver, ...).
 
 It works on the dashboard the card is on, needs an admin login (as any
 dashboard edit does), and saves the same way the dashboard editor does:
