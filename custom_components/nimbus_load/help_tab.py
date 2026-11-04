@@ -218,6 +218,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.517",
+        "4 Nov 2026",
+        (
+            (
+                "**Solver tab:** Site import limit is first in Grid and fees, "
+                "and the Basic settings cards line up."
+            ),
+        ),
+    ),
+    (
         "0.94.516",
         "4 Nov 2026",
         (
