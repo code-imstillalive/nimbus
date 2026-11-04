@@ -216,6 +216,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.515",
+        "4 Nov 2026",
+        (
+            (
+                "**Help:** What's new is read live, so this list is always "
+                "current, even on a Help tab you kept."
+            ),
+        ),
+    ),
+    (
         "0.94.514",
         "4 Nov 2026",
         (
