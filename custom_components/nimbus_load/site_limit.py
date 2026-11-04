@@ -9,8 +9,8 @@ read the live meter, because Nimbus neither commands nor forecasts every
 load that can come on (Cottonwood's EV charger is driven elsewhere).
 
 `allowed_charge_kw` is the most the battery may charge right now without
-grid import passing the limit: what it is charging now, plus the headroom
-the meter shows. Import only in this first slice (Mark: export is a
+grid import passing the limit: what it is charging now (negative while it
+discharges), plus the headroom the meter shows. Import only in this first slice (Mark: export is a
 fast-follow once this is proven).
 
 HA-import-free, like power_units.py, so it is tested directly.
@@ -36,4 +36,8 @@ def allowed_charge_kw(
         return None
     importing = grid_kw if grid_positive_is_import else -grid_kw
     charging = battery_kw if battery_positive_is_charge else -battery_kw
-    return max(0.0, max(0.0, charging) + limit_kw - importing)
+    # `charging` is not clamped: a battery discharging now (negative) stops
+    # supplying the house when it switches to charge, so that discharge counts
+    # against the room too (Mark Purcell, #2258: discharging 10 kW at 20 kW
+    # import against 44 allows 14, not 24).
+    return max(0.0, charging + limit_kw - importing)
