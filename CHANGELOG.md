@@ -8,11 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.516] - 2026-11-04
+
+**A live site import limit: the battery never pushes your property over its supply.** Safety feature.
+
+- **Site Import Limit** (#2257, #2258, reviewed by Mark Purcell). The plan keeps the battery and the *forecast* house load under Grid Max Import, but an EV, an oven or a kettle can switch on at any moment. One household's 46 kW supply tripped with a 30 kW grid charge, a 10.7 kW car, hot water and pool, and a toaster. Set `number.nimbus_solver_site_import_limit_kw` (Solver tab) to your supply's trip point less room for an appliance switching on, for example 44 kW against 46. **0 = off, the default**, so nothing changes until you set it.
+  - `sensor.nimbus_battery_allowed_charge_kw`: the most the battery may charge right now without grid import passing the limit, from the live grid meter. It counts a battery that is discharging now, since that supply stops when it switches to charge (Mark's review). It is unavailable while the limit is off or a reading is missing.
+  - `switch.nimbus_solver_grid_meter_positive_is_import` (default on): your grid meter's sign. The sensor's `grid_kw` attribute shows the reading it used, so you can check it.
+  - **The dispatch blueprint** never sends a charge above the allowance (new input *Nimbus allowed charge*, defaulting to the sensor), and answers a load switching on within seconds.
+  - **New blueprint *Nimbus site import guard*** trims any charge, manual or another automation's, once import passes the limit. It never raises it.
+  - **The going-live guide** has a new section, *Your site's supply limit*, and a new row in the failsafe table. Re-import the dispatch blueprint to get the cap.
+- First slice: import only. Export follows once this is proven (Mark, #2257). The reference household has run the same guard as an automation since 4 Nov 08:45: through a car charge beside 35–38 kW battery charging, the import peaked at 44.7 kW against its 46 kW supply, with no trip.
+
 ## [0.94.515] - 2026-11-04
 
 **The Help tab's "What's new" is always current.**
 
 - **What's new is read live** (#2261, household: *"panel should always be current"*). The list was written into the Help tab, so every release changed the standard Help tab, and the Nimbus Tabs card offered a new Help after each one. The panel now reads the list from `sensor.nimbus_status` (new attribute `whats_new`, not recorded). A Help tab you keep shows each release as it lands, and the Tabs card flags Help only when the tab's own content changes. **Add Help once more** with the Tabs card after installing this release; after that it stays up to date.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 2a931df7** (`release/0.94.515`, installed through HACS untagged and restarted at 13:36 AEST, 4 Nov; read through 13:40). 123 of the 127 Nimbus entities carrying a version read 0.94.515; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal` on the first solve; all 61 Solver numbers kept their values over the restart. `sensor.nimbus_status` carries `whats_new` (58 entries, 0.94.515 first). The standard Help tab from `nimbus_load.get_dashboard` holds no release version in its What's new panel; the panel's placeholder resolves to `sensor.nimbus_status`. Rendered through the test box's own template engine, it lists 0.94.515, 0.94.514 and the rest, with their dates and items. **Not seen on screen:** the test box's own Help tab is an older copy, which is not changed. Log: no new Nimbus WARNING or ERROR from this release (the test weather feed read during the restart and the test-feed meter rows are existing).
+- Consumer check: `sensor.nimbus_status` gains an unrecorded `whats_new` attribute; nothing is moved or renamed. The standard Help tab's What's new panel changes once, so the Tabs card offers Help once more; after that, a release alone no longer changes it. Plans are unchanged.
 
 ## [0.94.514] - 2026-11-04
 
