@@ -165,7 +165,14 @@ _GRID: _Card = (
         ),
         ("solver_flat_fee_rate", "Flat fee"),
         ("solver_fixed_daily_charge", "Fixed daily charge"),
-        ("section", "Max import and export: your connection's limits."),
+        ("section", "Max import and export: what the plan may use."),
+        (
+            "section",
+            (
+                "Site import limit: safety; the battery never pushes import past "
+                "it, whatever else switches on. 0 = off."
+            ),
+        ),
         ("section", "Fee blocks: extra per kWh within set hours; 0 = unused."),
     ],
     "Fees are added to the buy price.",
