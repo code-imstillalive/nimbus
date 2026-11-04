@@ -1745,7 +1745,10 @@ SETTINGS: dict[str, tuple[str, str]] = {
         "Added to load every period. 0.05 kW = 1.2 kWh/day.",
     ),
     # Grid and fees
-    "solver_grid_max_import_kw": ("Most the connection may import.", "kW."),
+    "solver_grid_max_import_kw": (
+        "What the plan aims for at most.",
+        "kW; a little below Site import limit, for forecast error.",
+    ),
     "solver_grid_max_export_kw": (
         "Most the connection may export.",
         "kW; your export limit.",
