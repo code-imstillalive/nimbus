@@ -20,7 +20,9 @@ import logging
 import re
 import time
 from collections import deque
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -39,7 +41,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
@@ -57,6 +62,7 @@ from . import (
     sensor_discovery,
     sensor_flattened,
     sensor_stochastic,
+    site_limit,
 )
 from .const import (
     ATTR_FORECAST,
@@ -152,6 +158,7 @@ from .const import (
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
     CONF_SOLVER_GRID_MAX_EXPORT_KW,
     CONF_SOLVER_GRID_MAX_IMPORT_KW,
+    CONF_SOLVER_GRID_METER_POSITIVE_IS_IMPORT,
     CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
@@ -210,6 +217,7 @@ from .const import (
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_SALVAGE_VALUE,
     CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
+    CONF_SOLVER_SITE_IMPORT_LIMIT_KW,
     CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
     CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
@@ -237,6 +245,7 @@ from .const import (
     CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
     CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
+    DEFAULT_SOLVER_GRID_METER_POSITIVE_IS_IMPORT,
     DOMAIN,
     PARTICIPANT_ASSET_KIND_AUTO,
     PARTICIPANT_ASSET_KIND_STATIONARY,
@@ -254,6 +263,7 @@ from .const import (
 )
 from .coordinator import NimbusConfigEntry, NimbusCoordinator
 from .load_run_state_coordinator import NimbusLoadRunStateCoordinator
+from .power_units import power_to_kw
 
 
 def _is_vehicle(data: dict) -> bool:
@@ -332,6 +342,9 @@ _SOLVER_REQUIRED_KEYS = (
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
 )
 _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
+    # nimbus #2257: the site import limit and the grid meter's sign.
+    CONF_SOLVER_SITE_IMPORT_LIMIT_KW,
+    CONF_SOLVER_GRID_METER_POSITIVE_IS_IMPORT,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
     # Same exact bug class as the SOLAR_FORECAST_SENSOR_2/_3 note directly
@@ -592,6 +605,9 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
 # a dashboard -- those stay wizard-only, sourced from entry.options exactly
 # as before.
 _SOLVER_NUMBER_ENTITY_KEYS = (
+    # nimbus #2257: read at dispatch (sensor.nimbus_battery_allowed_charge_kw),
+    # exposed here like every Solver number.
+    CONF_SOLVER_SITE_IMPORT_LIMIT_KW,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
@@ -705,6 +721,7 @@ _SOLVER_TIME_ENTITY_KEYS = (
 # combined number-or-boolean entity type. See switch.py's own module
 # docstring for the full "why this exists" story.
 _SOLVER_SWITCH_ENTITY_KEYS = (
+    CONF_SOLVER_GRID_METER_POSITIVE_IS_IMPORT,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     # Issue #232 follow-up: moved out of the wizard's solver_grid step
     # into switch.nimbus_solve_on_price_change (see switch.py's own
@@ -1091,6 +1108,10 @@ async def async_setup_entry(
     # this way only for readability (config -> health -> status,
     # matching _evaluate()'s own priority order).
     async_add_entities([NimbusStatusSensor(entry, sw_version)])
+
+    # nimbus #2257: the battery's live allowed charge under the site's import
+    # limit, read by the going-live dispatch blueprint.
+    async_add_entities([NimbusBatteryAllowedChargeSensor(entry, sw_version)])
 
     # Price-response-latency sensor (issue #294) -- same "one per hub"
     # pattern as the two entities above. Registered with solver_runtime
@@ -4908,3 +4929,120 @@ class NimbusCounterfactualSocSensor(_NimbusSolverPushSensor):
             sensor_flattened.dispatch_to_flattened_counterfactual(
                 self._flattened_entities, attributes
             )
+
+
+class NimbusBatteryAllowedChargeSensor(SensorEntity):
+    """nimbus #2257: the most the battery may charge right now without grid
+    import passing the site's import limit (site_limit.py).
+
+    Read from the live meter, not the plan: the Forecaster's grid sensor and
+    the Solver's battery power sensor, recomputed on every change of either.
+    Unavailable while the limit is 0 (off) or a reading is missing, so a
+    dispatch automation never reads a guessed 0. The readings it used are
+    attributes, so a household can check the grid meter's sign."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Battery Allowed Charge"
+    _attr_should_poll = False
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_battery_allowed_charge_kw"
+        self.entity_id = "sensor.nimbus_battery_allowed_charge_kw"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+        self._attr_available = False
+        self._unsub: Callable[[], None] | None = None
+
+    def _own(self, domain: str, key: str) -> str:
+        # The registry's id for this hub's own number/switch (#343).
+        real = er.async_get(self.hass).async_get_entity_id(
+            domain, DOMAIN, f"{self._entry.entry_id}_{key}"
+        )
+        return real if isinstance(real, str) else f"{domain}.nimbus_{key}"
+
+    def _sources(self) -> tuple[str | None, str | None, str, str]:
+        options = self._entry.options
+        return (
+            options.get(CONF_GRID_SENSOR) or None,
+            options.get(CONF_SOLVER_BATTERY_POWER_SENSOR) or None,
+            self._own("number", CONF_SOLVER_SITE_IMPORT_LIMIT_KW),
+            self._own("switch", CONF_SOLVER_GRID_METER_POSITIVE_IS_IMPORT),
+        )
+
+    def _reading(self, entity_id: str | None, *, power: bool) -> float | None:
+        state = self.hass.states.get(entity_id) if entity_id else None
+        if state is None or state.state in ("", "unknown", "unavailable"):
+            return None
+        try:
+            value = float(state.state)
+        except ValueError:
+            return None
+        if power:
+            return power_to_kw(value, state.attributes.get("unit_of_measurement"))
+        return value
+
+    async def async_added_to_hass(self) -> None:
+        watched = [e for e in self._sources() if e]
+        self._unsub = async_track_state_change_event(
+            self.hass, watched, self._on_change
+        )
+        self._recompute()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub is not None:
+            self._unsub()
+            self._unsub = None
+
+    @callback
+    def _on_change(self, _event: Any) -> None:
+        self._recompute()
+        self.async_write_ha_state()
+
+    def _recompute(self) -> None:
+        grid_id, battery_id, limit_id, sign_id = self._sources()
+        sign = self.hass.states.get(sign_id)
+        grid_positive_is_import = (
+            sign.state != "off"
+            if sign is not None and sign.state in ("on", "off")
+            else DEFAULT_SOLVER_GRID_METER_POSITIVE_IS_IMPORT
+        )
+        limit = self._reading(limit_id, power=False)
+        grid = self._reading(grid_id, power=True)
+        battery = self._reading(battery_id, power=True)
+        positive_is_charge = bool(
+            self._entry.options.get(CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE)
+        )
+        allowed = site_limit.allowed_charge_kw(
+            limit,
+            grid,
+            battery,
+            battery_positive_is_charge=positive_is_charge,
+            grid_positive_is_import=grid_positive_is_import,
+        )
+        charging = (
+            None
+            if battery is None
+            else max(0.0, battery if positive_is_charge else -battery)
+        )
+        self._attr_available = allowed is not None
+        self._attr_native_value = None if allowed is None else round(allowed, 2)
+        self._attr_extra_state_attributes = {
+            "site_import_limit_kw": limit,
+            "grid_kw": grid,
+            "grid_positive_is_import": grid_positive_is_import,
+            "battery_kw": battery,
+            # Sign resolved: what the battery is charging at now, so a guard
+            # needs no knowledge of the inverter's convention.
+            "charging_kw": None if charging is None else round(charging, 2),
+            "grid_sensor": grid_id,
+            "battery_power_sensor": battery_id,
+        }

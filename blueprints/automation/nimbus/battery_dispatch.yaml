@@ -63,6 +63,20 @@ blueprint:
               filter:
                 - integration: nimbus_load
                   domain: sensor
+        allowed_charge_sensor:
+          name: Nimbus allowed charge (site import limit)
+          description: >-
+            sensor.nimbus_battery_allowed_charge_kw: the most the battery may
+            charge right now without grid import passing the Solver's Site
+            Import Limit, from the live grid meter. The charge sent is never
+            above it, so a car, oven or kettle switching on cannot push the
+            site over its supply. Unavailable (no limit set) means no cap.
+          default: sensor.nimbus_battery_allowed_charge_kw
+          selector:
+            entity:
+              filter:
+                - integration: nimbus_load
+                  domain: sensor
     safety:
       name: Arming and safety
       icon: mdi:shield-check
@@ -261,6 +275,10 @@ triggers:
   - trigger: time_pattern
     minutes: /1
     id: tick
+  # nimbus #2257: answer a load switching on within seconds, not at the tick.
+  - trigger: state
+    entity_id: !input allowed_charge_sensor
+    id: allowed
   - trigger: homeassistant
     event: start
     id: start
@@ -298,7 +316,16 @@ variables:
        and state_attr(plan_entity, 'status') == 'optimal'
        and age_s <= (stale_min | float(10)) * 60 }}
   plan_kw: "{{ plan_raw | float(0) if plan_ok else 0 }}"
-  power_kw: "{{ [plan_kw | abs, max_kw | float(0)] | min | round(2) }}"
+  allowed_entity: !input allowed_charge_sensor
+  allowed_raw: "{{ states(allowed_entity) if allowed_entity else 'unavailable' }}"
+  plan_power_kw: "{{ [plan_kw | abs, max_kw | float(0)] | min }}"
+  # nimbus #2257: a charge is never above the live allowance.
+  power_kw: >-
+    {% set p = plan_power_kw | float(0) %}
+    {% if plan_kw < 0 and is_number(allowed_raw) %}
+      {% set p = [p, allowed_raw | float(0)] | min %}
+    {% endif %}
+    {{ p | round(2) }}
   absorb: >-
     {{ absorb_on and state_attr(plan_entity, 'absorb_surplus') == true }}
   hold_signal: >-
@@ -346,6 +373,19 @@ conditions:
       - condition: state
         entity_id: !input arm_switch
         state: "on"
+  # An allowance change matters only while it caps (or just stopped
+  # capping) the charge, and by at least 0.5 kW: no write on every meter tick.
+  - condition: template
+    value_template: >-
+      {{ trigger.id != 'allowed'
+         or (plan_kw < 0
+             and trigger.from_state is not none and trigger.to_state is not none
+             and is_number(trigger.from_state.state)
+             and is_number(trigger.to_state.state)
+             and ((trigger.from_state.state | float(0)) < plan_power_kw | float(0)
+                  or (trigger.to_state.state | float(0)) < plan_power_kw | float(0))
+             and ((trigger.to_state.state | float(0))
+                  - (trigger.from_state.state | float(0))) | abs >= 0.5) }}
 
 actions:
   - choose:

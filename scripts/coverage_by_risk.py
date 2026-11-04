@@ -67,6 +67,7 @@ RISK_TIERS: list[tuple[str, str, int]] = [
     ("solver/__init__.py", "solver (LP)", 1),
     ("solver_dispatch/*", "dispatch", 1),
     ("dispatch_rhs.py", "dispatch", 1),
+    ("site_limit.py", "dispatch", 1),
     ("solver_plan.py", "solve cycle", 1),
     ("solver_writer.py", "solve cycle", 1),
     ("solver_runtime.py", "solve cycle", 1),

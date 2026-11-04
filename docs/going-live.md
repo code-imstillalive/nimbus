@@ -191,6 +191,33 @@ Settings → Devices & services → Helpers → Create helper:
    - **Mode helper:** `input_text.nimbus_dispatch_mode` (Behaviour section).
 3. Save. With the arm switch off, it does nothing.
 
+### Your site's supply limit (strongly recommended)
+
+The plan keeps the battery and the *forecast* house load under **Grid Max
+Import**, but an EV charger, an oven or a kettle can switch on at any moment.
+Grid-charging the battery at full power on top of those can trip the
+property's main supply. It happened on one household's site: 30 kW battery
++ 10.7 kW car + 5.5 kW hot water and pool, and then a toaster.
+
+1. On the Solver tab, set **Site Import Limit**
+   (`number.nimbus_solver_site_import_limit_kw`) to your supply's trip point
+   less room for an appliance switching on: for example **44 kW** against a
+   46 kW supply. 0 leaves it off.
+2. Check **Grid Meter Positive Is Import**
+   (`switch.nimbus_solver_grid_meter_positive_is_import`): on when the
+   Forecaster's grid sensor reads positive while you import (most meters).
+   `sensor.nimbus_battery_allowed_charge_kw` shows the reading it used as
+   `grid_kw`. That should be positive while you import.
+3. In the dispatch automation, leave **Nimbus allowed charge** on
+   `sensor.nimbus_battery_allowed_charge_kw` (the default). A charge is
+   then never sent above what the live meter allows, and a load switching
+   on is answered within seconds.
+4. Also import **Nimbus site import guard**
+   (`https://github.com/code-imstillalive/nimbus/blob/main/blueprints/automation/nimbus/site_import_guard.yaml`)
+   and point it at the number entity that sets your battery's charge power.
+   It trims any charge, including a manual one or another automation's,
+   once import passes the limit, and never raises it.
+
 ## Step 5: the first supervised trial
 
 Pick a daytime hour when you can watch the battery and the grid meter.
@@ -262,6 +289,7 @@ What happens when something goes wrong, with the blueprint as shipped:
 | Home Assistant restarts | runs again at start: re-sends the mode for a valid plan, or the fallback for one that isn't valid yet |
 | a mode command is lost, or the inverter reverts on its own | re-sends the mode every 10 minutes (*Re-send the mode command*) |
 | the plan asks for more power than your inverter can give | caps the power at your *Maximum battery power* |
+| a car, oven or kettle switches on while the battery grid-charges | caps the charge at `sensor.nimbus_battery_allowed_charge_kw`, so grid import stays under your **Site Import Limit**; the site import guard trims a manual charge too |
 | the plan wobbles around zero | ignores anything inside the deadband (±0.05 kW) and keeps each mode at least 3 minutes, except for a price spike, a big reversal or the fallback |
 | a slow inverter action is still running when the next trigger comes | waits, then reads everything afresh; more than three waiting is logged as a warning |
 

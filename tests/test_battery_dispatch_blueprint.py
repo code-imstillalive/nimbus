@@ -355,5 +355,18 @@ def test_disarming_runs_the_fallback_whatever_the_plan_says():
     assert bp["mode"] == "queued"
     assert bp["max_exceeded"] == "warning"
 
+    # test_2257_a_charge_is_never_above_the_live_allowance: a 46 kW supply
+    # tripped on 4 Nov 2026 with the battery grid-charging and an EV, hot water,
+    # pool and a toaster on. The charge sent is capped by Nimbus's allowed charge.
+    allowed = "sensor.nimbus_battery_allowed_charge_kw"
+    _, ctx = run("tick", plan="-4.0", extra={allowed: "2.5"})
+    assert ctx["want"] == "CHG" and ctx["power_kw"] == 2.5
+    # No limit set (unavailable): the plan's charge, as before.
+    _, ctx = run("tick", plan="-4.0", extra={allowed: "unavailable"})
+    assert ctx["power_kw"] == 4.0
+    # A discharge is not capped by the import allowance.
+    _, ctx = run("tick", plan="3.0", extra={allowed: "0.0"})
+    assert ctx["power_kw"] == 3.0
+
 
 SOLAR = "sensor.nimbus_solver_current_dispatch_solar_charge"
