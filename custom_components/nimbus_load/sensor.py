@@ -54,6 +54,7 @@ from . import (
     done_condition,
     forecast_stats,
     health,
+    help_tab,
     known_sources,
     load_run_state,
     nem_region,
@@ -3383,7 +3384,9 @@ class NimbusStatusSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Status"
     _attr_entity_category = None  # the front-page answer, not a diagnostic
-    _unrecorded_attributes = frozenset({"generated_at"})
+    # whats_new is the Help panel's release list (help_tab.WHATS_NEW): large
+    # and fixed per release, so not recorded.
+    _unrecorded_attributes = frozenset({"generated_at", "whats_new"})
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry
@@ -3485,7 +3488,12 @@ class NimbusStatusSensor(SensorEntity):
         return {
             "reason": reason,
             "generated_at": datetime.now(UTC).isoformat(),
+            "whats_new": _WHATS_NEW,
         }
+
+
+# The Help tab's "What's new" panel reads this live (help_tab.whats_new_markdown).
+_WHATS_NEW = help_tab.whats_new_attribute()
 
 
 class NimbusSolverPriceResponseLatencySensor(SensorEntity):

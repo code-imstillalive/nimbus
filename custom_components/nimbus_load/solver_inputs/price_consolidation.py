@@ -716,6 +716,10 @@ def next_slots(
             for name, s in sorted(series.items())
         },
         "consolidated": [_r(values[i]) if i < len(values) else None for i in span],
+        # Household, 2 Nov 2026 ("it is useless there... what is it even
+        # doing?"): a source with no price in these slots (a day-2-to-7
+        # forecast) says when its prices start.
+        "starts": _starts(series, grid_times, span),
         # #2190: what the learned offsets added to the sources' own blend.
         "correction": [
             _r(correction[i])
@@ -724,6 +728,23 @@ def next_slots(
             for i in span
         ],
     }
+
+
+def _starts(
+    series: dict[str, list[float | None]],
+    grid_times: Sequence[datetime],
+    span: range,
+) -> dict[str, str]:
+    """When each source with no price in `span` has its first one after it."""
+    out: dict[str, str] = {}
+    for name, s in sorted(series.items()):
+        if any(i < len(s) and s[i] is not None for i in span):
+            continue
+        for k in range(span.stop, min(len(s), len(grid_times))):
+            if s[k] is not None:
+                out[name] = grid_times[k].isoformat()
+                break
+    return out
 
 
 def replace_future(

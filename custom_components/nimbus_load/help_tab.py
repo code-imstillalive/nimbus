@@ -37,6 +37,7 @@ NEW_ISSUE_URL = f"{ISSUES_URL}/new"
 # with a Solver has, so `resolve()` keeps the card; an unresolved `${@...}`
 # renders empty and the tick reads "not set".
 _PLAN = "${@nimbus_solver_battery_forecast}"
+_STATUS = "${@status}"
 _QUALITY = "${@nimbus_solver_quality_report}"
 
 # ---- start here -------------------------------------------------------------
@@ -214,6 +215,26 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: entry: tests/v2/entities/test_help_tab.py fails when manifest.json's version is
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "0.94.515",
+        "4 Nov 2026",
+        (
+            (
+                "**Help:** What's new is read live, so this list is always "
+                "current, even on a Help tab you kept."
+            ),
+        ),
+    ),
+    (
+        "0.94.514",
+        "4 Nov 2026",
+        (
+            (
+                "**Solver tab:** the Price sources table shows a day-ahead "
+                "source's share where it counts."
+            ),
+        ),
+    ),
     (
         "0.94.513",
         "4 Nov 2026",
@@ -1026,20 +1047,27 @@ WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 
 
 def whats_new_markdown() -> str:
-    lines = [
-        "**What's new**",
-        "",
-        (
-            f"You are on **{{{{ state_attr('{_PLAN}', 'nimbus_version') }}}}**. "
-            f'<a href="{RELEASES_URL}" target="_blank">Every release, in full</a>.'
-        ),
-        "",
+    """The panel reads the list live off sensor.nimbus_status (`whats_new`),
+    so the Help tab itself never changes with a release. Household, 4 Nov
+    2026: "panel should always be current"; written into the tab, every
+    release made the Tabs card offer a new Help."""
+    return (
+        "**What's new**\n\n"
+        f"You are on **{{{{ state_attr('{_PLAN}', 'nimbus_version') }}}}**. "
+        f'<a href="{RELEASES_URL}" target="_blank">Every release, in full</a>.\n\n'
+        f"{{% for r in state_attr('{_STATUS}', 'whats_new') or [] %}}"
+        "**{{ r.version }}** · {{ r.date }}\n"
+        "{% for i in r['items'] %}- {{ i }}\n{% endfor %}\n"
+        "{% endfor %}"
+    )
+
+
+def whats_new_attribute() -> list[dict[str, Any]]:
+    """WHATS_NEW as sensor.nimbus_status publishes it."""
+    return [
+        {"version": version, "date": day, "items": list(items)}
+        for version, day, items in WHATS_NEW
     ]
-    for version, day, items in WHATS_NEW:
-        lines.append(f"**{version}** · {day}")
-        lines += [f"- {item}" for item in items]
-        lines.append("")
-    return "\n".join(lines).rstrip()
 
 
 # ---- each tab ---------------------------------------------------------------

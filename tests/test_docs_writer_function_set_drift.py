@@ -844,6 +844,8 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "next_slots",
         # 21 Oct 2026: the interval running now, the table's first column.
         "now_slot",
+        # 2 Nov 2026: when a source with no price in those slots starts.
+        "_starts",
         # #2190 (a): the RRP forecast joined from AEMO NEM Data then PD7DAY
         # for the table's retail-from-RRP row. Same reason as above.
         "join_rrp_forecasts",

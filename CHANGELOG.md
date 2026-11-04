@@ -8,11 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.515] - 2026-11-04
+
+**The Help tab's "What's new" is always current.**
+
+- **What's new is read live** (#2261, household: *"panel should always be current"*). The list was written into the Help tab, so every release changed the standard Help tab, and the Nimbus Tabs card offered a new Help after each one. The panel now reads the list from `sensor.nimbus_status` (new attribute `whats_new`, not recorded). A Help tab you keep shows each release as it lands, and the Tabs card flags Help only when the tab's own content changes. **Add Help once more** with the Tabs card after installing this release; after that it stays up to date.
+
+## [0.94.514] - 2026-11-04
+
+**The Solver tab's Price sources table shows where a day-ahead source counts.**
+
+- **Price sources table** (#2226, reviewed and merged by Mark Purcell). A source whose forecast starts on day 2 (a day-2-to-7 forecast) has no price in the table's next slots, so its row was all dashes and its Share read "—", as if it were still being scored. In fact it carries the largest share of the 4-24 h blend. Its Share now shows where it counts, with the lead in brackets (for example `44% (4-24 h)`), and its name says when its prices start (`prices from Tue 04:00`). The footer explains the bracket. `price_consolidation.next_slots` publishes `starts` for those sources. Nothing the plan uses changes. The Nimbus Tabs card offers the updated Solver tab beside yours.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 7bf85873** (`release/0.94.514`, installed through HACS untagged and restarted at 10:44 AEST, 4 Nov; read through 10:47). 123 of the 127 Nimbus entities carrying a version read 0.94.514; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal` on the first solve; all 61 Solver numbers kept their values over the restart. `price_consolidation.import.next` and `.export.next` both publish `starts`. It is `{}` on the test box, whose three price sources all have prices in the shown slots, so the bracketed share and "prices from" line were not seen on its screen. They rest on #2226's template rendering against a live 3-source snapshot and its tests. Log: no new Nimbus WARNING or ERROR from this release (the test weather feed read during the restart and the test-feed meter rows are existing).
+- Consumer check: no setting, entity or attribute is moved or renamed. `price_consolidation.<side>.next` gains `starts`, and the standard Solver tab's Price sources table changes, so the Tabs card offers the updated Solver tab. Plans are unchanged.
+
 ## [0.94.513] - 2026-11-04
 
 **The Nimbus Tabs card no longer calls a tab "changed" just because you renamed it.**
 
 - **A renamed tab reads up to date** (#2254, found on the reference household). Renaming or moving a tab in Home Assistant's own view editor adds an empty list of cards (and sometimes badges) to it. The Tabs card compared tabs exactly, so the household's freshly added and renamed Topology, Control Panel, Regret and Help tabs read *changed* a minute later. Empty lists are now ignored; any real content still counts. If you added tabs with an earlier release and renamed them, **Check for updates** now shows them as up to date. There is nothing to delete or add again.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 1497365f** (`release/0.94.513`, installed through HACS untagged and restarted at 08:16 AEST, 4 Nov; read through 08:21). 123 of the 127 Nimbus entities carrying a version read 0.94.513; the other four are the daily reports. None of the 385 Nimbus entities unavailable; plan `optimal` on the first solve; all 61 Solver numbers kept their values over the restart. The served `nimbus-tabs-card.js` carries the fix. Pressed **Check for updates** on the test box's Tabs card: Forecaster, Power Flow, Topology and Control Panel up to date; Solver, Regret and Help changed. Each of those three was read and really differs: Solver holds a #2226 preview card and lacks Sell margin, Regret is the one-card version, Help lacks the Tabs card. No console error from the card. The test box's tabs carry no empty `cards` list, so the fix is not exercised on its screen. **Proved instead** on the reference household's dashboard (read over the read-only websocket at 07:45, 4 Nov) with this release's card code: Topology, Control Panel and Regret read up to date (*changed* before the fix); Forecaster is the household's own edit. Log: no new Nimbus WARNING or ERROR from this release (existing drift notes, the test EV, the test weather feed and the test-feed meter rows).
+- Consumer check: no setting, entity or attribute is added, moved or renamed. The Tabs card reads a tab with an empty `cards` or `badges` list as its standard content, so a tab renamed in the dashboard editor is no longer offered again.
 
 ## [0.94.512] - 2026-11-04
 
