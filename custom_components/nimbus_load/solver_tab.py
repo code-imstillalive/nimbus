@@ -137,6 +137,9 @@ _BATTERY: _Card = (
 _GRID: _Card = (
     "Grid and fees",
     [
+        # Household, 4 Nov 2026: top to bottom as the limits stack (46 kW trip >
+        # 44 site limit > 42 plan): the live safety limit first (#2257).
+        ("solver_site_import_limit_kw", "Site import limit"),
         ("solver_grid_max_import_kw", "Max grid import"),
         ("solver_grid_max_export_kw", "Max grid export"),
         ("solver_network_fee_default_rate", "Network fee"),
@@ -163,7 +166,14 @@ _GRID: _Card = (
         ),
         ("solver_flat_fee_rate", "Flat fee"),
         ("solver_fixed_daily_charge", "Fixed daily charge"),
-        ("section", "Max import and export: your connection's limits."),
+        # Household, 4 Nov 2026: the order of the two import numbers, on the card.
+        (
+            "section",
+            (
+                "Site import limit (safety): your trip point less room for a "
+                "kettle; 0 = off. Max grid import: a little below, for the plan."
+            ),
+        ),
         ("section", "Fee blocks: extra per kWh within set hours; 0 = unused."),
     ],
     "Fees are added to the buy price.",
@@ -779,6 +789,7 @@ _DIAGNOSTICS: _Card = (
 _MONEY_ROW = (_SCORED, _MONEY, _BREAKDOWN, _BATTERY_NOW)
 _MORE_ROW = (_HOUSEHOLD, _TAPER, _SOLAR_LOW, _DIAGNOSTICS)
 _BASIC_ROW = (_BATTERY, _GRID, _P2P, _P2P_HOURS)
+_BASIC_ROW_SIZE = {"rows": 15}
 _ADVANCED_ROW = (_COSTS, _FEATURES, _SCORING, _RESERVE)
 
 # A block's rate reads "0.0" (or "0") while unused.
@@ -1710,6 +1721,7 @@ _UNTIL_MIDNIGHT_STYLE: Any = {
 # Chart cards fill their cell, title on top, figures at the bottom.
 _CHART_FIGURES_BELOW = "ha-card { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; } #header { display: contents; } #header__title { order: 0; } #graph-wrapper { order: 1; flex: 1 1 auto; } #header__states { order: 2; margin-top: auto; }"
 _FILL = "ha-card { height: 100%; box-sizing: border-box; }"
+_FILL_SCROLL = "ha-card { height: 100%; box-sizing: border-box; overflow-y: auto; }"
 # The quality card in Performance (household, 17 Oct 2026): it overflowed its
 # 8-row cell by a few pixels and scrolled; at 10 rows it left a gap. Tighter
 # table rows fit it in 8. The table is in ha-markdown's own shadow root, so it
@@ -1944,7 +1956,14 @@ def template() -> list[dict[str, Any]]:
         _section([_styled(_score_chart(), _CHART_FIGURES_BELOW)], 1, row),
         _section([_styled(_breakdown_chart(), _CHART_FIGURES_BELOW)], 1, row),
         banners["Basic settings"],
-        *(_section([_card(c)], 1) for c in _BASIC_ROW),
+        # Household, 4 Nov 2026: "make sure all cards in this section line up
+        # top and bottom". One height for the four: 15 rows fits Grid and
+        # fees (935 px, measured on the test box) with 17 px to spare; a card
+        # with more rows than that (fee blocks in use) scrolls inside.
+        *(
+            _section([_styled(_card(c), _FILL_SCROLL)], 1, _BASIC_ROW_SIZE)
+            for c in _BASIC_ROW
+        ),
         banners["Advanced settings"],
         *(_section([_card(c)], 1) for c in _ADVANCED_ROW),
         banners["More settings"],

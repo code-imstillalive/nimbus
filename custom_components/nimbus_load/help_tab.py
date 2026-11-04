@@ -96,7 +96,9 @@ _START_HERE = (
     "Solver settings screen 1 asks for capacity, max charge and max discharge, "
     "screen 2 for grid max import (#1800). The rest (SoH, min / max SoC, max "
     "export) is on the **Solver tab → Basic settings**. A placeholder 0.1 "
-    "shows in the table below and in Repairs. |\n"
+    "shows in the table below and in Repairs. **Safety:** set **Site import "
+    "limit** there too: your supply's trip point less room for a kettle (for "
+    "example 44 against 46 kW), so the battery never trips your supply. |\n"
     + "| "
     + _TICK % "forecasts | count > 0"
     + " | **3. A whole-house Power Signal**, then Loads | Forecaster, Topology | "
@@ -1743,10 +1745,20 @@ SETTINGS: dict[str, tuple[str, str]] = {
         "Added to load every period. 0.05 kW = 1.2 kWh/day.",
     ),
     # Grid and fees
-    "solver_grid_max_import_kw": ("Most the connection may import.", "kW."),
+    "solver_grid_max_import_kw": (
+        "What the plan aims for at most.",
+        "kW; a little below Site import limit, for forecast error.",
+    ),
     "solver_grid_max_export_kw": (
         "Most the connection may export.",
         "kW; your export limit.",
+    ),
+    "solver_site_import_limit_kw": (
+        (
+            "Safety: the battery never pushes grid import past this, whatever "
+            "else switches on."
+        ),
+        "kW; your supply's trip point less room for a kettle. 0 = off.",
     ),
     "solver_network_fee_default_rate": (
         "Network fee on every imported kWh, outside the blocks.",
