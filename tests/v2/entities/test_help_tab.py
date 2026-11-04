@@ -67,3 +67,25 @@ def test_the_start_here_steps_cover_every_tab_with_a_live_tick():
     # test_no_jinja_text_comes_in_from_the_wizard_strings: The wizard text is pasted into markdown the template engine renders.
     raw = (PACKAGE / "strings.json").read_text(encoding="utf-8")
     assert "{{" not in raw and "{%" not in raw
+
+    # test_whats_new_is_read_live_so_the_tab_stays_current: household, 4 Nov
+    # 2026, "panel should always be current". Written into the tab, every
+    # release changed Help, and the Tabs card offered a new Help each time.
+    # The list is read off sensor.nimbus_status, so the tab itself carries no
+    # release line and a kept Help tab shows each new release as it lands.
+    import jinja2
+
+    md = help_tab.whats_new_markdown()
+    assert help_tab.WHATS_NEW[0][0] not in md and help_tab.WHATS_NEW[-1][0] not in md
+    assert "state_attr('${@status}', 'whats_new')" in md
+    attr = [
+        {"version": "9.9.9", "date": "1 Jan 2030", "items": ["**A** thing.", "B."]},
+        {"version": "9.9.8", "date": "31 Dec 2029", "items": ["C."]},
+    ]
+    out = (
+        jinja2.Environment()
+        .from_string(md)
+        .render(state_attr=lambda e, a: attr if a == "whats_new" else "9.9.9")
+    )
+    assert "**9.9.9** · 1 Jan 2030\n- **A** thing.\n- B." in out
+    assert "**9.9.8** · 31 Dec 2029\n- C." in out
