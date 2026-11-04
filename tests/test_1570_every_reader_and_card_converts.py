@@ -142,9 +142,14 @@ def test_the_solver_and_forecaster_use_it():
         44, -48, -30, battery_positive_is_charge=False, grid_positive_is_import=False
     )
     assert got == 26
-    # Discharging: only the meter's headroom counts; never below 0.
+    # Over the limit while charging 5 kW: never below 0. Idle: the headroom.
     assert sl.allowed_charge_kw(44, 50, 5, battery_positive_is_charge=True) == 0
     assert sl.allowed_charge_kw(44, 2, 0, battery_positive_is_charge=True) == 42
+    # Mark, #2258: discharging 10 kW while importing 20, then switched to
+    # charge: the import rises by the charge plus the 10 kW that stops, so
+    # 20 + X + 10 <= 44 allows 14 kW, not 24.
+    assert sl.allowed_charge_kw(44, 20, -10, battery_positive_is_charge=True) == 14
+    assert sl.allowed_charge_kw(44, 20, 10, battery_positive_is_charge=False) == 14
     # Off (0) or a reading missing: unknown, never 0.
     assert sl.allowed_charge_kw(0, 10, -5, battery_positive_is_charge=False) is None
     assert sl.allowed_charge_kw(44, None, -5, battery_positive_is_charge=False) is None
