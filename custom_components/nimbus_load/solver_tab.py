@@ -139,6 +139,8 @@ _GRID: _Card = (
     [
         ("solver_grid_max_import_kw", "Max grid import"),
         ("solver_grid_max_export_kw", "Max grid export"),
+        # nimbus #2257: the live safety limit, beside the plan's own limits.
+        ("solver_site_import_limit_kw", "Site import limit"),
         ("solver_network_fee_default_rate", "Network fee"),
         (
             "block",

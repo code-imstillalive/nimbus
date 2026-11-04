@@ -1748,6 +1748,13 @@ SETTINGS: dict[str, tuple[str, str]] = {
         "Most the connection may export.",
         "kW; your export limit.",
     ),
+    "solver_site_import_limit_kw": (
+        (
+            "Safety: the battery never pushes grid import past this, whatever "
+            "else switches on."
+        ),
+        "kW; your supply's trip point less room for a kettle. 0 = off.",
+    ),
     "solver_network_fee_default_rate": (
         "Network fee on every imported kWh, outside the blocks.",
         "$/kWh added to the buy price.",
