@@ -47,6 +47,17 @@ def test_now_with_nothing_settled_or_no_periods():
         "correction"
     ] == [None]
 
+    # test_a_source_with_no_price_in_the_slots_says_when_its_prices_start
+    # (household, 2 Nov 2026: a day-2-to-7 source's row was all dashes).
+    grid40 = _grid(40)
+    late = [None] * 35 + [0.2] * 5
+    out = pc.next_slots(
+        {"primary": [0.1] * 40, "secondary_3": late}, [0.1] * 40, grid40, 1
+    )
+    assert out["starts"] == {"secondary_3": grid40[35].isoformat()}
+    out = pc.next_slots({"secondary_3": [None] * 40}, [None] * 40, grid40, 1)
+    assert out["starts"] == {}
+
     # test_the_rrp_forecast_is_aemos_own_where_it_reaches_then_the_regional
     # (#2190, Mark): AEMO NEM Data up to the end of its last 30-min row,
     # PD7DAY from there; no AEMO forecast leaves the regional one alone.
