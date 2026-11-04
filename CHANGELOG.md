@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.517] - 2026-11-04
+
+**Site import limit is on the Solver tab, first in Grid and fees, and the Basic settings cards line up.**
+
+- **Site import limit on the Solver tab** (#2266). 0.94.516 added the setting but not to the Solver tab, where the release notes said it was. It is now the first row of **Basic settings → Grid and fees**, above Max grid import and Max grid export, top to bottom as the limits stack: your supply's trip point, then the site limit (the trip point less room for a kettle), then the plan's Max grid import a little below that. The card's note says so. Help's *Start here* step 2 tells every household to set it, and Help's settings list describes it as a safety setting.
+- **The four Basic settings cards are one height** (#2266), level at the top and the bottom. A card with more rows than fit (fee blocks in use) scrolls inside it rather than spilling over.
+- The Nimbus Tabs card offers the updated Solver tab beside yours.
+
 ## [0.94.516] - 2026-11-04
 
 **A live site import limit: the battery never pushes your property over its supply.** Safety feature.
@@ -19,6 +27,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - **New blueprint *Nimbus site import guard*** trims any charge, manual or another automation's, once import passes the limit. It never raises it.
   - **The going-live guide** has a new section, *Your site's supply limit*, and a new row in the failsafe table. Re-import the dispatch blueprint to get the cap.
 - First slice: import only. Export follows once this is proven (Mark, #2257). The reference household has run the same guard as an automation since 4 Nov 08:45: through a car charge beside 35–38 kW battery charging, the import peaked at 44.7 kW against its 46 kW supply, with no trip.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 79bf8683** (`release/0.94.516`, installed through HACS untagged and restarted at 15:31 AEST, 4 Nov; read through 15:34). 123 of the 127 Nimbus entities carrying a version read 0.94.516; the other four are the daily reports. 388 Nimbus entities (three new); plan `optimal` on the first solve; all 61 existing Solver numbers kept their values over the restart.
+  - With the limit at its default 0: `number.nimbus_solver_site_import_limit_kw` 0.0, `switch.nimbus_solver_grid_meter_positive_is_import` on, and `sensor.nimbus_battery_allowed_charge_kw` unavailable, as designed.
+  - Set to 44 kW (15:33; left at 44, since the test box drives no real battery): the sensor read **48.0 kW** with the test feed's meter at −4.0 kW (exporting) and its battery at 0.0. That is 0 + 44 − (−4), from the Solver's own grid and battery sensors, with the import sign on.
+  - **Not exercised live:** a charge capped by the dispatch blueprint, and the guard blueprint trimming. The test box arms no dispatch. Both rest on their tests, Mark's review, and the reference household's equivalent automation (4 Nov: peak 44.7 kW against a 46 kW supply, through a car charge).
+  - Log: no new Nimbus WARNING or ERROR from this release (the test weather feed read during the restart and the test-feed meter rows are existing).
+- Consumer check: adds `number.nimbus_solver_site_import_limit_kw` (0 = off), `switch.nimbus_solver_grid_meter_positive_is_import` (default on) and `sensor.nimbus_battery_allowed_charge_kw`; the Solver config sensor exposes the first two. The dispatch blueprint gains an input defaulting to the new sensor; until a limit is set it changes no command. A new blueprint, `site_import_guard.yaml`. Nothing is moved or renamed; plans are unchanged.
 
 ## [0.94.515] - 2026-11-04
 
