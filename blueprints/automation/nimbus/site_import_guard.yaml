@@ -72,3 +72,7 @@ actions:
         charge setting {{ setting_kw }} kW above the allowance; lowered to
         {{ new_kw }} kW (grid {{ state_attr(allowed_entity, 'grid_kw') }} kW,
         limit {{ state_attr(allowed_entity, 'site_import_limit_kw') }} kW)
+  # Wait for the meter to report the lower charge before checking again:
+  # a second trim off the same stale reading would cut more than needed
+  # (seen on the reference household's site, 4 Nov 2026).
+  - delay: "00:00:10"
