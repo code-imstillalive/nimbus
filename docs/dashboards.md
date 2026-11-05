@@ -59,7 +59,15 @@ is.
 A release can change a standard tab (for example a new setting on the Solver
 tab). The **Nimbus Tabs** card (`custom:nimbus-tabs-card`, first on the Help
 tab; or add it from the card picker by searching "nimbus") brings those
-changes to your dashboard without any YAML:
+changes to your dashboard without any YAML.
+
+**Tabs pasted before 0.94.507 don't have it**, so there is no *Check for
+updates* button on your Help tab. Add the card once: **Edit dashboard → + Add
+card**, search **nimbus**, pick **Nimbus Tabs** and save (or add a Manual card
+with `type: custom:nimbus-tabs-card`). The current Help tab it then offers has
+the card built in.
+
+Then:
 
 1. Press **Check for updates**. The card compares this dashboard's tabs with
    the installed release and lists each as up to date, changed or missing.
