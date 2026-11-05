@@ -871,9 +871,8 @@ ATTR_SOURCE_SENSOR: Final = "source_sensor"
 # Everything the Solver (custom_components/nimbus_load/solver/) needs to
 # build a real dispatch plan for ANY household, not just this one.
 # Previously these lived as bare input_number/entity helpers this
-# household hand-created (see research scripts under the sibling
-# 116KAT-HA-AI repo's own scripts/research/ for the exact entity IDs that
-# predate this), with no structured onboarding at all -- a real installer
+# household hand-created (the reference household's own research scripts
+# hold the exact entity IDs that predate this), with no structured onboarding at all -- a real installer
 # would have had to know the precise entity names to create by hand.
 # Deliberately mirrors HAEO's own real schema (haeo_repo/core/schema/
 # elements/battery.py, grid.py, solar.py, inverter.py) as a proven
@@ -1462,7 +1461,7 @@ CONF_SOLVER_WEATHER_FORECAST_SENSOR: Final = "solver_weather_forecast_sensor"
 #
 # 0.0 (the default) is a genuine no-op -- an install that's never set
 # this returns exactly the sum of its own configured circuits, nothing
-# added. This project's own reference household (116KAT-HA-AI) needs to
+# added. This project's own reference household needs to
 # set this to 0.215 ONCE, manually, on its own dashboard after this
 # field first ships -- there is nothing in entry.options for a
 # brand-new field to seed itself from, so even the household whose real

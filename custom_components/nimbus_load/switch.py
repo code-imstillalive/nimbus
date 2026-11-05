@@ -1,7 +1,7 @@
 """Switch platform for Nimbus -- live, dashboard-editable Solver toggles.
 
 2026-08-22, direct household ask, after a sharp catch: nimbus_solver_
-forecast_writer.py (the sibling 116KAT-HA-AI repo's own Solver writer)
+forecast_writer.py (the reference household's own Solver writer)
 was silently including two hardcoded, known-integration solar sources
 (Open-Meteo, Solcast) OUTSIDE the 3 real solar_forecast_sensor_1/2/3
 config fields entirely -- dressed up as "auto-detect", but with no way

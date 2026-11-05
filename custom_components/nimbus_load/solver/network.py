@@ -24,8 +24,8 @@ smart wise naturally adaptive not chaotic." A rolling re-solve (Layer 2,
 not yet built) will call build_plan() repeatedly on a shifting horizon;
 without anything below, two near-tied optimal solutions from consecutive
 solves are free to flip arbitrarily -- this is the exact same shape as
-HAEO's own real, documented "flash"/replan spike behaviour (see the
-sibling 116KAT-HA-AI repo's own CLAUDE.md), and this project exists
+HAEO's own real, documented "flash"/replan spike behaviour (seen on
+the reference household), and this project exists
 specifically to not repeat that.
 
 All three mechanisms are OFF by default (every new parameter defaults to
@@ -179,7 +179,7 @@ Why this exists: found live, doing a real regret/EPR analysis against a
 real household's own P2P export program. That program is a FIXED,
 pre-committed nightly revenue (LocalVolts matches against the
 household's own known historical dispatch pattern, not reactively
-per-interval -- see the sibling 116KAT-HA-AI repo's own CLAUDE.md,
+per-interval -- see the reference household's own notes,
 session 2026-08-09 "front-gap" investigation onward), not a plain
 price-taking market. A first attempt modeled this as a flat export price
 with NO volume cap -- the LP correctly, rationally exploited that as

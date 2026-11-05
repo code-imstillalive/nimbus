@@ -11,7 +11,7 @@ resolved on that issue -- this module is #3.
 
 Every other regret/EPR tool in this package (quality_report.py,
 forecast_regret.py itself, the various scripts/research/*.py one-off
-investigations in the sibling 116KAT-HA-AI repo) deliberately runs
+investigations on the reference household) deliberately runs
 against REAL, captured household data -- that's the right choice for
 "how did we actually do last night," but it's the WRONG choice for "did
 this release make the Solver's own regret/EPR math genuinely better or
@@ -44,7 +44,7 @@ change in the Solver/regret logic itself.
 3. **Exercises real production code, not a re-implementation.**
    `run_reference_benchmark()` calls `compute_forecast_regret()`
    directly -- the exact function `nimbus_solver_quality_writer.py`
-   wires into production (issue #273 item #1, 116KAT-HA-AI PR #787).
+   wires into production (issue #273 item #1).
    If that function's own LP/regret math changes, this benchmark's
    score moves; if this module's own scenario data changes, it doesn't
    test anything real. Never duplicate build_plan()/evaluate_realized_

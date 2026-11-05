@@ -12,8 +12,8 @@ already proven useful for exactly this purpose (comparing HAEO's own
 plan sensors against real measured battery state).
 
 Mode semantics and the 0.05kW threshold are taken directly from this
-project's own long-documented battery mode table (see the sibling
-116KAT-HA-AI repo's own CLAUDE.md, "Battery Inverter Modes" section) --
+project's own long-documented battery mode table (the reference
+household's own "Battery Inverter Modes" notes) --
 not invented here, reused so a shadow-mode reading is directly, exactly
 comparable to a real one.
 """

@@ -525,7 +525,7 @@ def build_price_arrays(
             if block_kwh > 0:
                 p2p_recent_volume_kwh = block_kwh
         # Fix 2026-09-05 (mirrors the identical fix in the sibling
-        # 116KAT-HA-AI/scripts/nimbus_solver_forecast_writer.py -- the
+        # reference household's nimbus_solver_forecast_writer.py -- the
         # standalone cron writer's own copy of this exact logic). Direct
         # household catch, live, via a Solver Forecast table screenshot
         # showing gold "P2P active" coloring at 0.0 c/kWh for genuine

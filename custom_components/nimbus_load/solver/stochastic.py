@@ -39,7 +39,7 @@ integration must handle and allow for variables and various scenarios."
 Deployment is deliberately devhub-only and fully reversible: this module
 has zero callers in `nimbus_solver_forecast_writer.py` or any other
 NUC1/NUC2-deployed script (confirmed by grep before this was built) --
-the only real caller is `116KAT-HA-AI`'s own `scripts/
+the only real caller is the reference household's own `scripts/
 nimbus_stochastic_comparison_writer.py`, hardcoded against devhub's own
 HA instance, never the NUC1/NUC2 VIP, writing a shadow-mode comparison
 sensor only. Disabling this feature is a single action (stop that one

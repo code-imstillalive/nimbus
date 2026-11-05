@@ -13,7 +13,7 @@ assumption is not always true. A real Sungrow inverter is commanded a
 setpoint via Modbus; what it actually delivers can genuinely diverge from
 that setpoint for reasons that have nothing to do with whether the plan
 itself was economically sound -- e.g. this project's own live, real
-finding (116KAT-HA-AI's own CLAUDE.md, 2026-08-17 session): the household's
+finding (the reference household, 2026-08-17): the household's
 two physical inverters periodically trade off which one carries the
 discharge duty, and the real measured battery power genuinely drops to
 near-zero for ~20-30s during that handoff, roughly every 45-90 minutes,

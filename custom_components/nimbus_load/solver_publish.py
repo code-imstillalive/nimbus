@@ -2268,7 +2268,7 @@ def publish_plan(
     # (solver_runtime.py imports it exactly once, at container startup,
     # via a lazy module-level singleton that's never re-imported for the
     # life of the process) -- see the sibling standalone script's own
-    # matching comment (116KAT-HA-AI repo, scripts/
+    # matching comment (the reference household's
     # nimbus_solver_forecast_writer.py) for the full incident writeup.
     # Short version: this container's most recent restart (2026-08-22
     # ~15:25 AEST, to deploy the native runtime itself) happened nearly 2
