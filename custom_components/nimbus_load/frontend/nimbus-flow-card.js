@@ -186,8 +186,15 @@ class NimbusFlowCard extends HTMLElement {
       if (unit !== "w" && unit !== "kw") continue;
       const kw = this._kw(src);
       if (!(kw > FLOW_CIRCUIT_MIN_KW)) continue;
-      const name = String(this._attrs(src).friendly_name || src)
-        .replace(/\b(power|active import)\b/gi, "")
+      // Named after the household's own signal (the forecast entity carries
+      // its title), not the raw sensor (5 Nov 2026: "Smappee MQTT Circuit 1
+      // Realtime W" for a circuit its owner called "Circuit - Power 1").
+      const name = String(a.friendly_name || this._attrs(src).friendly_name || src)
+        .replace(/\s*forecast$/i, "")
+        // A trailing "power" / "active import" only, so "Circuit - Power 1"
+        // keeps its word.
+        .replace(/\s*\b(active import)\s*$/i, "")
+        .replace(/\s*\bpower\s*$/i, "")
         .replace(/^CB-(PW|LT)\s*/i, (m, g) => (g.toUpperCase() === "LT" ? "Lights " : ""))
         .trim();
       out.push({ name: name || src, kw, src });
