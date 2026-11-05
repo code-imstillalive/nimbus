@@ -280,8 +280,7 @@ gold, battery green, grid blue).
 - **Solar against forecast,** while the plan expects solar.
 - **The circuits drawing now:** small bubbles under House, one per circuit
   drawing over 5 W (the Topology card's own mark for "active"), up to the
-  nine largest: your loads under the names you gave them, then any other
-  Nimbus power signal.
+  nine largest, each under the name you gave its load or power signal.
 - **The plan table beside it** is the Control Panel card's own forecast
   table (`custom:nimbus-dispatch-card-v4` with `table_only: true`), so the
   two always match.
