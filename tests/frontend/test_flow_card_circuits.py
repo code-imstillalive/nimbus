@@ -9,6 +9,8 @@ same circuits as "Circuit - Power 1" and "Circuit - Power 2", and a third,
 - The card listed circuits from the Nimbus forecast sensors first, named from
   the source sensor, and only then the household's own loads, which it
   skipped as duplicates. The loads now come first, so their names win.
+- The scan then named a circuit after its source sensor, not after the
+  forecast signal the household named; the name now comes from the signal.
 - A circuit showed only above 50 W. The household: whatever is powered should
   show, as on the Topology card, which counts anything above 5 W as active.
 """
@@ -37,3 +39,11 @@ def test_powered_circuits_show_under_the_households_names():
     loads = body.index("for (const l of site.loads)")
     scan = body.index("Object.entries(this._hass.states)")
     assert loads < scan, "a sensor's own name wins over the household's load name"
+
+    # A tester's circuits are forecast power signals, not controllable loads,
+    # so they came through the scan under the raw sensor's name ("Smappee MQTT
+    # Circuit 1 Realtime W") rather than theirs ("Circuit - Lights 1"). The
+    # name comes from the Nimbus forecast entity, which carries the signal's
+    # own title.
+    assert "String(a.friendly_name || this._attrs(src).friendly_name || src)" in body
+    assert r'.replace(/\s*forecast$/i, "")' in body
