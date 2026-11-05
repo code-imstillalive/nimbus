@@ -63,6 +63,8 @@ Before designing a solver, load-model, scoring or output mechanism:
 
 ## Releases
 
+**Version numbers (household, 6 Nov 2026, #2289):** a release with any change a user would notice (a new or changed setting, entity, card or tab, or different battery behaviour) bumps the middle number and resets the last: 0.94.521 → 0.95.0. A release of only internal fixes a user would not notice bumps the last number: 0.95.0 → 0.95.1. Decide from the release's CHANGELOG lines; when in doubt, it's user-visible.
+
 1. Open a release PR. It needs:
    - a `## [X.Y.Z]` CHANGELOG section;
    - the `manifest.json` version bump;
