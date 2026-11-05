@@ -1350,6 +1350,11 @@ class NimbusDispatchCardV4 extends HTMLElement {
           ? '.col-left, .chart-col, .footer .chip, .footer ~ * { display:none !important; }' +
             '.chart-table-grid { display:block !important; }' +
             '.card { padding: 0 0 0 4px !important; background: none !important; border: none !important; box-shadow: none !important; }' +
+            // 5 Nov 2026: with no background of its own here, the text and
+            // the sticky header follow the theme, as the Power Flow card
+            // around it does (near-white on a light theme's white card).
+            '.card { color: var(--primary-text-color, #e8eaf0) !important; }' +
+            'table.ftable thead th { background: var(--ha-card-background, var(--card-background-color, #14181f)) !important; }' +
             '.footer { border-top: none !important; margin-top: 12px !important; padding-top: 0 !important; }' +
             '.ftable-wrap { max-height: var(--nimbus-ftable-height, 640px) !important; }'
           : '') +
