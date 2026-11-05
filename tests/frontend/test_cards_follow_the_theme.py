@@ -11,7 +11,8 @@ text stayed the light theme's dark. The reference household's theme sets
 A card that offers its own background fallback must fall back through the
 theme's `--card-background-color` first, so the background and text agree.
 The Power Flow card's House ring and its lines to the circuits, drawn in a
-near-white, follow the theme's text colour so they show on a light card.
+near-white, follow the theme's text colour so they show on a light card, as
+does the Control Panel table drawn beside them.
 """
 
 from __future__ import annotations
@@ -39,3 +40,13 @@ def test_a_cards_own_background_falls_back_through_the_theme():
     flow = (FE / "nimbus-flow-card.js").read_text(encoding="utf-8")
     assert ".ring.house { stroke: var(--primary-text-color" in flow
     assert ".flow.house { stroke: var(--primary-text-color" in flow
+
+    # The Control Panel's table, drawn inside the Power Flow card
+    # (`table_only`), drops its own dark background, so its text and its
+    # sticky header must follow the theme too (light theme, 5 Nov 2026: the
+    # time, price and load columns were near-white on white).
+    dispatch = (FE / "nimbus-dispatch-card-v4.js").read_text(encoding="utf-8")
+    only = dispatch[dispatch.index("(this.config.table_only") :]
+    only = only[: only.index(": '')")]
+    assert "color: var(--primary-text-color" in only
+    assert "table.ftable thead th { background: var(--ha-card-background" in only
