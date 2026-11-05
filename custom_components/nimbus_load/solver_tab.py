@@ -649,6 +649,18 @@ def _stochastic_chart() -> dict[str, Any]:
             ("Main plan", "main", "#e8eaf0", 2),
         )
     ]
+    # Household, 5 Nov 2026: this chart drew squeezed to the left until a
+    # reload, as Prices ahead did (21 Oct). Same fix: every series above is a
+    # data_generator, so one series read from history makes the card wait
+    # for that fetch and draw at its section's full width. It draws nothing
+    # and is not in the header or the legend.
+    series.append(
+        {
+            "entity": entity,
+            "name": "First-load width",
+            "show": {"in_chart": False, "in_header": False, "in_legend": False},
+        }
+    )
     return _apex(
         "Battery by how much sun",
         "% of battery. Dashed: the main plan.",
