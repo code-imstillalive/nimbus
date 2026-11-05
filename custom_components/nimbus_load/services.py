@@ -525,6 +525,20 @@ async def _async_handle_flex_telemetry_record(
     }
 
 
+# How long a scored window is answered from memory, and how many are kept.
+# Long enough to cover a page load and a round of dashboard edits; short
+# enough that a late P2P settlement shows on the card's Refresh soon after.
+_QUALITY_REPORT_CACHE_SECONDS = 600
+_QUALITY_REPORT_CACHE_SIZE = 16
+
+
+def _quality_report_shared(hass: HomeAssistant) -> dict[str, Any]:
+    """The lock and cache compute_quality_report shares across calls."""
+    return hass.data.setdefault(
+        f"{DOMAIN}_quality_report", {"lock": asyncio.Lock(), "cache": {}}
+    )
+
+
 async def _async_handle_compute_quality_report(
     hass: HomeAssistant, call: ServiceCall
 ) -> dict:
@@ -569,13 +583,32 @@ async def _async_handle_compute_quality_report(
             cfg, start, end, allow_partial=allow_partial
         )
 
-    try:
-        result = await hass.async_add_executor_job(_blocking)
-    except Exception as e:
-        raise HomeAssistantError(
-            f"nimbus_load.compute_quality_report: scoring failed for window "
-            f"[{start.isoformat()}, {end.isoformat()}]: {e}"
-        ) from e
+    # 5 Nov 2026: the Regret tab's three cards each ask for their day on
+    # every render (a page load, and every save in the dashboard editor),
+    # each one a full oracle MILP. Three at once took 15 s of solver time
+    # on the test box; a tester's smaller box stalled for about five
+    # minutes while they edited their tabs. One report runs at a time, and
+    # a window scored in the last few minutes is answered from memory.
+    shared = _quality_report_shared(hass)
+    key = (start.isoformat(), end.isoformat(), allow_partial)
+    async with shared["lock"]:
+        hit = shared["cache"].get(key)
+        if hit is not None and dt_util.utcnow().timestamp() - hit[0] < (
+            _QUALITY_REPORT_CACHE_SECONDS
+        ):
+            result = hit[1]
+        else:
+            try:
+                result = await hass.async_add_executor_job(_blocking)
+            except Exception as e:
+                raise HomeAssistantError(
+                    f"nimbus_load.compute_quality_report: scoring failed for "
+                    f"window [{start.isoformat()}, {end.isoformat()}]: {e}"
+                ) from e
+            if result is not None:
+                shared["cache"][key] = (dt_util.utcnow().timestamp(), result)
+                while len(shared["cache"]) > _QUALITY_REPORT_CACHE_SIZE:
+                    shared["cache"].pop(next(iter(shared["cache"])))
 
     if result is None:
         raise HomeAssistantError(
@@ -682,6 +715,9 @@ async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) 
             )
         days = back
         only_dates = {date_str}
+
+    # A re-score is a request for fresh figures: drop remembered reports.
+    _quality_report_shared(hass)["cache"].clear()
 
     def _blocking() -> dict:
         cfg = solver_writer.fetch_solver_config()
