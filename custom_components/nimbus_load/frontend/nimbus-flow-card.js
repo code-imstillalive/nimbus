@@ -37,7 +37,10 @@ const FLOW_COLORS = {
   card: "#1c2026",
 };
 const FLOW_MIN_KW = 0.05; // below this a line is not drawn
-const FLOW_CIRCUIT_MIN_KW = 0.05; // a circuit bubble shows above about 50 W
+// A circuit bubble shows above 5 W, the Topology card's own "active" mark
+// (household, 5 Nov 2026: whatever is powered should show; a tester's 23 W
+// lighting circuit was hidden at the old 50 W).
+const FLOW_CIRCUIT_MIN_KW = 0.005;
 const FLOW_OFF_PLAN_SECONDS = 120; // off plan only after this long
 const FLOW_SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -163,12 +166,21 @@ class NimbusFlowCard extends HTMLElement {
   // The circuits inside House: every Nimbus power signal whose source is a
   // power sensor other than the ones already drawn.
   _circuits(site, drawn) {
+    // The household's own loads first, under the names they gave them; the
+    // forecast-sensor scan then adds only circuits not already listed (5 Nov
+    // 2026: it ran first and showed raw sensor names over the household's).
     const out = [];
+    for (const l of site.loads) {
+      if (drawn.has(l.power_sensor)) continue;
+      const kw = this._kw(l.power_sensor);
+      if (kw > FLOW_CIRCUIT_MIN_KW && !out.some((c) => c.src === l.power_sensor)) out.push({ name: l.name || l.power_sensor, kw, src: l.power_sensor });
+    }
     for (const [id, st] of Object.entries(this._hass.states)) {
       if (!id.startsWith("sensor.nimbus_") || !id.endsWith("_forecast")) continue;
       const a = st.attributes || {};
       const src = a.source_sensor;
       if (!src || src.startsWith("sensor.nimbus_") || drawn.has(src)) continue;
+      if (out.some((c) => c.src === src)) continue;
       if (a.signal_role && a.signal_role !== "other") continue;
       const unit = String((this._attrs(src).unit_of_measurement) || "").toLowerCase();
       if (unit !== "w" && unit !== "kw") continue;
@@ -179,11 +191,6 @@ class NimbusFlowCard extends HTMLElement {
         .replace(/^CB-(PW|LT)\s*/i, (m, g) => (g.toUpperCase() === "LT" ? "Lights " : ""))
         .trim();
       out.push({ name: name || src, kw, src });
-    }
-    for (const l of site.loads) {
-      if (drawn.has(l.power_sensor)) continue;
-      const kw = this._kw(l.power_sensor);
-      if (kw > FLOW_CIRCUIT_MIN_KW && !out.some((c) => c.src === l.power_sensor)) out.push({ name: l.name || l.power_sensor, kw, src: l.power_sensor });
     }
     out.sort((x, y) => y.kw - x.kw);
     return out.slice(0, 9);
