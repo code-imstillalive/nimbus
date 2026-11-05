@@ -72,6 +72,15 @@ async def test_the_action_returns_every_tab_resolved_against_this_install(
     resolved = sorted(e for e in ours if e in text)
     assert resolved, "no entity of this install reached the dashboard"
 
+    # An unreadable resource list, or none at all, also means the tile slider.
+    class Broken:
+        def async_items(self):
+            raise RuntimeError("storage not loaded")
+
+    broken = SimpleNamespace(data={"lovelace": SimpleNamespace(resources=Broken())})
+    assert dash._has_lovelace_resource(broken, "mushroom") is False
+    assert dash._has_lovelace_resource(SimpleNamespace(data={}), "mushroom") is False
+
 
 @pytest.mark.parametrize(
     "lovelace",
@@ -88,16 +97,6 @@ async def test_the_solver_tab_uses_mushroom_only_where_it_is_installed(
 ):
     monkeypatch.setitem(hass.data, "lovelace", lovelace)
     assert MUSHROOM in json.dumps(await _get(hass))
-
-
-async def test_an_unreadable_resource_list_means_the_tile_slider(hass: HomeAssistant):
-    class Broken:
-        def async_items(self):
-            raise RuntimeError("storage not loaded")
-
-    hass = SimpleNamespace(data={"lovelace": SimpleNamespace(resources=Broken())})
-    assert dash._has_lovelace_resource(hass, "mushroom") is False
-    assert dash._has_lovelace_resource(SimpleNamespace(data={}), "mushroom") is False
 
 
 async def test_a_moved_settings_stale_number_row_never_wins_over_its_time_entity(
