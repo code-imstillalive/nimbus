@@ -124,6 +124,17 @@ def test_patch_keeps_matching_nodes_and_replaces_the_rest():
     )
     assert out == '{"same":true,"text":"b","old":false,"second":"EM","n":2}'
 
+    # test_a_changed_second_class_keeps_the_node: `mode-chip active` ->
+    # `mode-chip` is the same chip, patched in place.
+    out = _node(
+        "const chip=el('BUTTON',{class:'mode-chip active'},[tx('Auto')]);\n"
+        "const target=el('ROOT',{},[chip]);\n"
+        "nimbusPatchChildren(target, el('ROOT',{},[el('BUTTON',{class:'mode-chip'},[tx('Auto')])]));\n"
+        "console.log(JSON.stringify({same: target.childNodes[0]===chip,"
+        " cls: chip.getAttribute('class')}));\n"
+    )
+    assert out == '{"same":true,"cls":"mode-chip"}'
+
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_a_section_appearing_above_keeps_the_table_node():
@@ -143,16 +154,3 @@ def test_a_section_appearing_above_keeps_the_table_node():
         " n: target.childNodes.length, text: wrap.childNodes[0].nodeValue}));\n"
     )
     assert out == '{"added":true,"gone":true,"n":2,"text":"rows3"}'
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-def test_a_changed_second_class_keeps_the_node():
-    """`mode-chip active` -> `mode-chip` is the same chip, patched in place."""
-    out = _node(
-        "const chip=el('BUTTON',{class:'mode-chip active'},[tx('Auto')]);\n"
-        "const target=el('ROOT',{},[chip]);\n"
-        "nimbusPatchChildren(target, el('ROOT',{},[el('BUTTON',{class:'mode-chip'},[tx('Auto')])]));\n"
-        "console.log(JSON.stringify({same: target.childNodes[0]===chip,"
-        " cls: chip.getAttribute('class')}));\n"
-    )
-    assert out == '{"same":true,"cls":"mode-chip"}'
