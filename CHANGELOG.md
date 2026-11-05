@@ -8,12 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.520] - 2026-11-05
+
+**The Power Flow card reads right on a light theme, and shows every powered circuit under your names for it.**
+
+- **Readable on Home Assistant's default light theme** (#2279). The card took its background from `--ha-card-background`, falling back to its own dark colour, and its text from the theme. The default theme sets no `--ha-card-background`, so a tester saw dark figures on a dark card. The background now falls back through the theme's own card colour first, so it is light with dark text on a light theme; a dark theme, or one that sets `--ha-card-background`, looks as before. The House circle and its lines to the circuits follow the theme's text colour, so they show on a light card.
+- **Every powered circuit, under your names** (#2280). Circuits were listed from Nimbus's forecast sensors first, named after the raw sensor ("Smappee MQTT Circuit 1 Realtime W"), so your own load names lost. A circuit also showed only above 50 W, which hid a 23 W lighting circuit. Your loads now come first under the names you gave them, and any circuit above 5 W shows (the Topology card's own mark for "active"), still the nine largest.
+
 ## [0.94.519] - 2026-11-05
 
 **The Regret tab no longer loads a small install while you edit your dashboard.**
 
 - **One quality report per day, one at a time** (#2276). The Regret tab's three cards each ask for their day's score whenever the tab renders: on a page load, and on every save in the dashboard editor. Each request was a full hindsight solve, about 5 s on the test box, and three at once took 15 s. On a tester's smaller box, deleting and renaming tabs stalled Home Assistant for about five minutes. Now `nimbus_load.compute_quality_report` runs one report at a time, and a day scored in the last 10 minutes is answered from memory, so the three cards and every re-render share one solve. *Re-score* (`nimbus_load.rescore_history`) clears what is remembered. Scores are unchanged.
 - The dashboards guide says how to add the Nimbus Tabs card when your tabs were pasted before 0.94.507 and have no *Check for updates* button (#2275). The setup guide's numbers table lists the Site import limit (#2273).
+- Devhub validation: **confirmed live on devhub (HA 2026.10.4) at 7e874d3f** (`release/0.94.519`, installed through HACS untagged and restarted at 19:45 AEST, 5 Nov; read through 19:48). 123 of the 127 Nimbus entities carrying a version read 0.94.519; the other four are the daily reports. None of the 388 Nimbus entities unavailable; plan `optimal` on the first solve; all 61 Solver numbers kept their values over the restart. `nimbus_load.compute_quality_report` called as the Regret tab calls it, for 2, 3 and 4 Nov at once: the three ran one after another (answers at 4.5, 8.6 and 13.1 s) where on 0.94.518 they ran together (15 s, all three); the same three again were answered in under 0.1 s, as were three calls for one day. No Nimbus ERROR in the log.
+- Consumer check: no setting, entity or attribute is added, moved or renamed. `compute_quality_report` returns the same report; one in the last 10 minutes comes from memory, and `rescore_history` clears it. Plans and scores are unchanged.
 
 ## [0.94.518] - 2026-11-05
 

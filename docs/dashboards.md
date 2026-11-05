@@ -278,9 +278,10 @@ gold, battery green, grid blue).
   minutes, the badge turns amber and a planned line that isn't happening
   shows as a grey dashed ghost.
 - **Solar against forecast,** while the plan expects solar.
-- **The circuits drawing now:** small bubbles under House, one per Nimbus
-  power signal drawing over about 50 W, and any controllable load with a
-  power sensor.
+- **The circuits drawing now:** small bubbles under House, one per circuit
+  drawing over 5 W (the Topology card's own mark for "active"), up to the
+  nine largest: your loads under the names you gave them, then any other
+  Nimbus power signal.
 - **The plan table beside it** is the Control Panel card's own forecast
   table (`custom:nimbus-dispatch-card-v4` with `table_only: true`), so the
   two always match.
