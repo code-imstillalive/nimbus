@@ -42,7 +42,7 @@ async def nimbus_entry(hass: HomeAssistant) -> MockConfigEntry:
 async def test_one_solve_per_window_however_many_cards_ask(
     hass: HomeAssistant, nimbus_entry: MockConfigEntry, monkeypatch
 ):
-    scored: list[str] = []
+    scored: list[float] = []
     running = 0
     most_at_once = 0
     guard = threading.Lock()
@@ -55,7 +55,7 @@ async def test_one_solve_per_window_however_many_cards_ask(
         time.sleep(0.2)  # a solve takes a while; callers overlap
         with guard:
             running -= 1
-            scored.append(start.isoformat())
+            scored.append(start.timestamp())
         return {"epr_pct": 95.0}
 
     monkeypatch.setattr(solver_writer, "fetch_solver_config", dict)
@@ -78,15 +78,15 @@ async def test_one_solve_per_window_however_many_cards_ask(
         )
 
     answers = await asyncio.gather(*(ask(day, today) for _ in range(3)))
-    assert scored == [day.isoformat()], "each card ran its own solve"
+    assert scored == [day.timestamp()], "each card ran its own solve"
     assert all(a["epr_pct"] == 95.0 for a in answers)
 
     await asyncio.gather(ask(earlier, day), ask(day, today))
-    assert scored == [day.isoformat(), earlier.isoformat()]
+    assert scored == [day.timestamp(), earlier.timestamp()]
     assert most_at_once == 1, "two solves ran at once"
 
     await hass.services.async_call(
         DOMAIN, "rescore_history", {"days": 1}, blocking=True, return_response=True
     )
     await ask(day, today)
-    assert scored.count(day.isoformat()) == 2, "a re-score kept the old answer"
+    assert scored.count(day.timestamp()) == 2, "a re-score kept the old answer"
