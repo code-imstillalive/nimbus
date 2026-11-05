@@ -218,6 +218,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.519",
+        "5 Nov 2026",
+        (
+            (
+                "**Regret tab:** its three cards share one score per day, so "
+                "it no longer loads a small install while you edit your "
+                "dashboard."
+            ),
+        ),
+    ),
+    (
         "0.94.518",
         "5 Nov 2026",
         (

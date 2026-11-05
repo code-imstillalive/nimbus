@@ -608,6 +608,9 @@ Edit inline on the dashboard without touching the wizard:
   days head-to-head. A window shorter than 24h needs `allow_partial: true`
   to run at all; `allow_partial: false` restricts scoring to full real
   calendar days, matching the daily report's own behaviour exactly.
+  One report runs at a time, and a window scored in the last 10 minutes is
+  answered from memory (the Regret tab's cards ask on every render);
+  `rescore_history` clears what is remembered.
 - `nimbus_load.rescore_history` (optional `days`, default `1`, max `30`).
   The write-back counterpart to the above. A day is scored once, the
   morning after, and frozen into the quality report's `history` table — so
