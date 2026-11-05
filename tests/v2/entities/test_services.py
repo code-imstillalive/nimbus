@@ -75,6 +75,7 @@ def _hass(entries=(), states=None):
         services=Services(),
         config_entries=Entries(list(entries)),
         states=SimpleNamespace(get=states.get),
+        data={},
     )
 
     async def executor(fn, *a):
