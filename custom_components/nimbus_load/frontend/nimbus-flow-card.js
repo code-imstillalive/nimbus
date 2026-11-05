@@ -348,7 +348,10 @@ class NimbusFlowCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; }
-        ha-card { padding: 14px 16px 16px; background: var(--ha-card-background, ${FLOW_COLORS.card}); }
+        /* 5 Nov 2026: fall back through the theme's own card colour, as the text
+           does, so a theme without --ha-card-background never gets dark text on
+           this card's dark fallback. */
+        ha-card { padding: 14px 16px 16px; background: var(--ha-card-background, var(--card-background-color, ${FLOW_COLORS.card})); }
         .grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
         @media (max-width: 1040px) { .grid { grid-template-columns: 1fr; } }
         .flowcol { min-width: 0; display: flex; flex-direction: column; }
@@ -368,7 +371,9 @@ class NimbusFlowCard extends HTMLElement {
         @keyframes run { to { stroke-dashoffset: -32; } }
         @media (prefers-reduced-motion: reduce) { .run { animation: none; } }
         .ghost { fill: none; stroke: ${FLOW_COLORS.ghost}; stroke-width: 2; stroke-dasharray: 3 7; }
-        .ring { fill: var(--ha-card-background, ${FLOW_COLORS.card}); stroke-width: 3; }
+        .ring { fill: var(--ha-card-background, var(--card-background-color, ${FLOW_COLORS.card})); stroke-width: 3; }
+        .ring.house { stroke: var(--primary-text-color, ${FLOW_COLORS.house}); }
+        .flow.house { stroke: var(--primary-text-color, ${FLOW_COLORS.house}); }
         .ring.off { stroke: ${FLOW_COLORS.amber} !important; filter: drop-shadow(0 0 6px rgba(255,179,64,0.75)); }
         .big { fill: var(--primary-text-color, #e8eaf0); font-size: 15px; font-weight: 600; text-anchor: middle; }
         .small { fill: var(--primary-text-color, #e8eaf0); font-size: 11px; font-weight: 600; text-anchor: middle; }
@@ -437,10 +442,11 @@ class NimbusFlowCard extends HTMLElement {
     return { x1: a.x + ux * (a.r + 4), y1: a.y + uy * (a.r + 4), x2: b.x - ux * (b.r + 4), y2: b.y - uy * (b.r + 4) };
   }
 
-  _line(g, p, kw, colour, scale) {
+  _line(g, p, kw, colour, scale, cls) {
     const w = Math.min(10, (2.2 + Math.sqrt(kw) * 1.3) * (scale || 1));
-    this._el("line", { ...p, class: "flow", stroke: colour, "stroke-width": w, opacity: 0.16 }, g);
-    const d = this._el("line", { ...p, class: "flow run", stroke: colour, "stroke-width": w, "stroke-dasharray": "1 15" }, g);
+    const extra = cls ? " " + cls : "";
+    this._el("line", { ...p, class: "flow" + extra, stroke: colour, "stroke-width": w, opacity: 0.16 }, g);
+    const d = this._el("line", { ...p, class: "flow run" + extra, stroke: colour, "stroke-width": w, "stroke-dasharray": "1 15" }, g);
     d.style.animationDuration = Math.max(0.35, 2.2 / Math.sqrt(Math.max(kw, 0.05))) + "s";
   }
 
@@ -492,7 +498,7 @@ class NimbusFlowCard extends HTMLElement {
       const x = n === 1 ? Hn.x : Hn.x - 230 + (460 * i) / (n - 1);
       const y = 610 - Math.abs(i - (n - 1) / 2) * 12;
       const r = 12 + Math.sqrt(c.kw) * 9;
-      this._line(G.flows, this._seg(Hn, { x, y, r }), c.kw, C.house, 0.55);
+      this._line(G.flows, this._seg(Hn, { x, y, r }), c.kw, C.house, 0.55, "house");
       this._el("circle", { cx: x, cy: y, r, class: "ring", stroke: C.muted, "stroke-width": 1.5 }, G.nodes);
       this._el("text", { x, y: y + 4, class: "small" }, G.nodes).textContent = c.kw >= 1 ? c.kw.toFixed(1) : Math.round(c.kw * 1000);
       this._el("text", { x, y: y + r + 12, class: "lbl s" }, G.nodes).textContent = c.name + (c.kw >= 1 ? " kW" : " W");
@@ -553,7 +559,7 @@ class NimbusFlowCard extends HTMLElement {
     });
     for (const [id, label, kw, colour] of [["house", "House", m.house, C.house], ["grid", "Grid", Math.abs(m.grid), C.grid]]) {
       const p = pos[id];
-      this._el("circle", { cx: p.x, cy: p.y, r: p.r, class: "ring", stroke: colour }, G.nodes);
+      this._el("circle", { cx: p.x, cy: p.y, r: p.r, class: id === "house" ? "ring house" : "ring", stroke: colour }, G.nodes);
       this._el("text", { x: p.x, y: p.y + 5, class: "big" }, G.nodes).textContent = kw > FLOW_MIN_KW ? flowKwText(kw) : "0";
       this._el("text", { x: p.x, y: p.y + p.r + 17, class: "lbl" }, G.nodes).textContent = label;
     }
