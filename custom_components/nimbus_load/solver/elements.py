@@ -181,7 +181,7 @@ class GridConfig:
     # own direct, live report: "if the solver was good it would have
     # kept selling rather than landing prematurely"). The real mechanism
     # is closer to a FIXED ABSOLUTE nightly volume (documented
-    # extensively in the sibling 116KAT-HA-AI repo's own CLAUDE.md --
+    # extensively in the reference household's own notes --
     # LocalVolts matches against the household's known historical
     # pattern, not a per-kWh lottery): roughly the first N kWh of real
     # export each night get close to the REAL, undiluted achieved rate;
@@ -488,7 +488,7 @@ class BatteryConfig:
     **Mark Purcell's audit item #8, "topology" -- investigated 2026-08-18,
     concluded a NON-issue for this class, not a limitation to fix.** First
     pass wrongly assumed the LP itself needed to see individual physical
-    batteries/inverters (2 real ones on 116KAT-HA-AI's own installation,
+    batteries/inverters (2 real ones on the reference household's installation,
     SH25T=25kW AC + SH15T=15kW AC, each with its own towers and its own
     independently-diverging real SoC) and started scoping a BatteryConfig
     LIST plus a joint-dispatch LP mechanism to model them. **Corrected

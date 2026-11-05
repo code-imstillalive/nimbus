@@ -53,7 +53,7 @@ So the three trajectories, chosen for the MOST ACCURATE source
 available to each:
 - J_ach (the real, ALREADY-REALIZED trajectory): the real settled P2P
   dollars for that exact day are DIRECTLY KNOWN (this project's own
-  sensor.lv_v2_p2p_confirmed_history, sibling 116KAT-HA-AI repo) --
+  settled P2P history on the reference household) --
   using that REAL, ground-truth figure is strictly more accurate than
   re-deriving an estimate of it, so J_ach = (residual-only evaluation,
   base rate) MINUS (real known P2P dollars earned that day).
@@ -947,7 +947,7 @@ def compute_quality_report(
     # install showed a negative EPR that traced back to exactly this).
     #
     # This is the SAME distortion already found and fixed once before, in
-    # the sibling 116KAT-HA-AI repo's own separate daily quality-writer
+    # the reference household's own separate daily quality-writer
     # script (2026-08-29): crediting SoC left in the battery at the close
     # of an ALREADY-ELAPSED day with a forward-looking $/kWh value is a
     # guess about tomorrow's own prices this report has no honest basis

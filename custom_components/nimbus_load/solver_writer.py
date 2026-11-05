@@ -948,7 +948,7 @@ P2P_MATCH_FRACTION_FALLBACK = 0.65
 # Real empirical fallback for the two-tier export bonus's own volume cap
 # (see p2p_recent_avg_volume_kwh() below) -- roughly matches this
 # household's own long-documented ~60-65kWh/night real P2P delivery
-# (session history, sibling 116KAT-HA-AI repo's own CLAUDE.md).
+# (the reference household's session history).
 P2P_RECENT_AVG_VOLUME_FALLBACK_KWH = 60.0
 
 # Real per-load demand, OPTIONALLY summed from a household's own
@@ -1002,8 +1002,8 @@ P2P_RECENT_AVG_VOLUME_FALLBACK_KWH = 60.0
 # accounting draws a constant real ~215W nothing on the Zigbee CB
 # network can ever see (it's wired into the inverter itself, not a
 # monitored circuit), 24/7. Already a real, established correction in
-# this project (sensor.cb_total_combined_power_adjusted_kw, sibling
-# 116KAT-HA-AI repo, adds the identical constant for the same reason).
+# this project (the reference household's own adjusted total sensor
+# adds the identical constant for the same reason).
 # Confirmed live this same session: raw summed-18-circuits (2.18kW) +
 # this constant (0.215kW) = 2.395kW, matching the real whole-house
 # meter's own live reading (2.4kW) almost exactly -- without this, the
@@ -2642,8 +2642,8 @@ def fetch_load_forecast_safe(entity_id: str) -> tuple[list[dict] | None, str | N
     docstring for the full mechanism.
 
     Same real lesson already learned and documented once this project
-    (sibling 116KAT-HA-AI repo's own CLAUDE.md, 2026-08-16 session,
-    sensor.cb_total_combined_power_adjusted_kw): a household's own
+    (the reference household, 2026-08-16, its adjusted total
+    sensor): a household's own
     circuit sensors collectively have a meaningfully HIGHER chance that
     "at least one is briefly offline" than a single Modbus connection
     does -- guarding only the OUTER sum, not each individual term,
@@ -3959,16 +3959,15 @@ def resample_real_p2p_rate(
     IT IS NOT THE PRICE IT ACTUALLY IS... actual price can vary from
     0-70c"). That placeholder was purpose-built as a workaround for
     HAEO's own specific LP-degeneracy problems with live per-period P2P
-    data (see the sibling 116KAT-HA-AI repo's CLAUDE.md, session 41's PR
-    #348) -- HAEO still genuinely needs it, and sensor.localvolts_p2p_
+    data (seen on the reference household) -- HAEO still genuinely needs it, and sensor.localvolts_p2p_
     price_forecast / lv_p2p_forecast_writer.py are UNCHANGED and
     deliberately left alone. Nimbus is a different system with its own
     stability mechanisms (proximal_weight, smoothness_weight) and has no
     reason to inherit a workaround built for a different LP's problems.
 
     Rate formula -- EXACTLY matches this project's own already-correct
-    "P2P Trades Tonight" card (116KAT-HA-AI repo, scripts/lovelace_p2p_
-    rate_none_not_zero.py / the live card's own Jinja):
+    "P2P Trades Tonight" card (the reference household's live card's
+    own Jinja):
         rate = matchedCost / (volume * proportionP2P)
     (that card displays cents; this returns dollars -- matched_vol is in
     kWh, matchedCost in $, so cost/matched_vol is already $/kWh directly,
@@ -6940,7 +6939,7 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
       Nimbus writer is observation-only (nothing in this project ever
       actually dispatches a battery), so there is no generic "what was
       commanded" entity to compare against the real measured trajectory
-      the way 116KAT's own household-specific automation layer can be.
+      the way a household's own automation layer can be.
       commanded is set equal to actual here, which makes
       tracking_fidelity=1.0/tracking_cost=0.0 by construction -- an
       honest reflection of "Nimbus itself never commands anything," not

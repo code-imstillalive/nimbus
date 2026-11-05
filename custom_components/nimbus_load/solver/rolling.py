@@ -46,8 +46,8 @@ The carried-forward SoC is CLAMPED into whatever `min_soc_kwh`/
 `max_soc_kwh` the CURRENT tick's own BatteryConfig declares, not passed
 through raw. This matters for real callers, not just theoretical safety:
 this project's own real household already runs automations that shift
-`min_soc`/`max_soc` policy ON A SCHEDULE during the day (see the sibling
-116KAT-HA-AI repo's own CLAUDE.md, HAEO battery-cost-schedule
+`min_soc`/`max_soc` policy ON A SCHEDULE during the day (the reference
+household's own battery-cost-schedule
 automations) -- an input-provider reflecting that is entirely
 legitimate, not a caller bug, and a hard crash the moment the real
 running SoC briefly sits outside a just-tightened bound would be overly

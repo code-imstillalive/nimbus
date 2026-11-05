@@ -61,8 +61,8 @@ actually IN J, not about total household welfare):**
   shed_cost would need real calibration if that changed).
 - No explicit P2P settlement-probability term -- export price is
   treated as certain within J, even though this project's own real P2P
-  matching is confirmed pro-rata/probabilistic (see the sibling
-  116KAT-HA-AI repo's own CLAUDE.md).
+  matching is confirmed pro-rata/probabilistic (measured on the
+  reference household).
 - No explicit reliability/blackout-risk cost -- min_soc's own hard
   floor is the only protection against depletion; nothing in J prices
   the RISK of running close to it.

@@ -27,7 +27,7 @@ mechanism input_number helpers use under the hood) -- instant, survives a
 restart, zero hub-reload side effect. sensor.py's own NimbusSolverConfigSensor
 reads these entities' live states directly (not entry.options) for exactly
 this field set, so the writer script (nimbus_solver_forecast_writer.py, the
-sibling 116KAT-HA-AI repo) needs no changes at all -- it already just reads
+reference household's own standalone script) needs no changes at all -- it already just reads
 sensor.nimbus_solver_config's attributes.
 
 Seeded ONCE, on first-ever creation only (no restored state found), from
@@ -662,7 +662,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # Real portability bug found and fixed live (nimbus repo issue #100,
     # Mark Purcell). See const.py's own CONF_SOLVER_INVERTER_SELF_
     # CONSUMPTION_KW comment for the full "this used to be a hardcoded
-    # 116KAT-HA-AI-specific constant, silently added to every OTHER
+    # reference-household-specific constant, silently added to every OTHER
     # install's own load total" story. 0.0 (the default) is a genuine
     # no-op. min=0/max=5/step=0.001 -- a real inverter self-consumption
     # bias is a small correction (this project's own reference value is

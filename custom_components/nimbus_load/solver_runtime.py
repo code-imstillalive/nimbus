@@ -16,7 +16,7 @@ live control today so that complication hasn't bitten yet, but it's the
 right foundation to have in place BEFORE it ever does.
 
 This module is the fix: it runs solver_writer.py (this same package,
-BYTE-IDENTICAL to the sibling 116KAT-HA-AI repo's own scripts/
+BYTE-IDENTICAL to the reference household's own scripts/
 nimbus_solver_forecast_writer.py -- see that file's own module docstring
 for the full "why one script, kept in sync" story) natively, in-process,
 on a timer -- no separate device, no cron, no addon, no Add-on Store

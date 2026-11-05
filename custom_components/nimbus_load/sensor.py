@@ -1398,7 +1398,7 @@ async def async_setup_entry(
     # HA-core's own EntityPlatform/registry layer, which isn't inspectable
     # without direct filesystem access to .storage/core.entity_registry --
     # not available for NUC1 (see this repo's own CLAUDE.md deploy section
-    # and the sibling 116KAT-HA-AI repo's own access rules). This block
+    # and the reference household's own access rules). This block
     # logs, right before the add_entities call that's the exact point the
     # real collision fires at, whether HA already has a conflicting state
     # or registry row for any entity in this batch -- if this ever
@@ -2491,7 +2491,7 @@ class NimbusSolverConfigSensor(SensorEntity):
     2026-08-20, direct household ask: "close this gap [installability]
     ... or get rid of it totally - need its own installer and inputs
     period." Before this sensor existed, nimbus_solver_forecast_writer.py
-    (the sibling 116KAT-HA-AI repo's standalone Solver script) read its
+    (the reference household's standalone Solver script) read its
     battery/grid config from a set of ad-hoc input_number.nimbus_solver_*
     helpers that had to be hand-created via a separate YAML package file
     -- a real installer for someone else (Mark Purcell, or anyone) would

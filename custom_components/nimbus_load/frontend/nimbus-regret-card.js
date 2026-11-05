@@ -18,7 +18,7 @@
 // Real bug, 2026-09-05: the live service's own _compute_report_for_window()
 // genuinely diverges from the table's own numbers for the same real day
 // (EPR 71.5% vs the table's 89.9% on 2026-09-04, real root cause not yet
-// found -- see 116KAT-HA-AI's CLAUDE.md Live Open Items). Household's own
+// found; tracked in the reference household's own notes). Household's own
 // directive: "the table for EPR and trend is the bible... charts should
 // just display it." Fixed by pulling the 5 headline stat numbers (EPR,
 // J_ref, J_ach, J_star, Regret) from sensor.nimbus_solver_quality_report's
