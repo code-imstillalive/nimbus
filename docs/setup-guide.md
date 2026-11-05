@@ -583,7 +583,8 @@ That changes the displayed state, not the underlying configuration.
 | `number.nimbus_solver_battery_capacity_kwh` | Capacity before the configured SoH derating. See the capacity example below. |
 | `number.nimbus_solver_max_charge_kw` | Real max charge power |
 | `number.nimbus_solver_max_discharge_kw` | Real max discharge power |
-| `number.nimbus_solver_grid_max_import_kw` | Your permitted import power in kW. Do not enter a breaker rating in amperes. |
+| `number.nimbus_solver_site_import_limit_kw` | **Safety setting.** Your supply's trip point less room for an appliance switching on, e.g. `44` against a 46 kW supply. Unlike the others it is checked against the live grid meter, not planned with: the battery's charge is held so import stays at or below it, whatever else switches on. `0` (the default) leaves it off. See [Your site's supply limit](going-live.md#your-sites-supply-limit-strongly-recommended). |
+| `number.nimbus_solver_grid_max_import_kw` | Your permitted import power in kW, a little below the site import limit. Do not enter a breaker rating in amperes. |
 | `number.nimbus_solver_grid_max_export_kw` | Your approved export limit |
 | `number.nimbus_solver_battery_min_soc_percent` | Your floor, e.g. `10` |
 | `number.nimbus_solver_battery_max_soc_percent` | Your ceiling, e.g. `100` |
