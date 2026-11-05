@@ -218,6 +218,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.518",
+        "5 Nov 2026",
+        (
+            (
+                "**Solver tab:** the Stochastic chart draws at full width "
+                "on a first visit."
+            ),
+        ),
+    ),
+    (
         "0.94.517",
         "4 Nov 2026",
         (

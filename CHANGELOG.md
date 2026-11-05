@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.518] - 2026-11-05
+
+**The Stochastic chart draws at full width on a first visit.**
+
+- **Solver tab, Stochastic** (#2270). The *Battery by how much sun* chart could draw squeezed to the left with the rest of the card blank until the page was reloaded, as Prices ahead did until 21 Oct. Same fix: the chart now waits for one hidden series read from history, so it draws at its section's full width. Nothing visible is added.
+- The Nimbus Tabs card offers the updated Solver tab beside yours.
+
 ## [0.94.517] - 2026-11-04
 
 **Site import limit is on the Solver tab, first in Grid and fees, and the Basic settings cards line up.**
@@ -15,6 +22,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Site import limit on the Solver tab** (#2266). 0.94.516 added the setting but not to the Solver tab, where the release notes said it was. It is now the first row of **Basic settings → Grid and fees**, above Max grid import and Max grid export, top to bottom as the limits stack: your supply's trip point, then the site limit (the trip point less room for a kettle), then the plan's Max grid import a little below that. The card's note says so. Help's *Start here* step 2 tells every household to set it, and Help's settings list describes it as a safety setting.
 - **The four Basic settings cards are one height** (#2266), level at the top and the bottom. A card with more rows than fit (fee blocks in use) scrolls inside it rather than spilling over.
 - The Nimbus Tabs card offers the updated Solver tab beside yours.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.4) at 4788aa26** (`release/0.94.517`, installed through HACS untagged and restarted at 16:27 AEST, 4 Nov; read through 16:29). 123 of the 127 Nimbus entities carrying a version read 0.94.517; the other four are the daily reports. None of the 388 Nimbus entities unavailable (the allowed-charge sensor reads, the test box's limit being 44); plan `optimal` on the first solve; all 62 Solver numbers kept their values over the restart. The standard Solver tab from `nimbus_load.get_dashboard` has Grid and fees in the order Site import limit, Max grid import, Max grid export, and the four Basic cards at 15 rows. The same layout was checked on screen on the test box before the change: all four cards 952 px, level top and bottom, no scrolling (household: "good happy there"). Log: checked after the restart, with no new Nimbus WARNING or ERROR from this release.
+- Consumer check: no setting, entity or attribute is added, moved or renamed. The standard Solver and Help tabs change (layout and text), so the Tabs card offers them beside yours. Plans are unchanged.
 
 ## [0.94.516] - 2026-11-04
 
