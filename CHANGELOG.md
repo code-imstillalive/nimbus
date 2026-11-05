@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.519] - 2026-11-05
+
+**The Regret tab no longer loads a small install while you edit your dashboard.**
+
+- **One quality report per day, one at a time** (#2276). The Regret tab's three cards each ask for their day's score whenever the tab renders: on a page load, and on every save in the dashboard editor. Each request was a full hindsight solve, about 5 s on the test box, and three at once took 15 s. On a tester's smaller box, deleting and renaming tabs stalled Home Assistant for about five minutes. Now `nimbus_load.compute_quality_report` runs one report at a time, and a day scored in the last 10 minutes is answered from memory, so the three cards and every re-render share one solve. *Re-score* (`nimbus_load.rescore_history`) clears what is remembered. Scores are unchanged.
+- The dashboards guide says how to add the Nimbus Tabs card when your tabs were pasted before 0.94.507 and have no *Check for updates* button (#2275). The setup guide's numbers table lists the Site import limit (#2273).
+
 ## [0.94.518] - 2026-11-05
 
 **The Stochastic chart draws at full width on a first visit.**
