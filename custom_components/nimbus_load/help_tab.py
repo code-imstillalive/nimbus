@@ -218,6 +218,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.520",
+        "5 Nov 2026",
+        (
+            (
+                "**Power Flow:** readable on a light theme, and every powered "
+                "circuit shows under your names for it."
+            ),
+        ),
+    ),
+    (
         "0.94.519",
         "5 Nov 2026",
         (
