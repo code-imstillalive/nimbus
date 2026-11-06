@@ -368,6 +368,15 @@ def test_fees_on_top_of_a_price_that_already_includes_them_are_flagged(world):
     world.calls.clear()
     assert pa.NOTIFY_DETECTED_ID in _notices(world, {IMPORT: profile[IMPORT]})
 
+    # test_the_localvolts_question_is_asked_once
+    # Mark Purcell: "Maybe prompt once and ask, but it continues every day".
+    asked: set = set()
+    for shown in (True, False):
+        world.calls.clear()
+        asyncio.run(pa.async_notify_pricing_setup(world.hass(), {}, asked))
+        asked_now = any(nid == pa.NOTIFY_DETECTED_ID for _s, nid, _m in world.calls)
+        assert asked_now is shown
+
 
 def _notices(world, options):
     asyncio.run(pa.async_notify_pricing_setup(world.hass(), options))
