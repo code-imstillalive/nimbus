@@ -225,6 +225,7 @@ jobs:
             custom_components/nimbus_load/aemo_crosscheck.py \
             custom_components/nimbus_load/anomaly.py \
             custom_components/nimbus_load/availability.py \
+            custom_components/nimbus_load/decision_inputs.py \
             custom_components/nimbus_load/device_accounting.py \
             custom_components/nimbus_load/device_bindings.py \
             custom_components/nimbus_load/device_contract.py \
@@ -245,8 +246,11 @@ jobs:
             custom_components/nimbus_load/load_run_state.py \
             custom_components/nimbus_load/nem_region.py \
             custom_components/nimbus_load/p5min.py \
+            custom_components/nimbus_load/p5min_guard.py \
             custom_components/nimbus_load/power_units.py \
+            custom_components/nimbus_load/price_intervals.py \
             custom_components/nimbus_load/site_limit.py \
+            custom_components/nimbus_load/thermal_forecast.py \
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------

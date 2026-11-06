@@ -206,8 +206,11 @@ def columns(rows: list[dict[str, Any]], head_hours: float | None) -> dict[str, l
             # of them sum to 1.9992; without the tolerance a 25th row slips in.
             if elapsed >= head_hours - _HOURS_TOLERANCE:
                 break
+            hours = row.get("hours")
             try:
-                elapsed += float(row.get("hours"))
+                if hours is None:
+                    raise TypeError("no hours")
+                elapsed += float(hours)
             except (TypeError, ValueError):
                 kept.append(row)
                 break
@@ -404,7 +407,8 @@ def source_series(
     of `{time, ...}` rows (`keyed_price_fields()`) instead."""
     attrs = attributes or {}
     if value_key is not None:
-        shape, intervals = SHAPE_GENERIC, []
+        intervals: list[pi.PriceInterval] = []
+        shape = SHAPE_GENERIC
     else:
         shape, intervals = _provider_series(attrs)
     points = [(i.start, i.value) for i in intervals]
