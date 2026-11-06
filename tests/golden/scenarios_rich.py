@@ -574,3 +574,29 @@ register(
         cycles=2,
     )
 )
+
+
+# nimbus #2289 item 5, step B.1 (Mark Purcell, 7 Nov 2026): the REST rich-site
+# scenarios above also run in native mode with the same inputs. The REST
+# originals stay until the standalone mode is retired (B.2).
+def _plain_native(fake: FakeHA):
+    from golden.fake_native import FakeNativeHass
+
+    return FakeNativeHass(fake=fake)
+
+
+for _name, _instant, _build_fn, _cycles in (
+    ("rich_site_afternoon", "2026-09-20T05:40:00+00:00", _build, 1),
+    ("rich_site_after_midnight", "2026-09-20T14:05:00+00:00", _build, 2),
+    ("rich_site_circuits_and_limits", "2026-09-21T03:10:00+00:00", _build_variant, 2),
+):
+    register(
+        Scenario(
+            name=f"native_{_name}",
+            instant=_instant,
+            build=lambda f=_build_fn, t=_instant: f(t),
+            native=_plain_native,
+            purpose=f"native twin of {_name}",
+            cycles=_cycles,
+        )
+    )
