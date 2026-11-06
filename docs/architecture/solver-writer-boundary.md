@@ -70,10 +70,13 @@ through the golden master.
 
 ## Option B: retire the standalone mode
 
-1. Move the 16 REST golden scenarios to the native fake, one batch per PR, each with a
-   byte-identical snapshot. `fake_native` already serves 6. This raises the coverage of
-   production's own mode before anything is removed.
-2. Delete the REST branches, `urllib` calls, `HA_BASE`/`TOKEN_PATH`/Supervisor settings
+1. Give each of the 16 REST golden scenarios a native twin, one batch per PR, keeping
+   the REST original. A snapshot cannot stay byte-identical across modes: native reads
+   are recorded as `NATIVE_GET`, and native-only branches run. What must match is what
+   the twin posts. The first batch (#2324, the three synthetic scenarios) posts exactly
+   the same entities and states as its REST originals. `fake_native` already served 6.
+   This raises the coverage of production's own mode before anything is removed.
+2. Delete the REST originals with the REST branches, `urllib` calls, `HA_BASE`/`TOKEN_PATH`/Supervisor settings
    and `__main__`, one module per PR, with the golden master byte-identical.
 3. Then split `solver_writer.py` by responsibility, as in A.4.
 
