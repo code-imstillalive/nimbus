@@ -128,6 +128,15 @@ class NimbusFlowCard extends HTMLElement {
     const socSensor = cfg.solver_battery_soc_sensor || "";
     const loadForecast = cfg.solver_load_forecast_sensor || "";
     const houseSensor = this._attrs(loadForecast).source_sensor || "";
+    // Every other whole-house meter the household named, so none is drawn
+    // again as a circuit (#2299): each further load forecast's source, and
+    // the whole-house cross-check sensor.
+    const more = cfg.solver_load_forecast_entities;
+    const moreList = Array.isArray(more) ? more : String(more || "").split(",");
+    const houseAlso = [
+      ...moreList.map((e) => this._attrs(String(e).trim()).source_sensor),
+      cfg.solver_whole_house_cross_check_sensor,
+    ].filter(Boolean);
 
     // A battery participant (an EV) comes through as a derived power source
     // with a tower of its own; every other source is an inverter.
@@ -162,7 +171,7 @@ class NimbusFlowCard extends HTMLElement {
       };
     });
     const loads = (topo.controllable_loads || []).filter((l) => l && l.power_sensor);
-    return { cfg, battSign, switchboard, gridSensor, battSensor, solarSensor, socSensor, houseSensor, sources, strings, towers, evs, loads };
+    return { cfg, battSign, switchboard, gridSensor, battSensor, solarSensor, socSensor, houseSensor, houseAlso, sources, strings, towers, evs, loads };
   }
 
   // The circuits inside House: every Nimbus power signal whose source is a
@@ -216,7 +225,7 @@ class NimbusFlowCard extends HTMLElement {
     const site = this._site();
     const plan = this._plan();
     const p0 = plan ? plan[0] : null;
-    const drawn = new Set([site.gridSensor, site.battSensor, site.solarSensor, site.houseSensor]);
+    const drawn = new Set([site.gridSensor, site.battSensor, site.solarSensor, site.houseSensor, ...site.houseAlso]);
 
     // Inverters (power sources); without any, one combined node.
     let invs = site.sources.map((s) => {
