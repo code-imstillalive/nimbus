@@ -217,8 +217,9 @@ class TestTheClickHandlerIsSharedAndStillCostsOneSolve:
         # "Service nimbus_load.compute_quality_report not found" for good:
         # one attempt per day, by design since the 2026-09-01 retry storm.
         # A transient error now retries with a growing wait, capped.
-        body = _method("_fetch")
-        assert "this._retryLater(dateKey" in body
+        # `_fetch` is async, which `_method()` does not match; the call is
+        # unique in the file.
+        assert "this._retryLater(dateKey, this._error);" in _source()
         later = _method("_retryLater")
         assert "_TRANSIENT" in later and "this._retries" in later
         assert "setTimeout(" in later and "MAX_RETRIES" in later
