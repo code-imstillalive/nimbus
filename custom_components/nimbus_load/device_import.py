@@ -386,6 +386,7 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
         relationships,
         confirmed_keys,
     )
+    _map_part_of(snapshot.get("subentries") or (), devices, relationships)
 
     document: dict[str, Any] = {
         "schema_version": dc.SCHEMA_VERSION,
@@ -488,6 +489,59 @@ def _map_summed_circuits(
         )
 
 
+#: The subentry key a "part of" answer lives in (nimbus #2293).
+PART_OF_KEY = "part_of"
+
+
+def _map_part_of(
+    subentries: Any,
+    devices: list[dict[str, Any]],
+    relationships: list[dict[str, Any]],
+) -> None:
+    """Each Load or plain Power Signal set as "part of" another becomes a
+    confirmed `included_in_measurement` from it to that circuit (DC-003;
+    nimbus #2293, Mark Purcell). The setting is the household's confirmation.
+    One tier: a parent that is itself part of another is not followed. The
+    child's own link straight to the whole house is replaced, so it is
+    counted once, inside its circuit."""
+    by_sid = {
+        d["history_subentry_id"]: d
+        for d in devices
+        if d.get("kind") == "load" and d.get("history_subentry_id")
+    }
+    answers = {
+        sub.get("subentry_id"): (sub.get("data") or {}).get(PART_OF_KEY)
+        for sub in subentries
+    }
+    for sid, parent_sid in answers.items():
+        child, parent = by_sid.get(sid), by_sid.get(parent_sid)
+        if child is None or parent is None or child is parent:
+            continue
+        if by_sid.get(answers.get(parent_sid)) is not None:
+            continue  # the parent is itself part of another: one tier only
+        relationships[:] = [
+            r
+            for r in relationships
+            if not (
+                r.get("kind") == "included_in_measurement"
+                and r.get("child") == child["id"]
+            )
+        ]
+        relationships.append(
+            {
+                "kind": "included_in_measurement",
+                "child": child["id"],
+                "parent": parent["id"],
+                "quantity": "consumption",
+                "confirmed": True,
+                "provenance": {
+                    "origin": "legacy_import",
+                    "source_path": f"subentry:{sid}.{PART_OF_KEY}",
+                },
+            }
+        )
+
+
 def _slug(text: Any, fallback: str) -> str:
     out = "".join(c if c.isalnum() else "_" for c in str(text or "").lower())
     out = "_".join(part for part in out.split("_") if part)
@@ -553,10 +607,30 @@ def _map_subentries(
             }
         )
 
+    # Every sensor the hub's own devices already read (grid, battery, solar,
+    # the whole house): a plain power signal on one of them is that device
+    # seen again, not a circuit (test box, 7 Nov 2026: its battery and grid
+    # meter signals have role "other").
+    bound = {
+        (b.get("source") or {}).get("entity_id")
+        for d in devices
+        for b in (d.get("bindings") or {}).values()
+    }
     for sub in subentries:
         kind = sub.get("subentry_type")
         data = dict(sub.get("data") or {})
         sid = sub.get("subentry_id")
+        if (
+            kind == "power_signal"
+            and _text(data.get("load_sensor"))
+            and _text(data.get("load_sensor")) not in bound
+            and data.get("signal_role") in (None, "other")
+        ):
+            # nimbus #2293 (Mark Purcell): a plain power signal on its own
+            # sensor is a circuit, mapped as a Load is, so "part of" has a
+            # device at each end. Nothing reads circuit devices for planning
+            # before DC-006.
+            kind = "load"
         if kind == "power_signal":
             role = data.get("signal_role")
             entity = _text(data.get("load_sensor"))
@@ -855,6 +929,25 @@ def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
             sub["controllable_load_device_entity"] = (
                 control.get("entity_id") if control.get("authorised", True) else ""
             )
+    # nimbus #2293: each circuit's "part of", from its confirmed inclusion in
+    # another circuit; None for one that is in none, so a change made in
+    # the setting shows as drift in `active`.
+    sid_of = {
+        d["id"]: d.get("history_subentry_id")
+        for d in document.get("devices") or ()
+        if d.get("kind") == "load" and d.get("history_subentry_id")
+    }
+    parent_of = {
+        r.get("child"): r.get("parent")
+        for r in document.get("relationships") or ()
+        if r.get("kind") == "included_in_measurement"
+        and r.get("confirmed")
+        and r.get("parent") in sid_of
+    }
+    for device_id, sid in sid_of.items():
+        view["subentries"].setdefault(sid, {})[PART_OF_KEY] = sid_of.get(
+            parent_of.get(device_id)
+        )
     view["subentries"] = {k: v for k, v in view["subentries"].items() if v}
     # A list setting keeps its order; a binding removed since leaves no gap.
     if isinstance(view["options"].get(LOAD_CIRCUITS_KEY), list):
@@ -1085,6 +1178,7 @@ class Preview:
 _SUBENTRY_OWNED: dict[str, tuple[str, ...]] = {
     "load": (
         "load_sensor",
+        PART_OF_KEY,
         "schedule_start_hour",
         "schedule_end_hour",
         "expected_load_kw",
@@ -1104,9 +1198,13 @@ _SUBENTRY_OWNED: dict[str, tuple[str, ...]] = {
 }
 
 
-def owned_keys(snapshot: dict[str, Any]) -> list[str]:
+def owned_keys(snapshot: dict[str, Any], unmapped: set[str] | None = None) -> list[str]:
     """Every key path a view may write for this snapshot. Keys outside it
-    (tunables, unmapped subentries) are never touched."""
+    (tunables, unmapped subentries) are never touched. `unmapped` is the
+    import's unmapped subentry ids, computed when not given: a plain power
+    signal owns keys only when it became a circuit (#2293)."""
+    if unmapped is None:
+        unmapped = {str(u.get("subentry_id")) for u in import_legacy(snapshot).unmapped}
     paths = {f"options.{k}" for _d, _r, keys in _ROLE_SOURCES for k in keys}
     paths |= {f"options.{k}" for k in _SOLAR_FORECAST_KEYS}
     paths.add(f"options.{LOAD_CIRCUITS_KEY}")
@@ -1117,7 +1215,12 @@ def owned_keys(snapshot: dict[str, Any]) -> list[str]:
         kind = sub.get("subentry_type")
         keys = _SUBENTRY_OWNED.get(kind, ())
         role = (sub.get("data") or {}).get("signal_role")
-        if kind == "power_signal" and role not in _SIGNAL_DEVICE:
+        if kind == "power_signal" and role in (None, "other"):
+            # A circuit (#2293), unless its sensor is a device the hub
+            # already reads, which leaves it unmapped.
+            mapped = str(sub.get("subentry_id")) not in unmapped
+            keys = ("load_sensor", PART_OF_KEY) if mapped else ()
+        elif kind == "power_signal" and role not in _SIGNAL_DEVICE:
             keys = ()  # an unmapped Power Signal is left alone
         paths |= {f"subentry:{sub.get('subentry_id')}.{k}" for k in keys}
     return sorted(paths)
@@ -1163,7 +1266,9 @@ def preview(snapshot: dict[str, Any]) -> Preview:
     view = legacy_view(res.document)
     diff = [
         (path, before, after)
-        for path in owned_keys(snapshot)
+        for path in owned_keys(
+            snapshot, {str(u.get("subentry_id")) for u in res.unmapped}
+        )
         if not _same(before := _today(snapshot, path), after := _from_view(view, path))
     ]
     return Preview(res.document, res.conflicts, res.unmapped, res.problems, diff)
