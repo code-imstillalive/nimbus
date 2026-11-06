@@ -27,6 +27,8 @@
 const FLOW_COLORS = {
   solar: "#f5b53d",
   battery: "#3ddc84",
+  // An EV is a battery of its own kind: a darker green (household, 6 Nov 2026).
+  ev: "#1f9d62",
   grid: "#4fa3ff",
   house: "#e8eaf0",
   amber: "#ffb340",
@@ -200,7 +202,7 @@ class NimbusFlowCard extends HTMLElement {
       out.push({ name: name || src, kw, src });
     }
     out.sort((x, y) => y.kw - x.kw);
-    return out.slice(0, 9);
+    return out.slice(0, 12);
   }
 
   _plan() {
@@ -289,7 +291,7 @@ class NimbusFlowCard extends HTMLElement {
       const raw = this._kw(e.power);
       const charge = isNaN(raw) ? 0 : raw * e.chargeSign; // + = charging
       if (charge > FLOW_MIN_KW) flows.push({ from: "house", to: "ev" + k, kw: charge, colour: grid > FLOW_MIN_KW ? "grid" : "solar" });
-      else if (charge < -FLOW_MIN_KW) flows.push({ from: "ev" + k, to: "house", kw: -charge, colour: "battery" });
+      else if (charge < -FLOW_MIN_KW) flows.push({ from: "ev" + k, to: "house", kw: -charge, colour: "ev" });
       return { ...e, charge, socPct: this._num(e.soc) };
     });
 
@@ -323,13 +325,16 @@ class NimbusFlowCard extends HTMLElement {
 
   _layout(m) {
     const n = m.invs.length;
+    // Household layout, 6 Nov 2026: Grid at the top between the inverters,
+    // House in the centre, EVs beside House, so the whole lower half is a
+    // fan of circuits (up to a half circle, with room for sub-devices).
     const W = 860, pos = {};
-    const invY = 230, acY = 470;
+    const invY = 230, houseY = 440;
     m.invs.forEach((_, k) => {
-      pos["inv" + k] = { x: n === 1 ? W / 2 : 260 + ((W - 520) * k) / Math.max(1, n - 1), y: invY, r: 46 };
+      pos["inv" + k] = { x: n === 1 ? W / 2 - 160 : 260 + ((W - 520) * k) / Math.max(1, n - 1), y: invY, r: 46 };
     });
-    pos.house = { x: W / 2 - 140, y: acY, r: 46 };
-    pos.grid = { x: W / 2 + 200, y: acY, r: 46 };
+    pos.house = { x: W / 2, y: houseY, r: 50 };
+    pos.grid = { x: n === 1 ? W / 2 + 160 : W / 2, y: n === 1 ? invY : 120, r: 46 };
     // Strings above their inverter.
     m.invs.forEach((inv, k) => {
       const mine = m.site.strings.map((s, j) => ({ s, j })).filter(({ s }) => s.source === inv.id);
@@ -351,11 +356,21 @@ class NimbusFlowCard extends HTMLElement {
         pos["tow" + j] = { x: side === "left" ? 70 : W - 70, y: invY + (q - (c - 1) / 2) * step, r };
       });
     }
-    // EVs bottom right, clear of Grid.
+    // EVs beside House on the right, inside the tower column (up to 4 towers
+    // a side fit above House's level).
     m.evs.forEach((_, k) => {
-      pos["ev" + k] = { x: W - 70 - k * 110, y: 600, r: 32 };
+      pos["ev" + k] = { x: W / 2 + 180 + (k % 2) * 80, y: houseY - 90 + Math.floor(k / 2) * 80, r: 30 };
     });
-    return { W, H: 690, pos };
+    // Circuits: a fan below House that widens with their number, up to a
+    // half circle for 12.
+    const cs = m.circuits, c = cs.length;
+    const span = c <= 1 ? 0 : Math.min(Math.PI, (Math.PI * (c - 1)) / 11 + 0.5);
+    const R = 260;
+    cs.forEach((_, i) => {
+      const a = c <= 1 ? Math.PI / 2 : Math.PI / 2 - span / 2 + (span * i) / (c - 1);
+      pos["cir" + i] = { x: W / 2 - R * Math.cos(a), y: houseY + R * Math.sin(a) };
+    });
+    return { W, H: houseY + R + 60, pos };
   }
 
   _buildShell() {
@@ -505,12 +520,10 @@ class NimbusFlowCard extends HTMLElement {
     for (const g of m.ghosts) if (pos[g.from] && pos[g.to]) this._el("line", { ...this._seg(pos[g.from], pos[g.to]), class: "ghost" }, G.ghosts);
     for (const f of m.flows) if (pos[f.from] && pos[f.to]) this._line(G.flows, this._seg(pos[f.from], pos[f.to]), f.kw, C[f.colour]);
 
-    // Circuits under House.
+    // Circuits in a fan under House (placed by _layout).
     const cs = m.circuits, Hn = pos.house;
     cs.forEach((c, i) => {
-      const n = cs.length;
-      const x = n === 1 ? Hn.x : Hn.x - 230 + (460 * i) / (n - 1);
-      const y = 610 - Math.abs(i - (n - 1) / 2) * 12;
+      const { x, y } = pos["cir" + i];
       const r = 12 + Math.sqrt(c.kw) * 9;
       this._line(G.flows, this._seg(Hn, { x, y, r }), c.kw, C.house, 0.55, "house");
       this._el("circle", { cx: x, cy: y, r, class: "ring", stroke: C.muted, "stroke-width": 1.5 }, G.nodes);
@@ -549,11 +562,11 @@ class NimbusFlowCard extends HTMLElement {
     // EVs: SoC arc, power and name underneath.
     m.evs.forEach((e, k) => {
       const p = pos["ev" + k];
-      this._el("circle", { cx: p.x, cy: p.y, r: p.r, class: "ring", stroke: C.battery }, G.nodes);
+      this._el("circle", { cx: p.x, cy: p.y, r: p.r, class: "ring", stroke: C.ev }, G.nodes);
       if (!isNaN(e.socPct)) {
         const r2 = p.r - 6, c = 2 * Math.PI * r2;
         this._el("circle", { cx: p.x, cy: p.y, r: r2, fill: "none", stroke: C.line, "stroke-width": 4 }, G.nodes);
-        this._el("circle", { cx: p.x, cy: p.y, r: r2, fill: "none", stroke: C.battery, "stroke-width": 4, opacity: 0.6,
+        this._el("circle", { cx: p.x, cy: p.y, r: r2, fill: "none", stroke: C.ev, "stroke-width": 4, opacity: 0.6,
           "stroke-dasharray": `${(c * e.socPct) / 100} ${c}`, transform: `rotate(-90 ${p.x} ${p.y})` }, G.nodes);
       }
       this._el("text", { x: p.x, y: p.y + 4, class: "small" }, G.nodes).textContent = isNaN(e.socPct) ? "—" : Math.round(e.socPct) + "%";
