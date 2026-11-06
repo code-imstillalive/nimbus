@@ -8,6 +8,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-11-07
+
+**A circuit's own devices, shown under it; Regret cards that recover after a restart.**
+
+- **Part of another circuit** (#2310, #2293). A Load or a plain Power Signal can say it is part of another circuit, such as a pool pump wired on Circuit 1 or a fridge on the kitchen circuit (Add or Reconfigure → *Part of another circuit*).
+  - **Power Flow** lists it under the circuit's bubble with its power, and the rest as "other", instead of as a bubble of its own.
+  - **Topology** shows its tile indented under the circuit's.
+  - One level only: a circuit with devices under it can't itself be part of another. Removing the circuit unlinks them.
+  - When the Energy Dashboard's "Upstream device" says where a meter sits, the question names it. That's a hint only; nothing is chosen for you.
+  - Display only: forecasts and plans are unchanged.
+- **Regret cards recover after a restart** (#2320). A Home Assistant restart while the cards were loading left them on "Couldn't score yesterday: … not found" until the page was reloaded. An error that clears once Nimbus is back up is now tried again after 15 s, 30 s and 60 s. The 2- and 3-days-ago cards name their own date in an error.
+- **Solver settings saved through the API keep their advanced fields** (#2311). A save that left a whole section out cleared it; it now keeps what is stored. Saves made in the UI were never affected.
+- **A smaller database** (#2317). The plan sensor no longer records two attributes it recomputes every solve, about half of each recorded row. What you see is unchanged.
+- **Topology's "nothing set up yet" banner** is readable on a light theme (#2318).
+- Internal: strict type checks now cover 39 more modules (#2313–#2316), and a design note covers splitting the Solver's largest file (#2312).
+
 ## [0.96.0] - 2026-11-06
 
 **Fewer needless re-sends and notices, and the plan's status says when it last solved.**
@@ -16,6 +32,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The LocalVolts notice is asked once** (#2307). With LocalVolts v2 installed, Nimbus said at every start that LocalVolts price fields were empty. It now asks once, again only if the set of empty fields changes, and not at all when your import or export price comes from another retailer.
 - **`solved_at` on Solver LP Status** (#2305, #2295). Home Assistant moves no timestamp when a state doesn't change, so a plan that stayed `optimal` looked frozen. `sensor.nimbus_solver_lp_status` now carries the time of the latest solve, live only (not recorded).
 - **Power Flow: no house total drawn twice** (#2306, #2299). The whole-house cross-check sensor and every further household load forecast's source are no longer drawn as circuits, as the load forecast's own source already wasn't.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at bfbf6fc1** (`release/0.96.0`, installed untagged through Home Assistant's marketplace and restarted at 19:11 AEST, 6 Nov; read through 19:14). 123 of the 127 Nimbus entities carrying a version read 0.96.0; the other four are the daily reports. None of the 388 Nimbus entities unavailable; plan `optimal`; all 62 Solver numbers kept their values over the restart. `sensor.nimbus_solver_lp_status` carried `solved_at` 19:12:00, then 19:13:00 on the next solve, while its state stayed `optimal` and `last_changed` stayed at the restart. Not seen live: the re-send change, because the test box's controllable loads had no device set as commanded and not drawing power during the read; the LocalVolts notice, because the test box's LocalVolts readings come from copies, not the LocalVolts v2 integration; the Power Flow change, because the test box's cross-check sensor is the load forecast's own source. Each is covered by its CI test. Log: no Nimbus ERROR. The Nimbus WARNING lines are the test box's known ones: AEMO forecast disagreement, a flex-telemetry clamp, two skipped ticks and a deterministic-too-slow stochastic fallback in the first minutes after the restart, an implausible meter row and an empty temperature forecast. None comes from this release.
+- Consumer check: no setting or entity is added, moved or renamed. `sensor.nimbus_solver_lp_status` gains a `solved_at` attribute, not recorded. A controllable load already set as commanded is no longer re-sent, so it can show fewer re-sends; that is the intended change. The LocalVolts notice is shown once, using a new per-entry store (`nimbus_load.asked_<entry_id>`). Plans are unchanged.
 
 ## [0.95.0] - 2026-11-06
 
