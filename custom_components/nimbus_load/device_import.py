@@ -1198,9 +1198,13 @@ _SUBENTRY_OWNED: dict[str, tuple[str, ...]] = {
 }
 
 
-def owned_keys(snapshot: dict[str, Any]) -> list[str]:
+def owned_keys(snapshot: dict[str, Any], unmapped: set[str] | None = None) -> list[str]:
     """Every key path a view may write for this snapshot. Keys outside it
-    (tunables, unmapped subentries) are never touched."""
+    (tunables, unmapped subentries) are never touched. `unmapped` is the
+    import's unmapped subentry ids, computed when not given: a plain power
+    signal owns keys only when it became a circuit (#2293)."""
+    if unmapped is None:
+        unmapped = {str(u.get("subentry_id")) for u in import_legacy(snapshot).unmapped}
     paths = {f"options.{k}" for _d, _r, keys in _ROLE_SOURCES for k in keys}
     paths |= {f"options.{k}" for k in _SOLAR_FORECAST_KEYS}
     paths.add(f"options.{LOAD_CIRCUITS_KEY}")
@@ -1212,7 +1216,10 @@ def owned_keys(snapshot: dict[str, Any]) -> list[str]:
         keys = _SUBENTRY_OWNED.get(kind, ())
         role = (sub.get("data") or {}).get("signal_role")
         if kind == "power_signal" and role in (None, "other"):
-            keys = ("load_sensor", PART_OF_KEY)  # a circuit (#2293)
+            # A circuit (#2293), unless its sensor is a device the hub
+            # already reads, which leaves it unmapped.
+            mapped = str(sub.get("subentry_id")) not in unmapped
+            keys = ("load_sensor", PART_OF_KEY) if mapped else ()
         elif kind == "power_signal" and role not in _SIGNAL_DEVICE:
             keys = ()  # an unmapped Power Signal is left alone
         paths |= {f"subentry:{sub.get('subentry_id')}.{k}" for k in keys}
@@ -1259,7 +1266,9 @@ def preview(snapshot: dict[str, Any]) -> Preview:
     view = legacy_view(res.document)
     diff = [
         (path, before, after)
-        for path in owned_keys(snapshot)
+        for path in owned_keys(
+            snapshot, {str(u.get("subentry_id")) for u in res.unmapped}
+        )
         if not _same(before := _today(snapshot, path), after := _from_view(view, path))
     ]
     return Preview(res.document, res.conflicts, res.unmapped, res.problems, diff)
