@@ -478,6 +478,39 @@ def test_a_device_still_disobeying_after_the_days_resends_is_warned_about_once(
         warned = [r for r in caplog.records if "re-send cap" in r.getMessage()]
         assert len(warned) == 1 and "'hws'" in warned[0].getMessage()
 
+    # test_a_device_already_set_as_commanded_is_not_resent: #2297, a heat pump
+    # whose mode already reads `performance` (the ON Nimbus sent) but draws no
+    # power is not running for its own reasons. Re-sending the same mode cannot
+    # change that and spent the day's 20 re-sends; it is reported once instead,
+    # and no re-send is counted.
+    caplog.clear()
+    site.calls.clear()
+    with monkeypatch.context() as mp:
+        mp.setattr(guard, "_REAFFIRM_CAP_WARNED", set())
+        mp.setattr(guard, "_APPLIED_NOT_RUNNING_WARNED", set(), raising=False)
+        site.load("hws", "water_heater.hws")
+        now = T0 + timedelta(hours=10)
+        day = now.strftime("%Y-%m-%d")
+        site.seed(
+            "hws",
+            commanded_state=True,
+            commanded_since=now.timestamp() - 5 * 3600,
+            currently_on=False,
+            off_since=now.timestamp() - 4 * 3600,
+            day_key=day,
+        )
+        site.states["water_heater.hws"] = SimpleNamespace(
+            state="performance", attributes={"operation_mode": "performance"}
+        )
+        with caplog.at_level(logging.WARNING):
+            site.solve(now, sheddable={"hws": ON})
+            site.solve(now + STEP, sheddable={"hws": ON})
+        assert site.calls == []
+        assert site.state("hws").reaffirms_today == 0
+        said = [r for r in caplog.records if "set as commanded" in r.getMessage()]
+        assert len(said) == 1 and "'hws'" in said[0].getMessage()
+        site.states.pop("water_heater.hws")
+
     # test_a_thermal_load_samples_and_learns_its_own_rates: #873: the idle sampler and the rate fitter run for every load kind;
     from solver.network import ThermalLoadPlan
 
