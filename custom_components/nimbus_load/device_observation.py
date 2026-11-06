@@ -300,7 +300,7 @@ def forecaster_inputs(
             continue
         if entity is None:
             out[name] = {"value": 0.0, "state": "unused", "entity_id": None}
-    if not active:
+    if not active or document is None:
         return out
     contract = contract_inputs(document, read_state, now, hold)
     for name in OBSERVATION_INPUTS:

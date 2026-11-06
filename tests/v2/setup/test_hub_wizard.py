@@ -167,6 +167,17 @@ def test_the_solver_pages_save_once_at_the_end_with_every_answer(world, monkeypa
         {"notification_id": "nimbus_setup_incomplete"},
     ) in hass.calls
 
+    # test_a_section_left_out_of_a_submission_keeps_its_stored_fields
+    # #2289 item 1 (Mark Purcell hit it saving through the API): a caller
+    # that submits a step without its advanced section at all must not clear
+    # what is stored there. The UI always sends the section, so a field
+    # cleared there still clears (above).
+    flow = _flow({"solver_price_event_sensor": "sensor.kept"})
+    _run(flow.async_step_solver_battery(dict(BATTERY)))
+    _run(flow.async_step_solver_grid(dict(GRID)))
+    kept = _run(flow.async_step_solver_sources(dict(SOURCES)))["data"]
+    assert kept["solver_price_event_sensor"] == "sensor.kept"
+
     # test_battery_and_grid_sizes_typed_in_the_wizard_are_written_to_their_live_numbers
     hass = Hass()
     for key in (

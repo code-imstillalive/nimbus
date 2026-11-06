@@ -225,8 +225,11 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
 
     bindings: dict[str, dict[str, Any]] = {k: {} for k in _IDS}
     for device, role, keys in _ROLE_SOURCES:
-        found = [(f"options.{k}", _text(options.get(k))) for k in keys]
-        found = [(p, v) for p, v in found if v]
+        found = [
+            (p, v)
+            for p, v in ((f"options.{k}", _text(options.get(k))) for k in keys)
+            if v
+        ]
         distinct = {v for _p, v in found}
         if len(distinct) > 1:
             conflicts.append(
@@ -825,7 +828,7 @@ def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
         if hub:
             short = next((k for k, v in _IDS.items() if v == device["id"]), None)
             for name, value in constraints.items():
-                key = _HUB_NUMBERS.get((short, name))
+                key = _HUB_NUMBERS.get((short, name)) if short else None
                 if key:
                     view["numbers"][key] = value
             if device["kind"] == "battery" and capacity is not None:
