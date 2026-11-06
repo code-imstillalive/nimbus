@@ -441,11 +441,13 @@
           "description": "Forecast a real power signal directly -- Battery, Solar, Grid, or anything else -- as its own genuine target, using the same forecasting engine as a load. Pick a real MEASURED sensor, never an optimizer's own plan/forecast entity. 🔴 = required.",
           "data": {
             "load_sensor": "🔴 Sensor to forecast",
-            "signal_role": "Role (optional -- pick Battery/Solar/Grid so the topology dashboard card can auto-wire this signal; Temperature/Humidity for a weather signal; leave as Other for anything else)"
+            "signal_role": "Role (optional -- pick Battery/Solar/Grid so the topology dashboard card can auto-wire this signal; Temperature/Humidity for a weather signal; leave as Other for anything else)",
+            "part_of": "Part of another circuit (optional)"
           },
           "data_description": {
             "load_sensor": "A real, measured sensor -- e.g. your inverter's total battery power, total DC/solar power, your grid meter's total active power, or (with the Temperature/Humidity role below) a weather sensor. Must be a genuine measurement, not an optimizer's own plan/forecast entity, or the forecaster will learn from its own predictions.",
-            "signal_role": "Battery/Solar/Grid are purely a labelling hint for the Topology dashboard card's auto-detection -- no effect on forecasting itself. Temperature/Humidity are different: they tell Nimbus this signal is NOT a power quantity, so the forecast entity gets a real °C/% unit instead of kW, and the coordinator skips a power-unit conversion that would otherwise fail every cycle. Leave as Other for anything else."
+            "signal_role": "Battery/Solar/Grid are purely a labelling hint for the Topology dashboard card's auto-detection -- no effect on forecasting itself. Temperature/Humidity are different: they tell Nimbus this signal is NOT a power quantity, so the forecast entity gets a real °C/% unit instead of kW, and the coordinator skips a power-unit conversion that would otherwise fail every cycle. Leave as Other for anything else.",
+            "part_of": "If another power signal's meter already measures this one (a pool pump wired on Circuit 1), pick that circuit. The Power Flow and Topology cards then show this one under it, with what's left as \"other\", and don't count it twice. One level only: a circuit with devices under it can't itself be part of another. Display only; forecasts and the plan are unchanged."
           }
         }
       },

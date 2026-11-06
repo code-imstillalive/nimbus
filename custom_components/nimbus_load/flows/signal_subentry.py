@@ -41,7 +41,9 @@ from homeassistant.helpers import selector
 
 from ..const import (
     CONF_LOAD_SENSOR,
+    CONF_PART_OF,
     CONF_SIGNAL_ROLE,
+    PART_OF_NONE,
     SIGNAL_ROLE_BATTERY,
     SIGNAL_ROLE_GRID,
     SIGNAL_ROLE_HUMIDITY,
@@ -63,7 +65,25 @@ from . import find_subentry_sharing_source_sensor, form_action_placeholders
 # method. Pure extraction, zero behaviour change: _async_step() below
 # calls this with the exact same `current_data` dict it always built the
 # schema from inline.
-def _schema(defaults: dict[str, Any]) -> vol.Schema:
+def _schema(
+    defaults: dict[str, Any], parents: list[tuple[str, str]] | None = None
+) -> vol.Schema:
+    """`parents` is (subentry id, title) for each circuit this signal may be
+    part of (nimbus #2293); None or empty leaves the question out."""
+    part_of: dict[Any, Any] = {}
+    if parents:
+        current = defaults.get(CONF_PART_OF)
+        if current not in {sid for sid, _t in parents}:
+            current = PART_OF_NONE
+        part_of[vol.Optional(CONF_PART_OF, default=current)] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    {"value": PART_OF_NONE, "label": "Not part of another circuit"},
+                    *({"value": sid, "label": title} for sid, title in parents),
+                ],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
     return vol.Schema(
         {
             vol.Required(
@@ -93,8 +113,34 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                     translation_key="signal_role",
                 )
             ),
+            **part_of,
         }
     )
+
+
+def part_of_parents(entry: Any, own_subentry_id: str | None) -> list[tuple[str, str]]:
+    """(subentry id, title) of each power signal this one may be part of
+    (nimbus #2293): another `other` signal that is not itself part of one.
+    Empty when this signal already has a sub-device of its own, so the tree
+    stays one tier."""
+    signals = [
+        s
+        for s in entry.subentries.values()
+        if s.subentry_type == "power_signal"
+        and s.data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER) == SIGNAL_ROLE_OTHER
+    ]
+    if own_subentry_id and any(
+        s.data.get(CONF_PART_OF) == own_subentry_id for s in signals
+    ):
+        return []
+    ids = {s.subentry_id for s in signals}
+    # A signal whose parent was removed counts as top level again.
+    top = [s for s in signals if s.data.get(CONF_PART_OF) not in ids]
+    return [
+        (s.subentry_id, s.title)
+        for s in sorted(top, key=lambda s: str(s.title).lower())
+        if s.subentry_id != own_subentry_id
+    ]
 
 
 class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
@@ -128,6 +174,9 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
         self, user_input: dict[str, Any] | None, subentry: Any
     ) -> SubentryFlowResult:
         current_data = dict(subentry.data) if subentry is not None else {}
+        parents = part_of_parents(
+            self._get_entry(), subentry.subentry_id if subentry else None
+        )
 
         if user_input is not None:
             # nimbus issue #362 finding 4d (Mark Purcell, codebase
@@ -145,7 +194,7 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
                 return self.async_show_form(
                     description_placeholders=form_action_placeholders(self),
                     step_id="user",
-                    data_schema=_schema(user_input),
+                    data_schema=_schema(user_input, parents),
                     errors={"load_sensor": "duplicate_source_sensor"},
                 )
             # nimbus issue #1562: an energy counter (Wh/kWh) is not a
@@ -157,9 +206,18 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
                 return self.async_show_form(
                     description_placeholders=form_action_placeholders(self),
                     step_id="user",
-                    data_schema=_schema(user_input),
+                    data_schema=_schema(user_input, parents),
                     errors=energy_errors,
                 )
+            # nimbus #2293: only a plain ("other") signal can be part of
+            # another, and only of one offered; otherwise, or "none", the
+            # field is left out of the saved data.
+            if user_input.get(
+                CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER
+            ) != SIGNAL_ROLE_OTHER or user_input.get(CONF_PART_OF) not in {
+                sid for sid, _t in parents
+            }:
+                user_input = {k: v for k, v in user_input.items() if k != CONF_PART_OF}
             title = self._derive_title(user_input[CONF_LOAD_SENSOR])
             if subentry is not None:
                 return self.async_update_and_abort(
@@ -173,7 +231,7 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
         return self.async_show_form(
             description_placeholders=form_action_placeholders(self),
             step_id="user",
-            data_schema=_schema(current_data),
+            data_schema=_schema(current_data, parents),
         )
 
     def _derive_title(self, sensor_entity_id: str) -> str:

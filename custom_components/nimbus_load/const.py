@@ -141,6 +141,12 @@ CONF_LOAD_SENSOR: Final = "load_sensor"
 # either. Optional, defaults to "other" -- every Power Signal that
 # isn't specifically Battery/Solar/Grid (most of them) needs no change.
 CONF_SIGNAL_ROLE: Final = "signal_role"
+# nimbus #2293: the power signal (subentry id) whose meter already measures
+# this one ("Pool pump is part of Circuit 1"). One tier: a signal that is
+# part of another has none of its own. The view of DC-003's confirmed
+# `included_in_measurement`; display only until DC-006 (Mark Purcell).
+CONF_PART_OF: Final = "part_of"
+PART_OF_NONE: Final = "none"
 SIGNAL_ROLE_OTHER: Final = "other"
 SIGNAL_ROLE_BATTERY: Final = "battery"
 SIGNAL_ROLE_SOLAR: Final = "solar"

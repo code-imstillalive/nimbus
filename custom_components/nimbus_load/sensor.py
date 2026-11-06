@@ -111,6 +111,7 @@ from .const import (
     CONF_GRID_SENSOR,
     CONF_HOUSEHOLD_MODE,
     CONF_LOAD_SENSOR,
+    CONF_PART_OF,
     CONF_POWER_SOURCE_BATTERY_SENSOR,
     CONF_POWER_SOURCE_DC_SENSOR,
     CONF_POWER_SOURCE_NAME,
@@ -1574,6 +1575,7 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # coordinator cycle, and a temperature forecast entity literally
         # labelled in kilowatts).
         self._signal_role = subentry.data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER)
+        self._subentry_data = dict(subentry.data)
         # nimbus issue #263 (Mark Purcell) -- belt-and-braces instance-level
         # assignment, NOT the actual fix for the reported "unit has changed"
         # repair. Verified directly: Python already resolves the class-scope
@@ -1777,6 +1779,10 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_SUBENTRY_TYPE: self._subentry_type,
             ATTR_SIGNAL_ROLE: self._signal_role,
             ATTR_SOURCE_SENSOR: self._source_sensor,
+            # nimbus #2293: the sensor of the circuit this signal is part of
+            # ("Pool pump" inside "Circuit 1"), for the Power Flow and
+            # Topology cards; None when it is part of none.
+            "part_of_source_sensor": self._part_of_source_sensor(),
             # What the forecast adds up to (kW forecasts only): energy over
             # the next 24 h and the whole forecast, and the next-24 h peak.
             **(
@@ -1787,6 +1793,18 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
                 )
             ),
         }
+
+    def _part_of_source_sensor(self) -> str | None:
+        """The parent power signal's own sensor, when this signal is part of
+        one that still exists (nimbus #2293). A removed parent counts as
+        none, so removing a circuit unlinks its sub-devices."""
+        parent = self._subentry_data.get(CONF_PART_OF)
+        entry = getattr(self.coordinator, "entry", None)
+        subentries = getattr(entry, "subentries", None) or {}
+        sub = subentries.get(parent) if isinstance(parent, str) else None
+        if sub is None or sub.subentry_type != "power_signal":
+            return None
+        return sub.data.get(CONF_LOAD_SENSOR)
 
 
 class NimbusControllableLoadStateSensor(

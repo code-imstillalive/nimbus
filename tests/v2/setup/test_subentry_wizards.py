@@ -190,6 +190,36 @@ def test_each_wizard_creates_its_part_with_a_sensible_name():
             == "update_and_abort"
         )
 
+    # test_a_signal_can_be_part_of_one_circuit_one_tier_deep
+    # nimbus #2293: "Pool pump" part of "Circuit 1". Only top-level plain
+    # signals are offered; a circuit with sub-devices gets no question; a
+    # removed parent counts as none.
+    def sig(sid, title, **data):
+        return SimpleNamespace(
+            subentry_id=sid,
+            subentry_type="power_signal",
+            title=title,
+            data={const.CONF_LOAD_SENSOR: f"sensor.{sid}", **data},
+        )
+
+    c1, grid = sig("c1", "Circuit 1"), sig("g", "Grid", signal_role="grid")
+    pool = sig("pool", "Pool pump", part_of="c1")
+    subs = {"c1": c1, "g": grid, "pool": pool}
+    parents = _mod("signal_subentry").part_of_parents
+    entry = SimpleNamespace(subentries=subs)
+    assert parents(entry, None) == [("c1", "Circuit 1")]
+    assert parents(entry, "pool") == [("c1", "Circuit 1")]
+    assert parents(entry, "c1") == []
+    orphan = SimpleNamespace(subentries={"pool": sig("pool", "Pool", part_of="gone")})
+    assert parents(orphan, None) == [("pool", "Pool")]
+    flow, _m = _flow("signal", subentries=subs)
+    answer = {const.CONF_LOAD_SENSOR: "sensor.pool_power", "part_of": "c1"}
+    assert asyncio.run(flow.async_step_user(dict(answer)))["data"] == answer
+    flow, _m = _flow("signal", subentries=subs)
+    battery = {**answer, const.CONF_SIGNAL_ROLE: "battery"}
+    saved = asyncio.run(flow.async_step_user(battery))["data"]
+    assert "part_of" not in saved
+
     # test_names_fall_back_sensibly
     for kind, answer, states, title in [
         ("load", {const.CONF_LOAD_SENSOR: "sensor.unnamed"}, {}, "sensor.unnamed"),
