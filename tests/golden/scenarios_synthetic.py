@@ -8,6 +8,7 @@ reaching its path fails rather than pinning an early return.
 from __future__ import annotations
 
 import copy
+from typing import Any
 
 from golden.fake_ha import FakeHA
 from golden.scenarios import Scenario, register
@@ -106,3 +107,44 @@ register(
         purpose="#2026: the spike rate is clamped to the live ceiling, not refused",
     )
 )
+
+
+# nimbus #2289 item 5, step B.1 (Mark Purcell, 7 Nov 2026): every scenario
+# above also runs in native mode, the mode every install uses, with the same
+# inputs. The REST originals stay until the standalone mode is retired (B.2).
+def _plain_native(fake: FakeHA) -> Any:
+    from golden.fake_native import FakeNativeHass
+
+    return FakeNativeHass(fake=fake)
+
+
+for _name, _build, _cycles, _purpose in (
+    (
+        "guardrail_baseline",
+        lambda: FakeHA(states=base_states()),
+        1,
+        "the #363 guardrail fixture",
+    ),
+    (
+        "guardrail_two_cycles",
+        lambda: FakeHA(states=base_states()),
+        2,
+        "plan_state.json written by cycle 1 and read back by cycle 2",
+    ),
+    (
+        "spike_override_above_live_ceiling",
+        _spike_above_live_ceiling,
+        1,
+        "#2026: the spike rate is clamped to the live ceiling",
+    ),
+):
+    register(
+        Scenario(
+            name=f"native_{_name}",
+            instant="2026-09-06T10:00:00+00:00",
+            build=_build,
+            native=_plain_native,
+            purpose=f"native twin of {_name}: {_purpose}",
+            cycles=_cycles,
+        )
+    )
