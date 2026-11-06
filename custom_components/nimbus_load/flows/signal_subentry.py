@@ -41,9 +41,7 @@ from homeassistant.helpers import selector
 
 from ..const import (
     CONF_LOAD_SENSOR,
-    CONF_PART_OF,
     CONF_SIGNAL_ROLE,
-    PART_OF_NONE,
     SIGNAL_ROLE_BATTERY,
     SIGNAL_ROLE_GRID,
     SIGNAL_ROLE_HUMIDITY,
@@ -52,7 +50,13 @@ from ..const import (
     SIGNAL_ROLE_TEMPERATURE,
 )
 from ..power_input_check import energy_unit_field_errors
-from . import find_subentry_sharing_source_sensor, form_action_placeholders
+from . import (
+    find_subentry_sharing_source_sensor,
+    form_action_placeholders,
+    part_of_field,
+    part_of_parents,
+    without_invalid_part_of,
+)
 
 
 # nimbus issue #360 (Mark Purcell, codebase review): extracted from
@@ -68,22 +72,7 @@ from . import find_subentry_sharing_source_sensor, form_action_placeholders
 def _schema(
     defaults: dict[str, Any], parents: list[tuple[str, str]] | None = None
 ) -> vol.Schema:
-    """`parents` is (subentry id, title) for each circuit this signal may be
-    part of (nimbus #2293); None or empty leaves the question out."""
-    part_of: dict[Any, Any] = {}
-    if parents:
-        current = defaults.get(CONF_PART_OF)
-        if current not in {sid for sid, _t in parents}:
-            current = PART_OF_NONE
-        part_of[vol.Optional(CONF_PART_OF, default=current)] = selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=[
-                    {"value": PART_OF_NONE, "label": "Not part of another circuit"},
-                    *({"value": sid, "label": title} for sid, title in parents),
-                ],
-                mode=selector.SelectSelectorMode.DROPDOWN,
-            )
-        )
+    """`parents`: see flows.part_of_parents (nimbus #2293)."""
     return vol.Schema(
         {
             vol.Required(
@@ -113,34 +102,9 @@ def _schema(
                     translation_key="signal_role",
                 )
             ),
-            **part_of,
+            **part_of_field(defaults, parents),
         }
     )
-
-
-def part_of_parents(entry: Any, own_subentry_id: str | None) -> list[tuple[str, str]]:
-    """(subentry id, title) of each power signal this one may be part of
-    (nimbus #2293): another `other` signal that is not itself part of one.
-    Empty when this signal already has a sub-device of its own, so the tree
-    stays one tier."""
-    signals = [
-        s
-        for s in entry.subentries.values()
-        if s.subentry_type == "power_signal"
-        and s.data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER) == SIGNAL_ROLE_OTHER
-    ]
-    if own_subentry_id and any(
-        s.data.get(CONF_PART_OF) == own_subentry_id for s in signals
-    ):
-        return []
-    ids = {s.subentry_id for s in signals}
-    # A signal whose parent was removed counts as top level again.
-    top = [s for s in signals if s.data.get(CONF_PART_OF) not in ids]
-    return [
-        (s.subentry_id, s.title)
-        for s in sorted(top, key=lambda s: str(s.title).lower())
-        if s.subentry_id != own_subentry_id
-    ]
 
 
 class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
@@ -210,14 +174,13 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
                     errors=energy_errors,
                 )
             # nimbus #2293: only a plain ("other") signal can be part of
-            # another, and only of one offered; otherwise, or "none", the
-            # field is left out of the saved data.
-            if user_input.get(
-                CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER
-            ) != SIGNAL_ROLE_OTHER or user_input.get(CONF_PART_OF) not in {
-                sid for sid, _t in parents
-            }:
-                user_input = {k: v for k, v in user_input.items() if k != CONF_PART_OF}
+            # another, and only of one offered.
+            user_input = without_invalid_part_of(
+                user_input,
+                parents,
+                user_input.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER)
+                == SIGNAL_ROLE_OTHER,
+            )
             title = self._derive_title(user_input[CONF_LOAD_SENSOR])
             if subentry is not None:
                 return self.async_update_and_abort(

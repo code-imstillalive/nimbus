@@ -4,9 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.config_entries import SOURCE_RECONFIGURE
+from homeassistant.helpers import selector
 
-from ..const import CONF_LOAD_SENSOR, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
+from ..const import (
+    CONF_LOAD_SENSOR,
+    CONF_PART_OF,
+    CONF_SIGNAL_ROLE,
+    PART_OF_NONE,
+    SIGNAL_ROLE_OTHER,
+    SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_SIGNAL,
+)
 
 # Both Load and Power Signal subentries feed their own CONF_LOAD_SENSOR
 # straight into sensor.py's object_id_from_source(), which derives the
@@ -57,3 +67,67 @@ def form_action_placeholders(flow: Any) -> dict[str, str]:
     Every subentry flow shows the same `user` step for both, so without
     this an edit was titled "Add a load" (household, 25 Oct 2026)."""
     return {"action": "Edit" if flow.source == SOURCE_RECONFIGURE else "Add"}
+
+
+# nimbus #2293: "Part of another circuit" on a Load or Power Signal. The
+# answer (`part_of`, the parent's subentry id) is the view of DC-003's
+# `included_in_measurement`; display only until DC-006 (Mark Purcell).
+def _circuit_like(sub: Any) -> bool:
+    """A Load, or a plain ("other") Power Signal: what a meter can sit in."""
+    if sub.subentry_type == "load":
+        return True
+    return (
+        sub.subentry_type == "power_signal"
+        and sub.data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER) == SIGNAL_ROLE_OTHER
+    )
+
+
+def part_of_parents(entry: Any, own_subentry_id: str | None) -> list[tuple[str, str]]:
+    """(subentry id, title) of each Load or plain Power Signal this one may
+    be part of: one that is not itself part of another. Empty when this one
+    already has a sub-device, so the tree stays one tier."""
+    circuits = [s for s in entry.subentries.values() if _circuit_like(s)]
+    if own_subentry_id and any(
+        s.data.get(CONF_PART_OF) == own_subentry_id for s in circuits
+    ):
+        return []
+    ids = {s.subentry_id for s in circuits}
+    # A circuit whose parent was removed counts as top level again.
+    top = [s for s in circuits if s.data.get(CONF_PART_OF) not in ids]
+    return [
+        (s.subentry_id, s.title)
+        for s in sorted(top, key=lambda s: str(s.title).lower())
+        if s.subentry_id != own_subentry_id
+    ]
+
+
+def part_of_field(
+    defaults: dict[str, Any], parents: list[tuple[str, str]] | None
+) -> dict[Any, Any]:
+    """The optional "Part of another circuit" dropdown; none without parents."""
+    if not parents:
+        return {}
+    current = defaults.get(CONF_PART_OF)
+    if current not in {sid for sid, _t in parents}:
+        current = PART_OF_NONE
+    return {
+        vol.Optional(CONF_PART_OF, default=current): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    {"value": PART_OF_NONE, "label": "Not part of another circuit"},
+                    *({"value": sid, "label": title} for sid, title in parents),
+                ],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
+    }
+
+
+def without_invalid_part_of(
+    user_input: dict[str, Any], parents: list[tuple[str, str]], allowed: bool
+) -> dict[str, Any]:
+    """`user_input` with `part_of` left out unless it names an offered
+    parent (and this kind may have one), so "none" saves nothing."""
+    if allowed and user_input.get(CONF_PART_OF) in {sid for sid, _t in parents}:
+        return user_input
+    return {k: v for k, v in user_input.items() if k != CONF_PART_OF}

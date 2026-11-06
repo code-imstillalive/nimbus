@@ -204,12 +204,17 @@ def test_each_wizard_creates_its_part_with_a_sensible_name():
 
     c1, grid = sig("c1", "Circuit 1"), sig("g", "Grid", signal_role="grid")
     pool = sig("pool", "Pool pump", part_of="c1")
-    subs = {"c1": c1, "g": grid, "pool": pool}
-    parents = _mod("signal_subentry").part_of_parents
+    fridge = SimpleNamespace(
+        subentry_id="fr", subentry_type="load", title="Fridge", data={}
+    )
+    subs = {"c1": c1, "g": grid, "pool": pool, "fr": fridge}
+    parents = flows.part_of_parents
     entry = SimpleNamespace(subentries=subs)
-    assert parents(entry, None) == [("c1", "Circuit 1")]
-    assert parents(entry, "pool") == [("c1", "Circuit 1")]
+    both = [("c1", "Circuit 1"), ("fr", "Fridge")]
+    assert parents(entry, None) == both
+    assert parents(entry, "pool") == both
     assert parents(entry, "c1") == []
+    assert parents(entry, "fr") == [("c1", "Circuit 1")]
     orphan = SimpleNamespace(subentries={"pool": sig("pool", "Pool", part_of="gone")})
     assert parents(orphan, None) == [("pool", "Pool")]
     flow, _m = _flow("signal", subentries=subs)

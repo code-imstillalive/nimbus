@@ -35,7 +35,13 @@ from ..const import (
     CONF_SCHEDULE_START_HOUR,
 )
 from ..power_input_check import energy_unit_field_errors
-from . import find_subentry_sharing_source_sensor, form_action_placeholders
+from . import (
+    find_subentry_sharing_source_sensor,
+    form_action_placeholders,
+    part_of_field,
+    part_of_parents,
+    without_invalid_part_of,
+)
 
 # REVERTED from a real HH:MM TimeSelector back to a plain 24-hour decimal
 # number box. Confirmed live 2026-08-15: HA's TimeSelector renders in
@@ -62,7 +68,9 @@ _HOUR_SELECTOR = selector.NumberSelector(
 )
 
 
-def _schema(defaults: dict[str, Any]) -> vol.Schema:
+def _schema(
+    defaults: dict[str, Any], parents: list[tuple[str, str]] | None = None
+) -> vol.Schema:
     schema_dict: dict[Any, Any] = {
         vol.Required(
             CONF_LOAD_SENSOR, default=defaults.get(CONF_LOAD_SENSOR)
@@ -152,6 +160,8 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         )
     ] = selector.BooleanSelector()
 
+    # nimbus #2293: "Part of another circuit", when there is one to offer.
+    schema_dict.update(part_of_field(defaults, parents))
     return vol.Schema(schema_dict)
 
 
@@ -192,6 +202,9 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
         self, user_input: dict[str, Any] | None, subentry: Any
     ) -> SubentryFlowResult:
         current_data = dict(subentry.data) if subentry is not None else {}
+        parents = part_of_parents(
+            self._get_entry(), subentry.subentry_id if subentry else None
+        )
 
         if user_input is not None:
             # nimbus issue #362 finding 4d (Mark Purcell, codebase
@@ -212,7 +225,7 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
                 return self.async_show_form(
                     description_placeholders=form_action_placeholders(self),
                     step_id="user",
-                    data_schema=_schema(user_input),
+                    data_schema=_schema(user_input, parents),
                     errors={"load_sensor": "duplicate_source_sensor"},
                 )
             # nimbus issue #1562: an energy counter (Wh/kWh) is not a
@@ -224,9 +237,10 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
                 return self.async_show_form(
                     description_placeholders=form_action_placeholders(self),
                     step_id="user",
-                    data_schema=_schema(user_input),
+                    data_schema=_schema(user_input, parents),
                     errors=energy_errors,
                 )
+            user_input = without_invalid_part_of(user_input, parents, True)
             title = self._derive_title(user_input[CONF_LOAD_SENSOR])
             if subentry is not None:
                 return self.async_update_and_abort(
@@ -237,7 +251,7 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
         return self.async_show_form(
             description_placeholders=form_action_placeholders(self),
             step_id="user",
-            data_schema=_schema(current_data),
+            data_schema=_schema(current_data, parents),
         )
 
     def _derive_title(self, load_sensor: str) -> str:

@@ -1802,7 +1802,7 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         entry = getattr(self.coordinator, "entry", None)
         subentries = getattr(entry, "subentries", None) or {}
         sub = subentries.get(parent) if isinstance(parent, str) else None
-        if sub is None or sub.subentry_type != "power_signal":
+        if sub is None or sub.subentry_type not in ("power_signal", "load"):
             return None
         return sub.data.get(CONF_LOAD_SENSOR)
 
