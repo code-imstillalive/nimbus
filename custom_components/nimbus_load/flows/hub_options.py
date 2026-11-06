@@ -1798,8 +1798,19 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
         # real field inside it -- a silent wipe of configuration on submit.
         flat_input = _flatten_section_input(schema, user_input)
         self._solver_data.update(flat_input)
+        # nimbus #2289 item 1 (Mark Purcell): a section absent from the
+        # submission as a whole keeps its stored fields. The UI always sends
+        # every section, so a clear made there still clears; a caller that
+        # leaves a section out (an API save) no longer wipes it.
+        untouched = {
+            str(m)
+            for marker in schema.schema
+            if isinstance(schema.schema[marker], section)
+            and str(marker) not in user_input
+            for m in schema.schema[marker].schema.schema
+        }
         for key in _effective_schema_keys(schema):
-            if key not in flat_input:
+            if key not in flat_input and key not in untouched:
                 self._solver_data[key] = None
 
     async def async_step_solver_battery(
