@@ -219,9 +219,12 @@ jobs:
           python-version: "3.14"
       - name: Install mypy
         run: pip install mypy numpy
-      - name: Run mypy (strict, solver/ + ml/ + HA-free device modules, #2289 item 9)
+      - name: Run mypy (strict, solver/ + ml/ + HA-free modules, #2289 item 9)
         run: |
           mypy custom_components/nimbus_load/solver custom_components/nimbus_load/ml \
+            custom_components/nimbus_load/aemo_crosscheck.py \
+            custom_components/nimbus_load/anomaly.py \
+            custom_components/nimbus_load/availability.py \
             custom_components/nimbus_load/device_accounting.py \
             custom_components/nimbus_load/device_bindings.py \
             custom_components/nimbus_load/device_contract.py \
@@ -232,7 +235,18 @@ jobs:
             custom_components/nimbus_load/device_readiness.py \
             custom_components/nimbus_load/device_resolver.py \
             custom_components/nimbus_load/device_units.py \
+            custom_components/nimbus_load/dispatch_rhs.py \
+            custom_components/nimbus_load/done_condition.py \
+            custom_components/nimbus_load/energy_prefs.py \
+            custom_components/nimbus_load/flex_telemetry.py \
             custom_components/nimbus_load/forecast_stats.py \
+            custom_components/nimbus_load/health.py \
+            custom_components/nimbus_load/household_modes.py \
+            custom_components/nimbus_load/load_run_state.py \
+            custom_components/nimbus_load/nem_region.py \
+            custom_components/nimbus_load/p5min.py \
+            custom_components/nimbus_load/power_units.py \
+            custom_components/nimbus_load/site_limit.py \
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------
