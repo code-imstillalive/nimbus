@@ -402,12 +402,12 @@ def propose_from_energy_dashboard(
                 [(item.rate, _evidence("stat_rate", item.index, "device_consumption"))],
                 _entity_maker(regs, "consumption"),
             )
-        by_stat.setdefault(item.stat, device["id"])
+        by_stat.setdefault(item.stat, str(device["id"]))
         loads.append((item, device))
         devices.append(device)
 
     for item, device in loads:
-        evidence = _evidence(
+        inclusion_evidence = _evidence(
             "included_in_stat" if item.included_in else "top_level",
             item.index,
             "device_consumption",
@@ -434,7 +434,7 @@ def propose_from_energy_dashboard(
                 "parent": parent,
                 "quantity": "consumption",
                 "confirmed": False,
-                "evidence": [evidence],
+                "evidence": [inclusion_evidence],
             }
         )
 
@@ -1105,7 +1105,7 @@ def rediscover(
     by_id = {d["id"]: d for d in stored_devices}
     kept: list[dict[str, Any]] = []
     for question in out.questions:
-        target = by_id.get(as_stored.get(question.get("device"), ""))
+        target = by_id.get(as_stored.get(question.get("device") or "", ""))
         held = ((target or {}).get("bindings") or {}).get(question.get("role"))
         if (
             question.get("code") not in (Q_SEVERAL_SOURCES, Q_CONFIRM_MATCH)
@@ -1280,7 +1280,7 @@ def apply_confirmation(
     document = copy.deepcopy(dict(stored))
     devices = {d["id"]: d for d in document.get("devices") or []}
     refusals: list[dict[str, Any]] = []
-    changed: list[tuple[str, str]] = []
+    changed: list[tuple[Any, Any]] = []
 
     def refuse(choice: Mapping[str, Any], reason: str) -> None:
         refusals.append({"choice": dict(choice), "reason": reason})

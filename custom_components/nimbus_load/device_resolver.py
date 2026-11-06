@@ -334,9 +334,9 @@ def counter_rise(series: Series, start: datetime, end: datetime) -> float | None
         if len(inside) < 2:
             return None
         chain = inside
-    if any(v is None for _, v in chain):
+    values = [v for _, v in chain if v is not None]
+    if len(values) < len(chain):
         return None
-    values = [v for _, v in chain]
     return sum((b - a) if b >= a else b for a, b in pairwise(values))
 
 
@@ -443,8 +443,15 @@ def match_power_sensor(
                 [],
                 f"the energy counters are readable in only {len(use)} of {len(hours)} hours",
             )
-        want_out = [out_h[i] for i in use] if out_h is not None else None
-        want_in = [in_h[i] for i in use] if in_h is not None else None
+        # `use` holds only hours both counters can read.
+        want_out = (
+            [v for i in use if (v := out_h[i]) is not None]
+            if out_h is not None
+            else None
+        )
+        want_in = (
+            [v for i in use if (v := in_h[i]) is not None] if in_h is not None else None
+        )
         moved = sum(want_out or []) + sum(want_in or [])
         if moved < MIN_ENERGY_KWH:
             return PowerMatch(
