@@ -393,6 +393,9 @@ _DC_BUILDERS = frozenset(
         "readiness_sensor.py",
         # Discovery's proposal (DC-005).
         "device_discovery.py",
+        # DC-003's accounting (#2293): residuals of confirmed inclusion, pure.
+        # Reads a document; no consumer reads it until DC-006.
+        "device_accounting.py",
         # DC-006 observation slice (#1893): which power sensors' units must
         # be declared before `active`, and the declaration. Validation only.
         "device_units.py",

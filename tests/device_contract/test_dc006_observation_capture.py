@@ -113,9 +113,8 @@ def test_a_power_signal_reads_no_observation_input_at_all():
     got = _legacy(NORMAL, subentry_type=do.SUBENTRY_TYPE_SIGNAL)
     assert all(v == {"entity_id": None, "value": 0.0} for v in got.values())
 
-
-def test_an_energy_unit_sensor_is_left_out():
-    """#1562: a sensor reporting an energy unit is not read as power."""
+    # test_an_energy_unit_sensor_is_left_out: #1562, a sensor reporting an
+    # energy unit is not read as power.
     states = {**NORMAL, "sensor.pv_power": _st("12.5", "kWh")}
     got = _legacy(states)
     assert got["solar_power"] == {"entity_id": None, "value": 0.0}
