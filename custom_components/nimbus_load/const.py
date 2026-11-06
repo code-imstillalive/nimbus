@@ -13,49 +13,18 @@ DOMAIN: Final = "nimbus_load"
 # flows/hub.py -- async_get_supported_subentry_types).
 SUBENTRY_TYPE_LOAD: Final = "load"
 
-# Second subentry type (2026-08-15): forecasting a real power SIGNAL
-# directly -- Battery, Solar, Grid, or any other real measured power
-# sensor -- as its own genuine forecast target, using the exact same
-# k-NN/GBRT/validation engine already proven for loads (coordinator.py
-# and ml/model.py need zero changes to support this: they already read
-# subentry.data[CONF_LOAD_SENSOR] generically, regardless of which
-# subentry type created it). Deliberately a SEPARATE, simpler subentry
-# type rather than folding into "load" -- a battery/solar/grid signal
-# has no schedule/expected-load "deterministic mode" concept (it doesn't
-# run on a fixed daily timer the way a pool pump does), so its own form
-# (flows/signal_subentry.py) is intentionally just one field. Part of
-# this repo's own stated roadmap (see CLAUDE.md): Battery/Solar/Grid
-# becoming real Nimbus-forecasted targets, not just load-model inputs
-# (see CONF_BATTERY_SENSOR etc. below for the input-feature side of
-# this, a separate, earlier addition).
+# Power Signal: forecasts any measured power sensor (battery, solar, grid
+# or anything else) as its own target, with the same engine as a Load (it
+# reads CONF_LOAD_SENSOR the same way). A separate, one-field subentry type
+# because a signal has no fixed-schedule mode (2026-08-15).
 SUBENTRY_TYPE_SIGNAL: Final = "power_signal"
 
-# Three more subentry types (2026-08-23) -- pure wiring/topology metadata
-# for the topology dashboard card, genuinely NOT a forecasting target
-# (no ML model, no coordinator, no _forecast sensor). Direct household
-# ask, following the same "no hardcoded inputs" principle already
-# applied to the Solver's own load-forecast-entities field: the
-# topology card's physical wiring (which PV strings/battery towers
-# belong to which power source, which switchboard sensors to use) used
-# to live in a hand-edited YAML file specific to one household's own
-# real Sungrow hardware -- genuinely unusable by anyone with different
-# hardware.
-#
-# Real, independent validation this needed a flatter model than a
-# naive "every PV string and every battery pack belongs to some
-# inverter" hierarchy: Mark Purcell's own real system (SigenStor
-# EC 30.0 battery/inverter unit + a wholly separate 3rd-party SolarEdge
-# PV system, confirmed via his own live topology card build) has PV
-# that is NOT wired through the same inverter as the battery at all --
-# it's an independent power source feeding the switchboard on its own.
-# "Power Source" (not "Inverter") is deliberately the more general term
-# -- a real unit can be battery-only, PV-only, or hybrid; PV String and
-# Battery Tower subentries both reference their OWN power source
-# OPTIONALLY, not as a required parent -- left blank, a PV string or
-# battery renders as its own independent branch on the diagram (Mark's
-# SolarEdge case) rather than being forced under a specific inverter
-# that doesn't actually own it (this household's Sungrow case still
-# works exactly the same, by setting the link).
+# Power Source, PV String and Battery Tower (2026-08-23): wiring metadata
+# for the topology card, not forecast targets. They replaced a hand-edited,
+# one-household YAML file. "Power Source" rather than "Inverter", and the PV
+# String's and Battery Tower's link to it is optional: PV wired through a
+# separate inverter from the battery (seen on a real install) renders as its
+# own branch.
 SUBENTRY_TYPE_POWER_SOURCE: Final = "power_source"
 SUBENTRY_TYPE_PV_STRING: Final = "pv_string"
 SUBENTRY_TYPE_BATTERY_TOWER: Final = "battery_tower"
@@ -622,41 +591,13 @@ TRAINING_SOURCE_CHOICES: Final = (
 # HA's default 10-day purge_keep_days so almost every install produces both halves.
 CONF_HYBRID_RECENT_DAYS: Final = "hybrid_recent_days"
 
-# Nimbus issue #256 (Mark Purcell, 2026-08-27) -- Amber's own live price
-# sensors are actively revised across the ~2 hours approaching each
-# settlement block. Direct measured evidence on the 07:00 AEST 28-Aug
-# block via HA's history API, sensor.amber_express_amber_feed_in_price:
-# 15 discrete state updates across a single 30-min block window, revising
-# by up to ~1c between adjacent ticks (0.0882 at solve time -> 0.0562 at
-# block start -> 0.0508 mid-block -> 0.0145 end -- ~7c total amplitude on
-# just this one block). Textbook "forecast block gets revised as
-# settlement approaches" -- exact same behaviour LocalVolts P2P forecasts
-# already documented for a different retailer.
-#
-# The periodic phase-locked cron (issue #244, __init__.py's own
-# _SOLVER_CRON_MINUTES/_SECOND) catches the FIRST settled price of each
-# 5-min block, ~30s past the boundary. It does NOT catch subsequent
-# revisions to that block landing at arbitrary seconds in between. Amber's
-# own coordinator polls on a 5-min cadence, so a revision can land 30s or
-# 4:30 into a block -- the periodic cron then always waits up to another
-# full 5 minutes before picking it up.
-#
-# nimbus_load.solve_now (issue #232/#254) shipped so a user's automation
-# could react to state_changed on their own price sensor -- purely
-# additive. This option pulls that same trigger *into* the integration
-# so a fresh install gets it without a per-instance automation, and so
-# the trigger is authoritatively tied to whatever price sensors the
-# wizard already knows about (rather than duplicated in a per-user YAML
-# block that can drift out of sync when the wizard reconfigures).
-#
-# Default OFF -- byte-identical behaviour on every existing install
-# until deliberately enabled. When on, listens to state_changed on
-# every configured solver_*_price_sensor{,_2,_3} and calls
-# solver_runtime.async_run_solve() -- the same call the periodic cron
-# already makes, so its own PID-lock overlap guard applies unchanged.
-# A debounce coalesces bursts of state changes within the debounce
-# window into one solve, so a retailer that updates several correlated
-# price sensors in the same second doesn't fan out into N solves.
+# nimbus #256: solve again when a configured price sensor changes. Retailer
+# prices are revised several times as a block approaches settlement, and
+# the phase-locked periodic solve (#244) only catches the first settled
+# price of each 5-minute block. Default OFF. When on, it listens to every
+# configured solver_*_price_sensor{,_2,_3} and calls
+# solver_runtime.async_run_solve(), behind the same overlap lock, with a
+# debounce so a burst of correlated changes becomes one solve.
 CONF_SOLVE_ON_PRICE_CHANGE: Final = "solve_on_price_change"
 CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: Final = "solve_on_price_change_debounce_s"
 
@@ -742,22 +683,11 @@ DEFAULT_FALLBACK_HUMIDITY_PCT: Final = 50.0
 # Forecast/prediction grid resolution.
 RESAMPLE_MINUTES: Final = 15
 
-# Coordinator polling cadence -- how often the published forecast is
-# regenerated from whichever model is currently loaded (cheap: inference
-# only, no retraining -- a k-NN lookup or a 60-tree GBRT forward pass,
-# both well under a second). Deliberately shorter than RESAMPLE_MINUTES
-# (the model's own forecast-grid resolution): the FIRST point of every
-# forecast (published as this entity's own live state) is always a
-# fresh prediction for "right now", using whatever real lag/temp/
-# humidity/curtailment inputs exist at that exact moment -- tightening
-# this makes the live value recompute more often, giving a finer,
-# smoother-looking history graph made of real fresh predictions.
-# Confirmed live 2026-08-15: at the original 15-minute interval, the
-# history graph rendered as an obvious blocky staircase (one flat
-# segment, one jump, repeat) since there was nothing between updates
-# to plot. This is NOT the same thing as interpolating/faking values
-# between real predictions -- every point is still a genuine, freshly
-# computed forecast, just computed more often.
+# How often the published forecast is regenerated from the loaded model
+# (inference only, under a second). Shorter than RESAMPLE_MINUTES so the
+# live value, the forecast's first point, is a fresh prediction more often;
+# every point is still a real prediction, never interpolated (2026-08-15:
+# 15 minutes drew a staircase).
 UPDATE_INTERVAL_MINUTES: Final = 2
 
 # Sanity floor -- refuse to train on too little real history.
@@ -874,22 +804,11 @@ ATTR_SIGNAL_ROLE: Final = "signal_role"
 ATTR_SOURCE_SENSOR: Final = "source_sensor"
 
 # --- Solver configuration (2026-08-20) ---
-# Everything the Solver (custom_components/nimbus_load/solver/) needs to
-# build a real dispatch plan for ANY household, not just this one.
-# Previously these lived as bare input_number/entity helpers this
-# household hand-created (the reference household's own research scripts
-# hold the exact entity IDs that predate this), with no structured onboarding at all -- a real installer
-# would have had to know the precise entity names to create by hand.
-# Deliberately mirrors HAEO's own real schema (haeo_repo/core/schema/
-# elements/battery.py, grid.py, solar.py, inverter.py) as a proven
-# reference for what a complete config needs to cover, while keeping
-# Nimbus's own simpler, already-validated design: ONE aggregate battery
-# envelope (capacity/power/efficiency), not HAEO's separate
-# battery+inverter graph elements -- the owner's real inverter/EMS
-# firmware already handles internal routing; Nimbus only needs the
-# system-level numbers a real bill/nameplate/app screen would show. See
-# Solver audit item #8 (topology) in the sibling repo's own CLAUDE.md for
-# the full reasoning already validated on this exact point.
+# Everything the Solver needs to plan for any household, collected by the
+# Solver settings wizard instead of hand-made helper entities. One aggregate
+# battery envelope (capacity, power, efficiency), not separate battery and
+# inverter elements: the inverter's own firmware routes internally, and
+# Nimbus only needs the system-level numbers a nameplate or app shows.
 CONF_SOLVER_BATTERY_CAPACITY_KWH: Final = "solver_battery_capacity_kwh"
 # Optional de-rating for real, aged battery capacity -- a real, honest
 # gap this integration has had no answer for at all until now: capacity
@@ -910,23 +829,11 @@ CONF_SOLVER_BATTERY_MAX_SOC_PERCENT: Final = "solver_battery_max_soc_percent"
 # deliberately one number each, not a per-device breakdown.
 CONF_SOLVER_MAX_CHARGE_KW: Final = "solver_max_charge_kw"
 CONF_SOLVER_MAX_DISCHARGE_KW: Final = "solver_max_discharge_kw"
-# Genuinely optional, no DEFAULT_ constant -- unset/None means "just use
-# solver_max_discharge_kw above, nothing more" (2026-08-24, nimbus #125,
-# Mark Purcell's own real repro: this repo's reference household has a
-# real, live Sungrow Logger charge/discharge setpoint entity whose own
-# `max` attribute reflects the actual hardware ceiling in real time, more
-# trustworthy than a static config value that can go stale -- but that
-# entity_id used to be HARDCODED directly into solver_writer.py
-# ("number.logger_charging_discharging_power_kw"), so on any OTHER
-# install where an entity happens to exist at that exact name (a real,
-# reproduced failure on Mark's own Sigen-based system -- 1.93kW, an
-# unrelated entity's own max attribute, silently substituted in place of
-# his real configured 24kW), the LP would clamp discharge to some
-# completely unrelated number with zero warning. Making the entity_id
-# itself a per-household config field, defaulting to unset, closes this
-# for everyone except the reference household, which needs to set it
-# once after this ships to keep the exact same protective behaviour it
-# already had.
+# Optional live entity whose `max` attribute is the hardware's current
+# discharge ceiling; unset means use solver_max_discharge_kw (nimbus #125).
+# It was a hardcoded entity_id, and on another install an unrelated entity
+# with that name clamped discharge to 1.93 kW instead of 24 kW, so it's a
+# per-install setting now.
 CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY: Final = "solver_max_discharge_live_entity"
 # ONE blended round-trip efficiency number (battery chemistry loss +
 # inverter AC-DC conversion loss combined) -- HAEO models these as two
@@ -1010,31 +917,13 @@ CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: Final = "solver_solar_forecast_sensor_2"
 # time. Blank (the default) is a complete no-op, same guarantee as
 # _2 above.
 CONF_SOLVER_SOLAR_FORECAST_SENSOR_3: Final = "solver_solar_forecast_sensor_3"
-# Real, live, dashboard-editable toggle (switch.py) -- deliberately NOT
-# entangled with sources 1/2/3 above (2026-08-22, direct household
-# design after a sharp catch: the writer script was silently including
-# two hardcoded, known-integration solar sources -- Open-Meteo and
-# Solcast -- OUTSIDE the 3 config fields entirely, with no way to see
-# or turn it off. "then what is the purposed of having 3 inputs since
-# it forces user ot autodetect... that feels wrong." Household's own
-# spec, verbatim: "user should pick 1... or 1+2... or 1+2+3 to get
-# their desired blend... or yes can tick auto detect from existing...
-# for ease... otherwise it should be just a setting they chose."
-#
-# Default False, not True -- a genuinely fresh/different install (Mark
-# Purcell, or anyone else) gets EXACTLY what they configured in sources
-# 1/2/3, nothing more, matching every other "no hardcoded inputs" field
-# built this session. This household's own live install needs the
-# switch turned ON explicitly to keep its current blend behaviour --
-# that is a one-time, visible, deliberate choice now, not silent magic.
-#
-# nimbus #1994: both integrations are found through the entity registry by
-# their integration and built-in unique_id (known_sources.py), never by an
-# entity_id, so a renamed or localised entity is still found. A brand-new
-# install that already has Solcast starts with auto-include ON (1.0.0
-# one-click install, #1930; Mark's #1914 recommendation): a household on
-# Solcast should not have to find a switch to get the forecast it already
-# has. An existing switch keeps its value.
+# Auto-include known solar sources (switch.py), kept separate from sources
+# 1-3 (household, 2026-08-22): sources 1-3 are what the household picked,
+# and auto-include adds Open-Meteo and Solcast only when switched on.
+# nimbus #1994: both integrations are found through the entity registry
+# (known_sources.py), never by entity_id. A new install that already has
+# Solcast starts with it ON (1.0.0 one-click install, #1930; #1914). An
+# existing switch keeps its value.
 CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = "solver_auto_include_known_solar"
 DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = False
 # Real-dispatch groundwork, phase 1 (2026-08-27) -- see solver_runtime.py's
