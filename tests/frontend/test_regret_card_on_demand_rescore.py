@@ -223,5 +223,8 @@ class TestTheClickHandlerIsSharedAndStillCostsOneSolve:
         later = _method("_retryLater")
         assert "_TRANSIENT" in later and "this._retries" in later
         assert "setTimeout(" in later and "MAX_RETRIES" in later
+        # The first retry after a restart is answered "Solver is not
+        # configured yet" until its config is published (test box, 7 Nov).
+        assert "not configured yet" in later
         # It names the day it couldn't score, not "yesterday" for every card.
         assert "Couldn't score ${this._dayLabel()}" in _method("_render")
