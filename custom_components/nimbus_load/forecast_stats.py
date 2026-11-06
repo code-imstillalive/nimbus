@@ -39,6 +39,8 @@ def _points(forecast: Iterable[Mapping[str, Any]]) -> list[tuple[datetime, float
     for point in forecast or ():
         try:
             raw = point.get("time")
+            if not isinstance(raw, (datetime, str)):
+                continue
             when = raw if isinstance(raw, datetime) else datetime.fromisoformat(raw)
             value = point.get("value")
             if value is None:
