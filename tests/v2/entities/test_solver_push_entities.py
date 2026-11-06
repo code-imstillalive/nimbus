@@ -83,7 +83,9 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
             "stochastic_paths",
             "price_consolidation",
             "rrp_crosscheck",
-        }  # #1797, #1786, #2190
+            "solar_quantile_calibration",
+            "cost_breakdown_by_day",
+        }  # #1797, #1786, #2190, #2289 item 2
     )
 
     # test_household_load_total_forecast_has_required_sensor_entity_class_attributes
@@ -106,7 +108,9 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
             "stochastic_paths",
             "price_consolidation",
             "rrp_crosscheck",
-        }  # #1797, #1786, #2190
+            "solar_quantile_calibration",
+            "cost_breakdown_by_day",
+        }  # #1797, #1786, #2190, #2289 item 2
     )
 
     # --- class-attribute properties -------------------------------------------
