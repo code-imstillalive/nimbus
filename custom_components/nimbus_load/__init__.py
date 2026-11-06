@@ -740,9 +740,17 @@ async def _async_setup_entry_impl(
     # HA's own "started" event when needed, so LocalVolts v2 has loaded.
     async def _pricing_check(_event: object = None) -> None:
         try:
+            from homeassistant.helpers.storage import Store
+
             from .pricing_autodetect import async_notify_pricing_setup
 
-            await async_notify_pricing_setup(hass, dict(entry.options))
+            # What the household was already asked, across restarts.
+            store = Store(hass, 1, f"{DOMAIN}.asked_{entry.entry_id}")
+            asked = set((await store.async_load() or {}).get("asked", []))
+            before = set(asked)
+            await async_notify_pricing_setup(hass, dict(entry.options), asked)
+            if asked != before:
+                await store.async_save({"asked": sorted(asked)})
         except Exception:
             _LOGGER.exception("Nimbus: pricing setup check failed")
 
