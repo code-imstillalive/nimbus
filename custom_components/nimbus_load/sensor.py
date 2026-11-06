@@ -3740,6 +3740,11 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
             "stochastic_paths",
             "price_consolidation",
             "rrp_crosscheck",
+            # nimbus #2289 item 2: recomputed every solve and read only from
+            # the live state (Solver tab, Help), never from history. With
+            # them, each recorder row was ~5 KB, written every 15-30 s.
+            "solar_quantile_calibration",
+            "cost_breakdown_by_day",
         }
     )
 
