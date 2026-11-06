@@ -161,8 +161,8 @@ def control_room_violation(run: dict[str, Any] | None) -> dict[str, Any] | None:
         v
         for v in p5min.first_interval_violations(run or {}) or []
         if str(v.get("constraint_id", "")).startswith("CA_")
-        and _ratio(v) is not None
-        and _ratio(v) <= CONTROL_ROOM_MAX_RATIO
+        and (ratio := _ratio(v)) is not None
+        and ratio <= CONTROL_ROOM_MAX_RATIO
     ]
     return max(rows, key=lambda v: v["violation"]) if rows else None
 

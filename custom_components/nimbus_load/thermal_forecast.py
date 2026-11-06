@@ -62,7 +62,7 @@ of publishing it).
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import NamedTuple
+from typing import Any, NamedTuple, cast
 
 # nimbus issue #592's own cited real-household figures (6/7 Sep 2026,
 # the #534 heat pump: 48->61 degC in 2.9h and 1.6kWh; idle 54.5->53.8
@@ -382,7 +382,7 @@ def project_temperature_forecast(
         e["time"] if isinstance(e["time"], datetime) else _parse_iso(e["time"])
         for e in plan_forecast
     ]
-    powers = [float(e["value"]) for e in plan_forecast]
+    powers = [float(cast(Any, e["value"])) for e in plan_forecast]
     if override_first_period_power_kw is not None and powers:
         powers[0] = override_first_period_power_kw
     n = len(plan_forecast)
@@ -391,7 +391,7 @@ def project_temperature_forecast(
     if loss_coeff_per_h is not None and ambient_forecast:
         for e in ambient_forecast:
             t = e["time"] if isinstance(e["time"], datetime) else _parse_iso(e["time"])
-            ambient_pairs.append((t, float(e["value"])))
+            ambient_pairs.append((t, float(cast(Any, e["value"]))))
 
     out: list[dict[str, object]] = []
     temp = start_temperature

@@ -146,6 +146,8 @@ def pd7day_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
         try:
             start = parse_iso(row["time"])
             end = parse_iso(row["nemtime"])
+            if raw is None:
+                raise TypeError("no value")
             value = float(raw)
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
@@ -331,14 +333,14 @@ def amber_express_intervals(forecast: Any, detailed: Any) -> list[PriceInterval]
     points.sort(key=lambda p: p[0])
     parsed: list[PriceInterval] = []
     for k, (start, value) in enumerate(points):
-        end = ends.get(start)
-        if end is None and k + 1 < len(points):
+        stop = ends.get(start)
+        if stop is None and k + 1 < len(points):
             # Only across a gap no longer than Amber's longest interval: a
             # row hours before the next is not hours of coverage.
             nxt = points[k + 1][0]
-            end = nxt if nxt - start <= _AMBER_MAX_INTERVAL else None
-        if end is not None and end > start:
-            parsed.append(PriceInterval(start, end, value))
+            stop = nxt if nxt - start <= _AMBER_MAX_INTERVAL else None
+        if stop is not None and stop > start:
+            parsed.append(PriceInterval(start, stop, value))
     return _ordered(parsed)
 
 
@@ -611,7 +613,7 @@ def _provider_intervals(attrs: Any) -> list[PriceInterval] | None:
         # PLURAL `forecasts`. Before, they read as no forecast at all and the
         # current price was held flat across the whole horizon.
         rows = attrs.get(AMBER_CORE_ROWS_KEY)
-        if is_amber_core_rows(rows):
+        if rows is not None and is_amber_core_rows(rows):
             found = amber_core_intervals(rows)
     if found is None and AMBER_EXPRESS_DETAILED_KEY in attrs:
         # nimbus #1580: Amber Express. `forecast[].value` as published (basis,
