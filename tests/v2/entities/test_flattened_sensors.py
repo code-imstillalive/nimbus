@@ -149,6 +149,16 @@ def test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent(
     assert e.extra_state_attributes == {"a": 1, "nimbus_version": "0.94.485"}
     assert _one(_spec()).extra_state_attributes == {"nimbus_version": "0.94.485"}
 
+    # test_lp_status_says_when_it_last_solved
+    # #2295 (Mark Purcell): Home Assistant moves no timestamp for an
+    # unchanged state, so `solved_at` carries each solve's time, unrecorded.
+    lp = _one(next(x for x in fl.FLATTENED_ATTRS if x.entity_id_suffix == "lp_status"))
+    for t in ["2026-11-06T17:00:00+10:00", "2026-11-06T17:01:00+10:00"]:
+        lp.update_from_parent({"status": "optimal", "generated_at": t})
+        assert lp.extra_state_attributes["solved_at"] == t
+    assert "solved_at" in fl._FlattenedAttributeSensor._unrecorded_attributes
+    assert "solved_at" not in _one(_spec()).extra_state_attributes
+
     # test_money_is_shown_in_the_households_currency
     for unit, shown in [
         (fl._CURRENCY, "AUD"),
