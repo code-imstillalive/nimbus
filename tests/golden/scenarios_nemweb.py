@@ -151,6 +151,12 @@ def build(folder: str, region: str, now_iso: str, variant: str, overrides: dict)
     return FakeHA(states=states, history=history)
 
 
+def _plain_native(fake: FakeHA):
+    from golden.fake_native import FakeNativeHass
+
+    return FakeNativeHass(fake=fake)
+
+
 def _register(name, folder, region, now_iso, variant, purpose, overrides=None):
     register(
         Scenario(
@@ -158,6 +164,17 @@ def _register(name, folder, region, now_iso, variant, purpose, overrides=None):
             instant=now_iso,
             build=lambda: build(folder, region, now_iso, variant, overrides or {}),
             purpose=purpose,
+        )
+    )
+    # nimbus #2289 item 5, step B.1 (Mark Purcell, 7 Nov 2026): a native twin
+    # with the same inputs. The REST original stays until B.2.
+    register(
+        Scenario(
+            name=f"native_{name}",
+            instant=now_iso,
+            build=lambda: build(folder, region, now_iso, variant, overrides or {}),
+            native=_plain_native,
+            purpose=f"native twin of {name}",
         )
     )
 
