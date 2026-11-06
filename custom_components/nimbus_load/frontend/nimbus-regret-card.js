@@ -178,7 +178,11 @@ class NimbusRegretCard extends HTMLElement {
   // error is left at once. A new day starts the count again.
   _retryLater(dateKey, message) {
     const MAX_RETRIES = 3;
-    const _TRANSIENT = /not found|not_found|connection|disconnected|timeout|timed out|unavailable/i;
+    // "not configured yet" too: in the first minute after a restart the
+    // Solver's config is not yet published (seen live on the test box,
+    // 7 Nov 2026, as the first retry's answer). A truly unconfigured
+    // install still stops after MAX_RETRIES.
+    const _TRANSIENT = /not found|not_found|connection|disconnected|timeout|timed out|unavailable|not configured yet/i;
     if (this._retriesFor !== dateKey) {
       this._retriesFor = dateKey;
       this._retries = 0;
