@@ -23,6 +23,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **A smaller database** (#2317). The plan sensor no longer records two attributes it recomputes every solve, about half of each recorded row. What you see is unchanged.
 - **Topology's "nothing set up yet" banner** is readable on a light theme (#2318).
 - Internal: strict type checks now cover 39 more modules (#2313–#2316), and a design note covers splitting the Solver's largest file (#2312).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at dc486a3e** (`release/0.97.0`, installed untagged through Home Assistant's marketplace and restarted at 06:22 AEST, 7 Nov; read through 06:25).
+  - 123 of the 127 Nimbus entities carrying a version read 0.97.0; the other four are the daily reports.
+  - None of the 388 Nimbus entities unavailable; plan `optimal`, with `solved_at` 06:23; all 62 Solver numbers kept their values over the restart.
+  - Cards are served at `?v=0.97.0-<digest>`.
+  - The test pairing (a lighting load set as part of the COMMS circuit) carried `part_of_source_sensor`. Power Flow listed it under the COMMS bubble with "other", on screen. Topology and the Reconfigure form were checked on screen on the PR build (#2310).
+  - The Regret cards recovering after a restart was checked live on the PR build (#2320): all three scored about 90 s after a restart, with no reload.
+  - Help's What's New shows 0.97.0.
+  - Not seen live: the Energy Dashboard hint (the test box sets no Upstream device), the wizard save fix (an API-only path, covered by its CI test) and the Topology banner on a light theme (the test box's Topology has data, so no banner).
+  - Log: no ERROR.
+- Consumer check: no setting or entity is moved or renamed. Loads and Power Signals gain an optional `part_of` field, and forecast sensors gain a `part_of_source_sensor` attribute. The plan sensor stops recording `solar_quantile_calibration` and `cost_breakdown_by_day`, which are still live on the state. Plans are unchanged.
 
 ## [0.96.0] - 2026-11-06
 
