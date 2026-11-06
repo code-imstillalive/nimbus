@@ -94,9 +94,13 @@ def part_of_parents(entry: Any, own_subentry_id: str | None) -> list[tuple[str, 
     ids = {s.subentry_id for s in circuits}
     # A circuit whose parent was removed counts as top level again.
     top = [s for s in circuits if s.data.get(CONF_PART_OF) not in ids]
+
+    def title(s: Any) -> str:
+        return str(getattr(s, "title", None) or s.subentry_id)
+
     return [
-        (s.subentry_id, s.title)
-        for s in sorted(top, key=lambda s: str(s.title).lower())
+        (s.subentry_id, title(s))
+        for s in sorted(top, key=lambda s: title(s).lower())
         if s.subentry_id != own_subentry_id
     ]
 
