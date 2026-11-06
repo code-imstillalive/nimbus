@@ -611,10 +611,21 @@ async def async_notify_pricing_setup(
         )
     # Only the Basic profile counts: an empty transitional binding
     # (LV_V2_OPTIONAL_PROFILE) is never reported as something to fill in.
+    # Mark Purcell, 6 Nov 2026: an import or export price set to a sensor
+    # that isn't this LocalVolts entry's own means the household buys or
+    # sells elsewhere, so its LocalVolts fields are rightly empty.
+    own = set(detected.values())
+    elsewhere = any(
+        options.get(f) and options.get(f) not in own
+        for f in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR)
+    )
     empty = [
         f
         for f in detected
-        if f in LV_V2_PROFILE and not options.get(f) and f not in missing
+        if f in LV_V2_PROFILE
+        and not options.get(f)
+        and f not in missing
+        and not elsewhere
     ]
     if empty:
         await _notify(
