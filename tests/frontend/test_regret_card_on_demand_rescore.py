@@ -211,3 +211,16 @@ class TestTheClickHandlerIsSharedAndStillCostsOneSolve:
 
         # test_binding_a_button_that_is_not_rendered_is_safe: Exactly one of the two exists per render, so the other id is always
         assert "if (!btn) return;" in _method("_bindRescore")
+
+        # test_a_transient_failure_is_retried_a_few_times_then_left: #2289
+        # item 3. A restart while the cards waited left all three on
+        # "Service nimbus_load.compute_quality_report not found" for good:
+        # one attempt per day, by design since the 2026-09-01 retry storm.
+        # A transient error now retries with a growing wait, capped.
+        body = _method("_fetch")
+        assert "this._retryLater(dateKey" in body
+        later = _method("_retryLater")
+        assert "_TRANSIENT" in later and "this._retries" in later
+        assert "setTimeout(" in later and "MAX_RETRIES" in later
+        # It names the day it couldn't score, not "yesterday" for every card.
+        assert "Couldn't score ${this._dayLabel()}" in _method("_render")
