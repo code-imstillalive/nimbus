@@ -265,12 +265,14 @@ What is happening right now, as a live animated flow. Dots run along each
 line, faster for more power, coloured by where the energy comes from (solar
 gold, battery green, grid blue).
 
+- **Layout:** Grid on the inverters' row between them (beside a single
+  inverter), House in the centre below, circuits fanned out under House.
 - **Your site, drawn from Nimbus's setup:** each inverter (a Power Source),
   its PV strings above it while they produce, and its battery towers beside
   it with their level, health and temperature, feeding the house and the
   grid. Without inverters set up, one combined "Solar & battery" node.
   Towers sit in a column on their inverter's side.
-- **Your EV** (a battery participant) is one node off the house, with its
+- **Your EV** (a battery participant, darker green) is one node off the house, with its
   charge level in the ring and whether it is charging, supplying or idle.
 - **The price now,** on the grid: what is being paid or earned this period,
   marked P2P when the P2P rate applies.
