@@ -61,7 +61,3 @@ def power_scale_to_kw(unit: object) -> float:
 def power_to_kw(value: float, unit: object) -> float:
     """`value` in `unit`, expressed in kW."""
     return value * power_scale_to_kw(unit)
-
-
-# Planted for the fail-first run of #2289 item 9 set 3; removed in the next commit.
-_PLANTED_TYPE_ERROR: int = "not an int"
