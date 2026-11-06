@@ -172,6 +172,13 @@ class FlattenedAttrSpec:
     # solve used, live, and excluded from Recorder. See
     # _detailed_price_forecast().
     detailed_forecast_of: str | None = None
+    # nimbus #2295 (Mark Purcell): publish the parent's `generated_at` as a
+    # `solved_at` attribute, so "when did this last solve" reads off the
+    # entity. Home Assistant moves no timestamp for an unchanged state, and
+    # `last_reported` stopped after the first write following a reload.
+    # Excluded from Recorder (_unrecorded_attributes): one row per solve
+    # would buy nothing.
+    solved_at: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +559,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver LP Status",
         entity_id_suffix="lp_status",
         entity_category=EntityCategory.DIAGNOSTIC,
+        solved_at=True,
         # ENUM would be strictly correct here but requires declaring
         # options up-front and the exact string set from highspy is a
         # library-internals detail we don't want to lock in. Plain
@@ -972,6 +980,8 @@ class _FlattenedAttributeSensor(SensorEntity):
             "hourly_regret",
             # nimbus #1657: the full resolved price series, live only.
             "detailedForecast",
+            # nimbus #2295: moves every solve; no history needed.
+            "solved_at",
         }
     )
 
@@ -1016,6 +1026,7 @@ class _FlattenedAttributeSensor(SensorEntity):
         # unchanged for the 39 pre-existing FLATTENED_ATTRS_* rows that
         # don't set attrs_source_key.
         self._extra_attrs: dict[str, Any] | None = None
+        self._solved_at: str | None = None
         # Same reasoning as _NimbusSolverPushSensor's own `_was_available`
         # (sensor.py) -- True, not None, since `available` is already,
         # definitionally, True right here (both of its own early-return
@@ -1099,9 +1110,10 @@ class _FlattenedAttributeSensor(SensorEntity):
         the point rather than a side effect -- a version stamp nothing can
         read is not a version stamp.
         """
-        if self._extra_attrs is None:
-            return {"nimbus_version": self._sw_version}
-        return {**self._extra_attrs, "nimbus_version": self._sw_version}
+        out = {**(self._extra_attrs or {}), "nimbus_version": self._sw_version}
+        if self._solved_at is not None:
+            out["solved_at"] = self._solved_at
+        return out
 
     @callback
     def update_from_parent(
@@ -1127,6 +1139,8 @@ class _FlattenedAttributeSensor(SensorEntity):
             return
         self._state = _clamp_state_length(value, self.entity_id or self._attr_name)
         self._last_updated = time.monotonic()
+        if self._spec.solved_at and attributes.get("generated_at") is not None:
+            self._solved_at = str(attributes["generated_at"])
         # Optional second lookup for extra_state_attributes -- silently
         # skipped when either attrs_source_key isn't set or the value at
         # that key isn't a dict, matching the scalar-side missing-key
