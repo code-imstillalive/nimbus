@@ -88,15 +88,42 @@ def test_every_subentry_is_mapped_or_kept_never_dropped():
     res = di.import_legacy(_snapshot(subentries=subs))
     mapped = {d.get("history_subentry_id") for d in res.document["devices"]}
     kept = {u["subentry_id"]: u["code"] for u in res.unmapped}
-    assert mapped & {s["subentry_id"] for s in subs} == {"a1"}
+    # A plain ("other") power signal is a circuit, as a Load is (#2293).
+    assert mapped & {s["subentry_id"] for s in subs} == {"a1", "c3"}
     assert kept == {
         "b2": "unmapped_topology_equipment",
-        "c3": "unmapped_signal_role",
         "d4": "unmapped_topology_equipment",
         "e5": "unmapped_topology_equipment",
         "f6": "unmapped_subentry",
     }
     assert res.problems == []
+
+    # test_part_of_is_a_confirmed_inclusion_and_comes_back_in_the_view
+    # nimbus #2293 (Mark Purcell): "Pool pump" part of a plain signal
+    # "Circuit 1" is DC-003's included_in_measurement, confirmed by the
+    # setting, and the view writes the setting back.
+    subs = [
+        _sub("c1", "power_signal", "Circuit 1", load_sensor="sensor.c1_w"),
+        _sub("p1", "load", "Pool pump", load_sensor="sensor.pool_w", part_of="c1"),
+        _sub("f1", "load", "Fridge", load_sensor="sensor.fridge_w"),
+    ]
+    res = di.import_legacy(_snapshot(subentries=subs))
+    assert res.problems == []
+    by_sid = {d.get("history_subentry_id"): d["id"] for d in res.document["devices"]}
+    (rel,) = [
+        r
+        for r in res.document["relationships"]
+        if r["kind"] == "included_in_measurement" and r["child"] == by_sid["p1"]
+    ]
+    assert rel["parent"] == by_sid["c1"] and rel["confirmed"] is True
+    view = di.legacy_view(res.document)["subentries"]
+    assert view["p1"]["part_of"] == "c1"
+    assert view["f1"]["part_of"] is None and view["c1"]["part_of"] is None
+    assert di.view_writes(di.legacy_view(res.document), _snapshot(subentries=subs)) == {
+        "options": {},
+        "numbers": {},
+        "subentries": {},
+    }
 
     # test_two_loads_with_one_name_get_suffixed_ids_in_creation_order
     subs = [_sub("a1", "load", "Pool"), _sub("a2", "load", "Pool")]
