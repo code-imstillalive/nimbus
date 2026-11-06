@@ -218,6 +218,18 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.96.0",
+        "6 Nov 2026",
+        (
+            (
+                "**Controllable loads:** a device already set as commanded "
+                "isn't re-sent; the log says when it isn't drawing power."
+            ),
+            "**LocalVolts notice** asked once, not at every start.",
+            "**Solver LP Status** carries `solved_at`, its latest solve time.",
+        ),
+    ),
+    (
         "0.95.0",
         "6 Nov 2026",
         (

@@ -414,7 +414,9 @@ a weight.
 
 With the [LocalVolts v2](https://github.com/purcell-lab/localvolts_v2)
 integration (2.9.0 or later) installed, Nimbus proposes its five sensors for
-any of these fields that are empty, and says so in a notification at startup.
+any of these fields that are empty, and says so in a notification at startup,
+once (it is asked again only if the set of empty fields changes). It doesn't
+ask when your import or export price comes from another retailer.
 Open **Nimbus → Configure → Review pricing suggestions**: each proposed change
 is listed there, and Submit applies exactly those. Nothing changes until you
 do, and saving the Solver settings screens never applies a suggestion. A field
@@ -1068,7 +1070,7 @@ Not every `water_heater` supports `performance` and `eco`.
 |---|---|
 | Minimum hold between commands (minutes) | Stops rapid cycling |
 | Max activations per day | Hard cap, whatever the plan wants |
-| Re-send command after (minutes) | Re-send interval, default 15. `0` disables re-sends. Re-sends do not count against the daily cap. |
+| Re-send command after (minutes) | Re-send interval, default 15. `0` disables re-sends. Re-sends do not count against the daily cap. A device already set as commanded (a switch on, a water heater's mode, a climate HVAC mode) that isn't drawing power is not re-sent; the log says once a day that it is set but not running. |
 
 ### Deferrable, the common case
 
