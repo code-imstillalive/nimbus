@@ -356,10 +356,12 @@ class NimbusFlowCard extends HTMLElement {
         pos["tow" + j] = { x: side === "left" ? 70 : W - 70, y: invY + (q - (c - 1) / 2) * step, r };
       });
     }
-    // EVs beside House on the right, inside the tower column (up to 4 towers
-    // a side fit above House's level).
+    // EVs in a row above House's level, inside the tower columns: the first
+    // two on the right, a third and fourth mirrored on the left, so none
+    // meets the circuit fan, whose edges reach House's level.
+    const evX = [W / 2 + 170, W / 2 + 250, W / 2 - 170, W / 2 - 250];
     m.evs.forEach((_, k) => {
-      pos["ev" + k] = { x: W / 2 + 180 + (k % 2) * 80, y: houseY - 90 + Math.floor(k / 2) * 80, r: 30 };
+      pos["ev" + k] = { x: evX[k % 4], y: houseY - 100 - Math.floor(k / 4) * 80, r: 30 };
     });
     // Circuits: a fan below House that widens with their number, up to a
     // half circle for 12.
