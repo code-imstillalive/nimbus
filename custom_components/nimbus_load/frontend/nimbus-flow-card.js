@@ -325,17 +325,16 @@ class NimbusFlowCard extends HTMLElement {
 
   _layout(m) {
     const n = m.invs.length;
-    // Household layout, 6 Nov 2026: Grid at the top between the inverters,
-    // House on the inverters' row between them (one inverter: House centre,
-    // a row below), EVs below the inverters, and a fan of circuits below
-    // House with room for sub-devices.
+    // Household layout, 6 Nov 2026: Grid between the inverters on their row,
+    // House in the centre below, EVs beside House, so the whole lower half is a
+    // fan of circuits (up to a half circle, with room for sub-devices).
     const W = 860, pos = {};
-    const invY = 230, one = n === 1, houseY = one ? 440 : invY;
+    const invY = 230, houseY = 440;
     m.invs.forEach((_, k) => {
-      pos["inv" + k] = { x: one ? W / 2 - 160 : 230 + ((W - 460) * k) / Math.max(1, n - 1), y: invY, r: 46 };
+      pos["inv" + k] = { x: n === 1 ? W / 2 - 160 : 260 + ((W - 520) * k) / Math.max(1, n - 1), y: invY, r: 46 };
     });
     pos.house = { x: W / 2, y: houseY, r: 50 };
-    pos.grid = { x: one ? W / 2 + 160 : W / 2, y: one ? invY : 100, r: 46 };
+    pos.grid = { x: n === 1 ? W / 2 + 160 : W / 2, y: invY, r: 46 };
     // Strings above their inverter.
     m.invs.forEach((inv, k) => {
       const mine = m.site.strings.map((s, j) => ({ s, j })).filter(({ s }) => s.source === inv.id);
@@ -357,29 +356,23 @@ class NimbusFlowCard extends HTMLElement {
         pos["tow" + j] = { x: side === "left" ? 70 : W - 70, y: invY + (q - (c - 1) / 2) * step, r };
       });
     }
-    // EVs: one inverter, a row above House's level as before; otherwise
-    // below the inverters, the first on the right, the next on the left,
-    // clear of the circuit fan, whose edges stay steeper than them.
-    const evX = [W / 2 + 170, W / 2 - 170, W / 2 + 250, W / 2 - 250];
+    // EVs in a row above House's level, inside the tower columns: the first
+    // two on the right, a third and fourth mirrored on the left, so none
+    // meets the circuit fan, whose edges reach House's level.
+    const evX = [W / 2 + 170, W / 2 + 250, W / 2 - 170, W / 2 - 250];
     m.evs.forEach((_, k) => {
-      pos["ev" + k] = one
-        ? { x: [W / 2 + 170, W / 2 + 250, W / 2 - 170, W / 2 - 250][k % 4], y: houseY - 100 - Math.floor(k / 4) * 80, r: 30 }
-        : { x: evX[k % 4], y: invY + 130 + Math.floor(k / 4) * 75, r: 30 };
+      pos["ev" + k] = { x: evX[k % 4], y: houseY - 100 - Math.floor(k / 4) * 80, r: 30 };
     });
     // Circuits: a fan below House that widens with their number, up to a
-    // half circle for 12 with one inverter. With House between inverters
-    // the fan stops short of the EVs and inverters (70 degrees) and
-    // alternates two radii past 6 circuits so labels keep apart.
+    // half circle for 12.
     const cs = m.circuits, c = cs.length;
-    const maxSpan = one ? Math.PI : (Math.PI * 70) / 180;
-    const span = c <= 1 ? 0 : Math.min(maxSpan, (Math.PI * (c - 1)) / 11 + 0.5);
-    const R = one ? 260 : 290, R2 = c > 6 && !one ? 360 : R;
+    const span = c <= 1 ? 0 : Math.min(Math.PI, (Math.PI * (c - 1)) / 11 + 0.5);
+    const R = 260;
     cs.forEach((_, i) => {
       const a = c <= 1 ? Math.PI / 2 : Math.PI / 2 - span / 2 + (span * i) / (c - 1);
-      const r = i % 2 ? R2 : R;
-      pos["cir" + i] = { x: W / 2 - r * Math.cos(a), y: houseY + r * Math.sin(a) };
+      pos["cir" + i] = { x: W / 2 - R * Math.cos(a), y: houseY + R * Math.sin(a) };
     });
-    return { W, H: houseY + Math.max(R, R2) + 60, pos };
+    return { W, H: houseY + R + 60, pos };
   }
 
   _buildShell() {
