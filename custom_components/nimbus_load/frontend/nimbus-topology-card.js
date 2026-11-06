@@ -640,7 +640,9 @@ class TopologyCard extends HTMLElement {
           border-radius: 8px;
           background: #1a1a1f;
           border: 1px solid #333;
-          color: var(--secondary-text-color, #9a9a9a);
+          /* Fixed, like the card: a theme text colour would be dark on this
+             dark banner in a light theme (#2289 item 4). */
+          color: #9a9a9a;
           font-size: 12.5px;
           line-height: 1.4;
         }
