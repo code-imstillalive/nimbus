@@ -358,6 +358,16 @@ def test_fees_on_top_of_a_price_that_already_includes_them_are_flagged(world):
     world.calls.clear()
     assert pa.NOTIFY_DETECTED_ID not in _notices(world, profile)
 
+    # test_a_household_buying_from_another_retailer_is_not_asked_for_localvolts
+    # Mark Purcell, 6 Nov 2026: LocalVolts v2 installed, import and export
+    # from another retailer, and Nimbus still said "3 of 5 LocalVolts price
+    # fields are empty" on every restart.
+    world.calls.clear()
+    other = {IMPORT: "sensor.other_buy", EXPORT: "sensor.other_sell"}
+    assert pa.NOTIFY_DETECTED_ID not in _notices(world, other)
+    world.calls.clear()
+    assert pa.NOTIFY_DETECTED_ID in _notices(world, {IMPORT: profile[IMPORT]})
+
 
 def _notices(world, options):
     asyncio.run(pa.async_notify_pricing_setup(world.hass(), options))
