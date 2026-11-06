@@ -65,7 +65,8 @@ changes to your dashboard without any YAML.
 updates* button on your Help tab. Add the card once: **Edit dashboard → + Add
 card**, search **nimbus**, pick **Nimbus Tabs** and save (or add a Manual card
 with `type: custom:nimbus-tabs-card`). The current Help tab it then offers has
-the card built in.
+the card built in. Until then, **Settings → Repairs** shows a reminder that
+clears itself once the card is on a dashboard.
 
 Then:
 
