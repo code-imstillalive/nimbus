@@ -45,6 +45,12 @@ Conditions (stage 2):
   whole-house cross-check field is blank, so no load gets the Forecaster's
   whole-house fixes (#6, #7). Since #1994 that field is the only way the
   Forecaster knows which load is the whole house.
+- **no Nimbus Tabs card** (household, 6 Nov 2026): a dashboard in the UI's
+  own storage shows Nimbus cards but none has the Tabs card, the one with
+  "Check for updates", so a release's changed tabs never reach it. Tabs
+  pasted before 0.94.507 lack it, and Nimbus may not add it (it writes no
+  dashboard, hacs/default#12099). The Repair says how to add it; it reads
+  the dashboards, writes nothing, and clears once the card is on one.
 
 Both read the live number entities (the Solver tab's values), found by
 unique_id `<entry_id>_<key>`, never by entity_id.
@@ -52,6 +58,7 @@ unique_id `<entry_id>_<key>`, never by entity_id.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -113,6 +120,7 @@ KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
 KIND_NO_REGIONAL_FORECAST = "regional_forecast_missing"
 KIND_WHOLE_HOUSE_UNSET = "whole_house_sensor_unset"
+KIND_TABS_CARD_MISSING = "tabs_card_missing"
 KIND_AVAILABILITY_MISMATCH = "availability_states_never_match"
 KIND_PLACEHOLDER_SETTINGS = "placeholder_settings"
 KIND_CONTRADICTORY_SETTINGS = "contradictory_settings"
@@ -177,6 +185,7 @@ def evaluate_health(
     has_load_forecast: bool = False,
     failed_streak: Mapping[str, Any] | None = None,
     availability_mismatches: Iterable[tuple[str, str, str, tuple[str, ...], str]] = (),
+    tabs_card_missing: bool = False,
 ) -> list[HealthIssue]:
     """Every current setup gap. Pure.
 
@@ -190,8 +199,13 @@ def evaluate_health(
     without an optimal plan. `availability_mismatches` is (subentry_id,
     participant name, availability entity, states it reported, the configured
     list) for each participant whose list matched none of them (#2014).
+    `tabs_card_missing` is `tabs_card_missing()` of the stored dashboards.
     """
     issues: list[HealthIssue] = []
+    if tabs_card_missing:
+        issues.append(
+            HealthIssue(key=KIND_TABS_CARD_MISSING, kind=KIND_TABS_CARD_MISSING)
+        )
 
     for subentry_id, name, entity_id, seen, listed in availability_mismatches:
         issues.append(
@@ -571,6 +585,33 @@ async def _async_states_seen(
     }
 
 
+def tabs_card_missing(configs: Iterable[Any]) -> bool:
+    """Whether some dashboard shows Nimbus cards and none has the Nimbus Tabs
+    card. Pure: `configs` is each stored dashboard's config."""
+    texts = [json.dumps(c) for c in configs if isinstance(c, Mapping)]
+    return any('"custom:nimbus-' in t for t in texts) and not any(
+        '"custom:nimbus-tabs-card"' in t for t in texts
+    )
+
+
+async def _async_dashboard_configs(hass: Any) -> list[Any]:
+    """Every UI-stored dashboard's config, read only. YAML dashboards are
+    left out: the Tabs card can't save to them."""
+    lovelace = hass.data.get("lovelace")
+    dashboards = getattr(lovelace, "dashboards", None)
+    if dashboards is None and isinstance(lovelace, dict):
+        dashboards = lovelace.get("dashboards")
+    configs = []
+    for dashboard in (dashboards or {}).values():
+        if getattr(dashboard, "mode", None) != "storage":
+            continue
+        try:
+            configs.append(await dashboard.async_load(False))
+        except Exception:  # an empty dashboard has no config
+            _LOGGER.debug("Nimbus: a dashboard could not be read", exc_info=True)
+    return configs
+
+
 def _issue_id(entry_id: str, key: str) -> str:
     return f"{entry_id}_{key}"
 
@@ -627,6 +668,7 @@ async def async_refresh_health(
             availability_mismatches=await _async_availability_mismatches(
                 hass, entry, state, now or datetime.now(UTC)
             ),
+            tabs_card_missing=tabs_card_missing(await _async_dashboard_configs(hass)),
         )
 
         current = set()
