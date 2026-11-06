@@ -163,10 +163,42 @@ class NimbusRegretCard extends HTMLElement {
       this._cache = { dateKey, data: payload };
     } catch (e) {
       this._error = (e && e.message) || String(e);
+      this._retryLater(dateKey, this._error);
     } finally {
       this._loading = false;
       this._render();
     }
+  }
+
+  // nimbus #2289 item 3: a restart while the cards waited left them on
+  // "Service nimbus_load.compute_quality_report not found" for good, since
+  // a day gets one attempt (the 2026-09-01 retry-storm rule). An error that
+  // passes once Nimbus is back (not found, a lost connection, a timeout)
+  // is tried again after 15 s, 30 s, then 60 s, and then left; any other
+  // error is left at once. A new day starts the count again.
+  _retryLater(dateKey, message) {
+    const MAX_RETRIES = 3;
+    // "not configured yet" too: in the first minute after a restart the
+    // Solver's config is not yet published (seen live on the test box,
+    // 7 Nov 2026, as the first retry's answer). A truly unconfigured
+    // install still stops after MAX_RETRIES.
+    const _TRANSIENT = /not found|not_found|connection|disconnected|timeout|timed out|unavailable|not configured yet/i;
+    if (this._retriesFor !== dateKey) {
+      this._retriesFor = dateKey;
+      this._retries = 0;
+    }
+    if (!_TRANSIENT.test(message) || this._retries >= MAX_RETRIES) return;
+    const wait = 15000 * 2 ** this._retries;
+    this._retries += 1;
+    setTimeout(() => {
+      if (this._attemptedDateKey === dateKey && !this._cache) this._fetch(dateKey);
+    }, wait);
+  }
+
+  // "yesterday" for the default card, the date itself for the others.
+  _dayLabel() {
+    const daysAgo = Number.isFinite(this._config.days_ago) ? this._config.days_ago : 1;
+    return daysAgo === 1 ? "yesterday" : this._targetDateKey();
   }
 
   _buildStaticShell() {
@@ -367,7 +399,7 @@ class NimbusRegretCard extends HTMLElement {
     }
     if (this._error && !this._cache) {
       subEl.textContent = "";
-      bodyEl.innerHTML = `<div class="msg">Couldn't score yesterday: ${this._escape(this._error)}</div>`;
+      bodyEl.innerHTML = `<div class="msg">Couldn't score ${this._dayLabel()}: ${this._escape(this._error)}</div>`;
       return;
     }
     if (!this._cache) {
