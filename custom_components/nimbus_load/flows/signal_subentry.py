@@ -50,7 +50,14 @@ from ..const import (
     SIGNAL_ROLE_TEMPERATURE,
 )
 from ..power_input_check import energy_unit_field_errors
-from . import find_subentry_sharing_source_sensor, form_action_placeholders
+from . import (
+    async_part_of_hint,
+    find_subentry_sharing_source_sensor,
+    form_action_placeholders,
+    part_of_field,
+    part_of_parents,
+    without_invalid_part_of,
+)
 
 
 # nimbus issue #360 (Mark Purcell, codebase review): extracted from
@@ -63,7 +70,10 @@ from . import find_subentry_sharing_source_sensor, form_action_placeholders
 # method. Pure extraction, zero behaviour change: _async_step() below
 # calls this with the exact same `current_data` dict it always built the
 # schema from inline.
-def _schema(defaults: dict[str, Any]) -> vol.Schema:
+def _schema(
+    defaults: dict[str, Any], parents: list[tuple[str, str]] | None = None
+) -> vol.Schema:
+    """`parents`: see flows.part_of_parents (nimbus #2293)."""
     return vol.Schema(
         {
             vol.Required(
@@ -93,6 +103,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                     translation_key="signal_role",
                 )
             ),
+            **part_of_field(defaults, parents),
         }
     )
 
@@ -128,6 +139,15 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
         self, user_input: dict[str, Any] | None, subentry: Any
     ) -> SubentryFlowResult:
         current_data = dict(subentry.data) if subentry is not None else {}
+        parents = part_of_parents(
+            self._get_entry(), subentry.subentry_id if subentry else None
+        )
+        self._part_of_hint = await async_part_of_hint(
+            self.hass,
+            self._get_entry(),
+            (user_input or current_data).get(CONF_LOAD_SENSOR),
+            parents,
+        )
 
         if user_input is not None:
             # nimbus issue #362 finding 4d (Mark Purcell, codebase
@@ -145,7 +165,7 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
                 return self.async_show_form(
                     description_placeholders=form_action_placeholders(self),
                     step_id="user",
-                    data_schema=_schema(user_input),
+                    data_schema=_schema(user_input, parents),
                     errors={"load_sensor": "duplicate_source_sensor"},
                 )
             # nimbus issue #1562: an energy counter (Wh/kWh) is not a
@@ -157,9 +177,17 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
                 return self.async_show_form(
                     description_placeholders=form_action_placeholders(self),
                     step_id="user",
-                    data_schema=_schema(user_input),
+                    data_schema=_schema(user_input, parents),
                     errors=energy_errors,
                 )
+            # nimbus #2293: only a plain ("other") signal can be part of
+            # another, and only of one offered.
+            user_input = without_invalid_part_of(
+                user_input,
+                parents,
+                user_input.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER)
+                == SIGNAL_ROLE_OTHER,
+            )
             title = self._derive_title(user_input[CONF_LOAD_SENSOR])
             if subentry is not None:
                 return self.async_update_and_abort(
@@ -173,7 +201,7 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
         return self.async_show_form(
             description_placeholders=form_action_placeholders(self),
             step_id="user",
-            data_schema=_schema(current_data),
+            data_schema=_schema(current_data, parents),
         )
 
     def _derive_title(self, sensor_entity_id: str) -> str:

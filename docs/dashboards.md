@@ -284,7 +284,10 @@ gold, battery green, grid blue).
 - **The circuits drawing now:** small bubbles under House, one per circuit
   drawing over 5 W (the Topology card's own mark for "active"), up to the
   twelve largest, each under the name you gave its load or power signal,
-  fanned below House (up to a half circle as they grow).
+  fanned below House (up to a half circle as they grow). A load or power
+  signal set as **part of** another circuit (setup guide §12) is listed under
+  that circuit's bubble with its power, then "other" for the rest, instead of
+  as a bubble of its own.
 - **The plan table beside it** is the Control Panel card's own forecast
   table (`custom:nimbus-dispatch-card-v4` with `table_only: true`), so the
   two always match.

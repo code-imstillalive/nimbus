@@ -208,10 +208,25 @@ class NimbusFlowCard extends HTMLElement {
         .replace(/\s*\bpower\s*$/i, "")
         .replace(/^CB-(PW|LT)\s*/i, (m, g) => (g.toUpperCase() === "LT" ? "Lights " : ""))
         .trim();
-      out.push({ name: name || src, kw, src });
+      out.push({ name: name || src, kw, src, parentSrc: a.part_of_source_sensor || "" });
     }
-    out.sort((x, y) => y.kw - x.kw);
-    return out.slice(0, 12);
+    // nimbus #2293: a sub-device ("Pool pump", part of "Circuit 1") goes
+    // under its circuit, not beside it, with what is left as "other"; one
+    // tier only. A parent not drawn leaves its sub-device as a circuit.
+    const bySrc = new Map(out.map((c) => [c.src, c]));
+    const top = [];
+    for (const c of out) {
+      const parent = c.parentSrc ? bySrc.get(c.parentSrc) : null;
+      if (parent && parent !== c && !parent.parentSrc) (parent.subs = parent.subs || []).push(c);
+      else top.push(c);
+    }
+    for (const c of top) {
+      if (!c.subs) continue;
+      c.subs.sort((x, y) => y.kw - x.kw);
+      c.other = c.kw - c.subs.reduce((t, x) => t + x.kw, 0);
+    }
+    top.sort((x, y) => y.kw - x.kw);
+    return top.slice(0, 12);
   }
 
   _plan() {
@@ -381,7 +396,9 @@ class NimbusFlowCard extends HTMLElement {
       const a = c <= 1 ? Math.PI / 2 : Math.PI / 2 - span / 2 + (span * i) / (c - 1);
       pos["cir" + i] = { x: W / 2 - R * Math.cos(a), y: houseY + R * Math.sin(a) };
     });
-    return { W, H: houseY + R + 60, pos };
+    // Room under the lowest circuits for their sub-device lines (#2293).
+    const subLines = Math.max(0, ...cs.map((x) => (x.subs ? x.subs.length + 1 : 0)));
+    return { W, H: houseY + R + 60 + subLines * 12, pos };
   }
 
   _buildShell() {
@@ -540,6 +557,13 @@ class NimbusFlowCard extends HTMLElement {
       this._el("circle", { cx: x, cy: y, r, class: "ring", stroke: C.muted, "stroke-width": 1.5 }, G.nodes);
       this._el("text", { x, y: y + 4, class: "small" }, G.nodes).textContent = c.kw >= 1 ? c.kw.toFixed(1) : Math.round(c.kw * 1000);
       this._el("text", { x, y: y + r + 12, class: "lbl s" }, G.nodes).textContent = c.name + (c.kw >= 1 ? " kW" : " W");
+      // Its sub-devices by name with their power, then the rest (#2293).
+      const fmt = (kw) => (Math.abs(kw) >= 1 ? kw.toFixed(1) + " kW" : Math.round(kw * 1000) + " W");
+      const lines = (c.subs || []).map((d) => d.name + " " + fmt(d.kw));
+      if (c.subs) lines.push("other " + fmt(c.other));
+      lines.forEach((t, k) => {
+        this._el("text", { x, y: y + r + 25 + k * 12, class: "lbl s" }, G.nodes).textContent = t;
+      });
     });
 
     // Strings.

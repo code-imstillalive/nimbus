@@ -404,10 +404,23 @@ class TopologyCard extends HTMLElement {
       if (!live) continue;
       const friendly = attrs.friendly_name || entityId;
       const name = friendly.endsWith(" Forecast") ? friendly.slice(0, -" Forecast".length) : friendly;
-      loads.push({ name, forecast: entityId, live });
+      loads.push({ name, forecast: entityId, live, partOf: attrs.part_of_source_sensor || "" });
     }
     loads.sort((a, b) => a.name.localeCompare(b.name));
-    return loads;
+    // nimbus #2293: a load that is part of another ("Fridge" inside a
+    // circuit) is listed straight after it, indented; one tier only. A
+    // parent that isn't a load here leaves it in the plain list.
+    const byLive = new Map(loads.map((l) => [l.live, l]));
+    const out = [];
+    for (const l of loads) {
+      const parent = l.partOf ? byLive.get(l.partOf) : null;
+      if (parent && parent !== l && !parent.partOf) continue;
+      out.push(l);
+      for (const c of loads) {
+        if (c !== l && c.partOf && c.partOf === l.live && !l.partOf) out.push({ ...c, sub: true });
+      }
+    }
+    return out;
   }
 
   // Household, 23 Oct 2026 (clean install): a controllable load (heat
@@ -1377,8 +1390,19 @@ class TopologyCard extends HTMLElement {
     // import ("grid is evil" -- deliberate design choice, not a health/
     // warning indicator here). dominantColor itself is computed above
     // (before the switchboard bus outline is drawn), reused here as-is.
+    let parentY = null;
     loads.forEach((load, i) => {
       const ly = loadsTop + i * (tileH + tileGap);
+      if (load.sub && parentY !== null) {
+        // A sub-device hangs off its circuit's tile, not the bus (#2293).
+        const indent = 16;
+        const tile = this._loadTile(loadX0 + indent + (tileW - indent) / 2, ly, tileW - indent, tileH, { ...load, name: "↳ " + load.name }, failedForecasts);
+        lines.push(this._line(loadX0 + 6, parentY + tileH / 2, loadX0 + 6, ly, tile.active, dominantColor));
+        lines.push(this._line(loadX0 + 6, ly, loadX0 + indent, ly, tile.active, dominantColor));
+        nodes.push(tile.group);
+        return;
+      }
+      parentY = ly;
       const tile = this._loadTile(loadX0 + tileW / 2, ly, tileW, tileH, load, failedForecasts);
       lines.push(this._line(busX + invBarW / 2, ly, loadX0, ly, tile.active, dominantColor));
       nodes.push(tile.group);

@@ -57,3 +57,10 @@ def test_powered_circuits_show_under_the_households_names():
     assert "cfg.solver_whole_house_cross_check_sensor" in site
     assert "cfg.solver_load_forecast_entities" in site
     assert "...site.houseAlso" in src[src.index("const drawn = new Set(") :][:200]
+
+    # #2293: a sub-device ("part of" another circuit) is listed under its
+    # circuit with the rest as "other" on Power Flow, and indented under its
+    # circuit's tile on Topology, not drawn again beside it.
+    assert "a.part_of_source_sensor" in body and "c.other = c.kw -" in body
+    topo = (FLOW.parent / "nimbus-topology-card.js").read_text(encoding="utf-8")
+    assert "attrs.part_of_source_sensor" in topo and "load.sub" in topo
