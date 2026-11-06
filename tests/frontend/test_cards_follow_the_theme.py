@@ -50,3 +50,15 @@ def test_a_cards_own_background_falls_back_through_the_theme():
     only = only[: only.index(": '')")]
     assert "color: var(--primary-text-color" in only
     assert "table.ftable thead th { background: var(--ha-card-background" in only
+
+    # test_a_card_with_its_own_fixed_background_keeps_its_own_text_colours
+    # #2289 item 4: a card whose `ha-card` background is a fixed colour (the
+    # Topology card's near-black) must not take text from the theme, or a
+    # light theme puts its dark text on that dark card.
+    fixed = []
+    for js in sorted(FE.glob("*.js")):
+        src = js.read_text(encoding="utf-8")
+        own = re.search(r"ha-card\s*\{[^}]*background:\s*#[0-9a-fA-F]{3,8}", src)
+        if own and re.search(r"var\(--(primary|secondary)-text-color", src):
+            fixed.append(js.name)
+    assert not fixed, fixed
