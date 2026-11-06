@@ -225,6 +225,24 @@ def test_each_wizard_creates_its_part_with_a_sensible_name():
     saved = asyncio.run(flow.async_step_user(battery))["data"]
     assert "part_of" not in saved
 
+    # test_the_energy_dashboards_upstream_device_is_suggested
+    # The household sets "Upstream device" in the Energy Dashboard; Nimbus
+    # names it under the question, matched by the power statistic or by
+    # the same Home Assistant device. Only a hint: nothing is selected.
+    row = SimpleNamespace
+    items = [
+        row(stat="sensor.c1_kwh", rate="sensor.c1_w", included_in=None),
+        row(stat="sensor.pool_kwh", rate=None, included_in="sensor.c1_kwh"),
+    ]
+    devices = {"sensor.pool_kwh": "d_pool", "sensor.pool_w": "d_pool"}
+    suggest = flows.energy_parent_suggestion
+    offered = [("c1", "Circuit 1"), ("fr", "Fridge")]
+    sensors = {"c1": "sensor.c1_w", "fr": "sensor.fr_w"}
+    assert suggest(items, "sensor.pool_w", offered, sensors, devices.get) == "c1"
+    assert suggest(items, "sensor.c1_w", offered, sensors, devices.get) is None
+    assert suggest(items, "sensor.pool_w", offered[1:], sensors, devices.get) is None
+    assert suggest([], "sensor.pool_w", offered, sensors, devices.get) is None
+
     # test_names_fall_back_sensibly
     for kind, answer, states, title in [
         ("load", {const.CONF_LOAD_SENSOR: "sensor.unnamed"}, {}, "sensor.unnamed"),

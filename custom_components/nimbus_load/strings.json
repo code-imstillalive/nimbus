@@ -421,7 +421,7 @@
             "running_threshold_kw": "For a load that runs in bursts -- a washer, an oven, an AC. While it draws at least this much (e.g. 0.6 for 600 W), the forecast holds its current draw for the hours below, then nothing. While it is below this, nothing is forecast for it. Checked every 2 minutes, so a run that keeps going keeps extending the hold and a switch-off clears it. Leave blank to forecast it from its learned pattern instead.",
             "run_hold_hours": "How long a running load is forecast to keep going from its latest reading (default 1). Only used with the field above.",
             "run_hold_learned_when_off": "Only with 'Running above'. Off: nothing is forecast while the load is off. On: its usual runs, learned from its history, are forecast instead -- for a load with a regular pattern, such as an AC on hot afternoons.",
-            "part_of": "If another load's or power signal's meter already measures this one (a pool pump wired on Circuit 1), pick that circuit. The Power Flow and Topology cards then show this one under it, with what's left as \"other\", and don't count it twice. One level only: a circuit with devices under it can't itself be part of another. Display only; forecasts and the plan are unchanged."
+            "part_of": "If another load's or power signal's meter already measures this one (a pool pump wired on Circuit 1), pick that circuit. The Power Flow and Topology cards then show this one under it, with what's left as \"other\", and don't count it twice. One level only: a circuit with devices under it can't itself be part of another. Display only; forecasts and the plan are unchanged.{part_of_hint}"
           }
         }
       },
@@ -449,7 +449,7 @@
           "data_description": {
             "load_sensor": "A real, measured sensor -- e.g. your inverter's total battery power, total DC/solar power, your grid meter's total active power, or (with the Temperature/Humidity role below) a weather sensor. Must be a genuine measurement, not an optimizer's own plan/forecast entity, or the forecaster will learn from its own predictions.",
             "signal_role": "Battery/Solar/Grid are purely a labelling hint for the Topology dashboard card's auto-detection -- no effect on forecasting itself. Temperature/Humidity are different: they tell Nimbus this signal is NOT a power quantity, so the forecast entity gets a real °C/% unit instead of kW, and the coordinator skips a power-unit conversion that would otherwise fail every cycle. Leave as Other for anything else.",
-            "part_of": "If another load's or power signal's meter already measures this one (a pool pump wired on Circuit 1), pick that circuit. The Power Flow and Topology cards then show this one under it, with what's left as \"other\", and don't count it twice. One level only: a circuit with devices under it can't itself be part of another. Display only; forecasts and the plan are unchanged."
+            "part_of": "If another load's or power signal's meter already measures this one (a pool pump wired on Circuit 1), pick that circuit. The Power Flow and Topology cards then show this one under it, with what's left as \"other\", and don't count it twice. One level only: a circuit with devices under it can't itself be part of another. Display only; forecasts and the plan are unchanged.{part_of_hint}"
           }
         }
       },

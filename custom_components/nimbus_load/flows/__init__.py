@@ -66,7 +66,12 @@ def form_action_placeholders(flow: Any) -> dict[str, str]:
     opened from an existing entry's cog (reconfigure), "Add" for a new one.
     Every subentry flow shows the same `user` step for both, so without
     this an edit was titled "Add a load" (household, 25 Oct 2026)."""
-    return {"action": "Edit" if flow.source == SOURCE_RECONFIGURE else "Add"}
+    return {
+        "action": "Edit" if flow.source == SOURCE_RECONFIGURE else "Add",
+        # nimbus #2293: the Energy Dashboard's suggestion for "Part of
+        # another circuit", or nothing.
+        "part_of_hint": getattr(flow, "_part_of_hint", ""),
+    }
 
 
 # nimbus #2293: "Part of another circuit" on a Load or Power Signal. The
@@ -135,3 +140,70 @@ def without_invalid_part_of(
     if allowed and user_input.get(CONF_PART_OF) in {sid for sid, _t in parents}:
         return user_input
     return {k: v for k, v in user_input.items() if k != CONF_PART_OF}
+
+
+def energy_parent_suggestion(
+    items: list[Any],
+    own_sensor: str | None,
+    parents: list[tuple[str, str]],
+    sensor_of: dict[str, str],
+    device_of: Any,
+) -> str | None:
+    """The offered parent the Energy Dashboard says contains this meter
+    (its "Upstream device", `included_in_stat`), or None. Pure.
+
+    `items` are device_resolver.device_consumption() rows; `sensor_of` maps
+    each offered parent's subentry id to its power sensor; `device_of` gives
+    an entity's Home Assistant device id or None. A row matches a sensor by
+    its power statistic (`stat_rate`) or by sharing that sensor's device."""
+
+    def matches(item: Any, sensor: str | None) -> bool:
+        if not sensor:
+            return False
+        if item.rate == sensor:
+            return True
+        dev = device_of(sensor)
+        return dev is not None and dev in (device_of(item.stat), device_of(item.rate))
+
+    own = next((i for i in items if matches(i, own_sensor)), None)
+    if own is None or not own.included_in:
+        return None
+    up = next((i for i in items if i.stat == own.included_in), None)
+    if up is None:
+        return None
+    for sid, _title in parents:
+        if matches(up, sensor_of.get(sid)):
+            return sid
+    return None
+
+
+async def async_part_of_hint(
+    hass: Any, entry: Any, own_sensor: str | None, parents: list[tuple[str, str]]
+) -> str:
+    """The form's line naming the Energy Dashboard's suggestion; "" when it
+    has none. Only a hint: nothing is selected or saved from it."""
+    if not parents or not own_sensor:
+        return ""
+    try:
+        from homeassistant.helpers import entity_registry as er
+
+        from ..device_contract_ha import _async_energy_prefs
+        from ..device_resolver import device_consumption
+
+        items = device_consumption(await _async_energy_prefs(hass))
+        registry = er.async_get(hass)
+
+        def device_of(entity_id: str | None) -> str | None:
+            reg = registry.async_get(entity_id) if entity_id else None
+            return getattr(reg, "device_id", None)
+
+        sensor_of = {
+            sid: entry.subentries[sid].data.get(CONF_LOAD_SENSOR)
+            for sid, _t in parents
+            if sid in entry.subentries
+        }
+        sid = energy_parent_suggestion(items, own_sensor, parents, sensor_of, device_of)
+    except Exception:  # noqa: BLE001 -- a hint must never block the form
+        return ""
+    title = dict(parents).get(sid) if sid else None
+    return f" Suggested from your Energy Dashboard: **{title}**." if title else ""

@@ -51,6 +51,7 @@ from ..const import (
 )
 from ..power_input_check import energy_unit_field_errors
 from . import (
+    async_part_of_hint,
     find_subentry_sharing_source_sensor,
     form_action_placeholders,
     part_of_field,
@@ -140,6 +141,12 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
         current_data = dict(subentry.data) if subentry is not None else {}
         parents = part_of_parents(
             self._get_entry(), subentry.subentry_id if subentry else None
+        )
+        self._part_of_hint = await async_part_of_hint(
+            self.hass,
+            self._get_entry(),
+            (user_input or current_data).get(CONF_LOAD_SENSOR),
+            parents,
         )
 
         if user_input is not None:
