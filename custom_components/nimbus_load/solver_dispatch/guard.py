@@ -130,6 +130,8 @@ _FLOOR_CROSSING_WARNED: set[tuple[str, str]] = set()
 # diagnostic quieted to two-tier DEBUG/WARNING). Keyed per load so one
 # exhausted device cannot mute another's warning.
 _REAFFIRM_CAP_WARNED: set[tuple[str, str]] = set()
+# nimbus #2297: a load set as commanded but not running, once per load per day.
+_APPLIED_NOT_RUNNING_WARNED: set[tuple[str, str]] = set()
 
 
 async def dispatch_commanded_state(
@@ -224,6 +226,43 @@ async def dispatch_commanded_state(
             entity_id,
             domain,
         )
+
+
+def device_setting_matches(
+    state: object,
+    entity_id: str,
+    commanded_state: bool,
+    climate_on_hvac_mode: str | None,
+) -> bool | None:
+    """Whether the device's own setting already is what Nimbus commanded,
+    with the same per-domain meaning dispatch_commanded_state() sends: a
+    switch's on/off, a water heater's performance/eco, a climate entity's
+    configured ON hvac_mode or "off". None when the state can't be read.
+
+    nimbus #2297 (Mark Purcell, live): a heat pump whose mode already read
+    `performance` but drew no power was re-sent the same mode 20 times, then
+    reported as "something else may be writing to the device". A device set
+    as commanded that still isn't running is not fixed by a re-send.
+    """
+    if state is None:
+        return None
+    domain = entity_id.split(".", 1)[0]
+    attrs = getattr(state, "attributes", None) or {}
+    current = getattr(state, "state", None)
+    if domain == "switch":
+        want = "on" if commanded_state else "off"
+    elif domain == "water_heater":
+        want = "performance" if commanded_state else "eco"
+        current = attrs.get("operation_mode") or current
+    elif domain == "climate":
+        if commanded_state and not climate_on_hvac_mode:
+            return None
+        want = climate_on_hvac_mode if commanded_state else "off"
+    else:
+        return None
+    if current in (None, "", "unknown", "unavailable"):
+        return None
+    return current == want
 
 
 def _resolve_reaffirm_after_seconds(data: dict) -> float | None:
@@ -1443,45 +1482,75 @@ def apply_commanded_state_guard(
                         # deliberately NOT via record_activation(), so this cannot
                         # consume one of #534's capped device-side activations. A
                         # reminder is not a new activation.
+                        _hass = solver_shared.NATIVE.hass
+                        _applied = (
+                            not new.last_dispatch_failed
+                            and _hass is not None
+                            and device_setting_matches(
+                                _hass.states.get(device_entity),
+                                device_entity,
+                                new.commanded_state,
+                                climate_on_hvac_mode,
+                            )
+                        )
                         _why = (
                             "last dispatch failed"
                             if new.last_dispatch_failed
                             else "device has not followed the command"
                         )
-                        try:
-                            await dispatch_commanded_state(
-                                solver_shared.NATIVE.hass,
-                                device_entity,
-                                new.commanded_state,
-                                climate_on_hvac_mode=(
-                                    climate_on_hvac_mode
-                                    if new.commanded_state
-                                    else None
-                                ),
-                            )
-                            new = load_run_state.record_reaffirm(
-                                new, now_ts=now.timestamp(), day_key=day_key
-                            )
-                            new = replace(new, last_dispatch_failed=False)
-                            solver_shared._LOGGER.info(
-                                "Nimbus: re-sent %s to controllable load '%s' (%s) "
-                                "-- %s. Re-send %d of %d today; this does NOT "
-                                "count against the activations/day cap.",
-                                "ON" if new.commanded_state else "OFF",
-                                subentry_id,
-                                device_entity,
-                                _why,
-                                new.reaffirms_today,
-                                load_run_state.DEFAULT_MAX_REAFFIRMS_PER_DAY,
-                            )
-                        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-                            solver_shared._LOGGER.warning(
-                                "Nimbus: re-send failed for controllable load '%s' (%s)",
-                                subentry_id,
-                                device_entity,
-                                exc_info=True,
-                            )
-                            new = replace(new, last_dispatch_failed=True)
+                        if _applied:
+                            # nimbus #2297: the device already has the setting;
+                            # it isn't running for its own reasons. A re-send
+                            # can't help, so none is sent or counted.
+                            _key = (subentry_id, day_key)
+                            if _key not in _APPLIED_NOT_RUNNING_WARNED:
+                                _APPLIED_NOT_RUNNING_WARNED.add(_key)
+                                solver_shared._LOGGER.warning(
+                                    "Nimbus: controllable load '%s' (%s) is set as "
+                                    "commanded (%s) but isn't drawing power: the "
+                                    "device itself isn't running (its thermostat, a "
+                                    "defrost, a lockout or a fault). Nimbus won't "
+                                    "re-send a setting it already has. Logged once "
+                                    "per load per day (nimbus #2297).",
+                                    subentry_id,
+                                    device_entity,
+                                    "ON" if new.commanded_state else "OFF",
+                                )
+                        else:
+                            try:
+                                await dispatch_commanded_state(
+                                    solver_shared.NATIVE.hass,
+                                    device_entity,
+                                    new.commanded_state,
+                                    climate_on_hvac_mode=(
+                                        climate_on_hvac_mode
+                                        if new.commanded_state
+                                        else None
+                                    ),
+                                )
+                                new = load_run_state.record_reaffirm(
+                                    new, now_ts=now.timestamp(), day_key=day_key
+                                )
+                                new = replace(new, last_dispatch_failed=False)
+                                solver_shared._LOGGER.info(
+                                    "Nimbus: re-sent %s to controllable load '%s' (%s) "
+                                    "-- %s. Re-send %d of %d today; this does NOT "
+                                    "count against the activations/day cap.",
+                                    "ON" if new.commanded_state else "OFF",
+                                    subentry_id,
+                                    device_entity,
+                                    _why,
+                                    new.reaffirms_today,
+                                    load_run_state.DEFAULT_MAX_REAFFIRMS_PER_DAY,
+                                )
+                            except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+                                solver_shared._LOGGER.warning(
+                                    "Nimbus: re-send failed for controllable load '%s' (%s)",
+                                    subentry_id,
+                                    device_entity,
+                                    exc_info=True,
+                                )
+                                new = replace(new, last_dispatch_failed=True)
                     elif device_entity and load_run_state.reaffirm_allowed(
                         new,
                         now_ts=now.timestamp(),
