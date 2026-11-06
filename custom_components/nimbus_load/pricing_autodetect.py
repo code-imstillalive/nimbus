@@ -580,11 +580,16 @@ def apply_pricing_suggestions(
 
 
 async def async_notify_pricing_setup(
-    hass: HomeAssistant, options: dict[str, Any]
+    hass: HomeAssistant, options: dict[str, Any], asked: set[str] | None = None
 ) -> None:
     """At startup, tell the household (a persistent notification, nothing
     changed) when LocalVolts v2 is installed but a profile field is empty,
-    and when the P2P matched rate is set without a price forecast array."""
+    and when the P2P matched rate is set without a price forecast array.
+
+    `asked` is what the household has already been asked about (kept by
+    the caller across restarts). The LocalVolts question is asked once for
+    a given set of empty fields and added to it (Mark Purcell, 6 Nov 2026:
+    "prompt once and ask", not every day)."""
     detected = detect_localvolts_v2_profile(hass)
     missing = missing_profile_entities(hass, options)
     if missing:
@@ -611,12 +616,26 @@ async def async_notify_pricing_setup(
         )
     # Only the Basic profile counts: an empty transitional binding
     # (LV_V2_OPTIONAL_PROFILE) is never reported as something to fill in.
+    # Mark Purcell, 6 Nov 2026: an import or export price set to a sensor
+    # that isn't this LocalVolts entry's own means the household buys or
+    # sells elsewhere, so its LocalVolts fields are rightly empty.
+    own = set(detected.values())
+    elsewhere = any(
+        options.get(f) and options.get(f) not in own
+        for f in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR)
+    )
     empty = [
         f
         for f in detected
-        if f in LV_V2_PROFILE and not options.get(f) and f not in missing
+        if f in LV_V2_PROFILE
+        and not options.get(f)
+        and f not in missing
+        and not elsewhere
     ]
-    if empty:
+    question = f"{NOTIFY_DETECTED_ID}:{','.join(sorted(empty))}"
+    if empty and (asked is None or question not in asked):
+        if asked is not None:
+            asked.add(question)
         await _notify(
             hass,
             NOTIFY_DETECTED_ID,
