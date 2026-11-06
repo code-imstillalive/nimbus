@@ -225,10 +225,12 @@ jobs:
             custom_components/nimbus_load/device_accounting.py \
             custom_components/nimbus_load/device_bindings.py \
             custom_components/nimbus_load/device_contract.py \
+            custom_components/nimbus_load/device_discovery.py \
             custom_components/nimbus_load/device_forecasts.py \
             custom_components/nimbus_load/device_import.py \
             custom_components/nimbus_load/device_observation.py \
             custom_components/nimbus_load/device_readiness.py \
+            custom_components/nimbus_load/device_resolver.py \
             custom_components/nimbus_load/device_units.py \
             custom_components/nimbus_load/forecast_stats.py \
             --ignore-missing-imports --follow-imports=silent
