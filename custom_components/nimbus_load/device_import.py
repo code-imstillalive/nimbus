@@ -607,6 +607,15 @@ def _map_subentries(
             }
         )
 
+    # Every sensor the hub's own devices already read (grid, battery, solar,
+    # the whole house): a plain power signal on one of them is that device
+    # seen again, not a circuit (test box, 7 Nov 2026: its battery and grid
+    # meter signals have role "other").
+    bound = {
+        (b.get("source") or {}).get("entity_id")
+        for d in devices
+        for b in (d.get("bindings") or {}).values()
+    }
     for sub in subentries:
         kind = sub.get("subentry_type")
         data = dict(sub.get("data") or {})
@@ -614,11 +623,13 @@ def _map_subentries(
         if (
             kind == "power_signal"
             and _text(data.get("load_sensor"))
+            and _text(data.get("load_sensor")) not in bound
             and data.get("signal_role") in (None, "other")
         ):
-            # nimbus #2293 (Mark Purcell): a plain power signal is a circuit,
-            # mapped as a Load is, so "part of" has a device at each end.
-            # Nothing reads circuit devices for planning before DC-006.
+            # nimbus #2293 (Mark Purcell): a plain power signal on its own
+            # sensor is a circuit, mapped as a Load is, so "part of" has a
+            # device at each end. Nothing reads circuit devices for planning
+            # before DC-006.
             kind = "load"
         if kind == "power_signal":
             role = data.get("signal_role")

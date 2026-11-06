@@ -125,6 +125,18 @@ def test_every_subentry_is_mapped_or_kept_never_dropped():
         "subentries": {},
     }
 
+    # test_a_plain_signal_on_a_sensor_the_hub_already_reads_stays_unmapped
+    # Test box, 7 Nov 2026: its battery and grid meter signals have role
+    # "other". They are those devices seen again, not circuits; mapped, they
+    # were binding_source_duplicate and "Keep my change" refused.
+    subs = [
+        _sub("bp", "power_signal", "Battery power", load_sensor="sensor.bat_power"),
+        _sub("gm", "power_signal", "Meter", load_sensor="sensor.meter_power"),
+    ]
+    res = di.import_legacy(_snapshot(subentries=subs))
+    assert res.problems == []
+    assert {u["subentry_id"] for u in res.unmapped} >= {"bp", "gm"}
+
     # test_two_loads_with_one_name_get_suffixed_ids_in_creation_order
     subs = [_sub("a1", "load", "Pool"), _sub("a2", "load", "Pool")]
     res = di.import_legacy(_snapshot(subentries=subs))
