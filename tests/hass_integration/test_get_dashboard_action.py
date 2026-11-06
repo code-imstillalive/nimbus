@@ -12,6 +12,7 @@ entry to resolve against, the two install-bound tabs left out.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -71,6 +72,21 @@ async def test_the_action_returns_every_tab_resolved_against_this_install(
     }
     resolved = sorted(e for e in ours if e in text)
     assert resolved, "no entity of this install reached the dashboard"
+
+    # Each card's URL carries its file's digest (household, 6 Nov 2026: a
+    # test build kept the release's version and a browser its old card).
+    from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
+
+    from custom_components.nimbus_load import frontend
+
+    urls = getattr(hass.data[DATA_EXTRA_MODULE_URL], "urls", ())
+    for card in frontend._CARDS:
+        data = (frontend._FRONTEND_DIR / card.filename).read_bytes()
+        digest = hashlib.sha256(data).hexdigest()[:8]
+        assert any(
+            u.startswith(f"/{DOMAIN}/{card.filename}?v=") and u.endswith(f"-{digest}")
+            for u in urls
+        ), (card.filename, sorted(urls))
 
     # An unreadable resource list, or none at all, also means the tile slider.
     class Broken:

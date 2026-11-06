@@ -65,7 +65,8 @@ changes to your dashboard without any YAML.
 updates* button on your Help tab. Add the card once: **Edit dashboard → + Add
 card**, search **nimbus**, pick **Nimbus Tabs** and save (or add a Manual card
 with `type: custom:nimbus-tabs-card`). The current Help tab it then offers has
-the card built in.
+the card built in. Until then, **Settings → Repairs** shows a reminder that
+clears itself once the card is on a dashboard.
 
 Then:
 
@@ -264,12 +265,14 @@ What is happening right now, as a live animated flow. Dots run along each
 line, faster for more power, coloured by where the energy comes from (solar
 gold, battery green, grid blue).
 
+- **Layout:** Grid on the inverters' row between them (beside a single
+  inverter), House in the centre below, circuits fanned out under House.
 - **Your site, drawn from Nimbus's setup:** each inverter (a Power Source),
   its PV strings above it while they produce, and its battery towers beside
   it with their level, health and temperature, feeding the house and the
   grid. Without inverters set up, one combined "Solar & battery" node.
   Towers sit in a column on their inverter's side.
-- **Your EV** (a battery participant) is one node off the house, with its
+- **Your EV** (a battery participant, darker green) is one node off the house, with its
   charge level in the ring and whether it is charging, supplying or idle.
 - **The price now,** on the grid: what is being paid or earned this period,
   marked P2P when the P2P rate applies.
@@ -280,7 +283,8 @@ gold, battery green, grid blue).
 - **Solar against forecast,** while the plan expects solar.
 - **The circuits drawing now:** small bubbles under House, one per circuit
   drawing over 5 W (the Topology card's own mark for "active"), up to the
-  nine largest, each under the name you gave its load or power signal.
+  twelve largest, each under the name you gave its load or power signal,
+  fanned below House (up to a half circle as they grow).
 - **The plan table beside it** is the Control Panel card's own forecast
   table (`custom:nimbus-dispatch-card-v4` with `table_only: true`), so the
   two always match.

@@ -8,11 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-11-06
+
+**A new Power Flow layout with room for every circuit, and a reminder when your dashboard has no "Check for updates" button.**
+
+The first release under the new numbering (#2289): a release you would notice moves the middle number.
+
+- **Power Flow layout** (#2294). Grid sits on the inverters' row between them, House in the centre below, and your circuits fan out underneath House, widening up to a half circle as you add them (up to twelve), with room left for the devices inside a circuit to come. An EV is a darker green and sits beside House; up to four EVs fit clear of the circuits.
+- **"Check for updates" reminder** (#2300). Tabs pasted before 0.94.507 have no Nimbus Tabs card, so no *Check for updates* button, and Nimbus never edits your dashboard to add it. Settings → Repairs now says how to add it in four clicks when a dashboard shows Nimbus cards but none has the Tabs card. It only reads your dashboards, and clears itself once the card is on one.
+- **Cards reload when they change** (#2301). A card's web address now changes whenever its file does, so a browser can't keep showing an old card after an update.
+- Internal: the arithmetic for a meter inside another meter (a pool pump inside a circuit) is in place for the Power Flow and Topology cards to use (#2296); nothing reads it yet, and plans are unchanged. Shipped code no longer points readers at a private repository (#2292).
+
 ## [0.94.521] - 2026-11-05
 
 **The Power Flow card's circuits carry the names you gave them.**
 
 - **Circuit names** (#2285). 0.94.520 said circuits would show under your names, but that held only for controllable loads. Circuits set up as power signals still showed the raw sensor's name ("Smappee MQTT Circuit 1 Realtime W" for a circuit named "Circuit - Power 1"). They are now named after the signal, and only a trailing "power" or "active import" is trimmed, so "Circuit - Power 1" keeps its word. Names that already matched their sensor (for example "CB-PW HWS L1 Power", shown as "HWS L1") are unchanged.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.4) at 21da7b9b** (`release/0.94.521`, installed through HACS untagged and restarted at 23:30 AEST, 5 Nov; read through 23:33). 123 of the 127 Nimbus entities carrying a version read 0.94.521; the other four are the daily reports. None of the 388 Nimbus entities unavailable; plan `optimal`; all 61 Solver numbers kept their values over the restart. The Power Flow tab, reloaded with the browser cache cleared, drew seven circuits labelled "AC L2", "AC B1", "COMMS", "L2", "L1", "Lights L1" and "POOL 2", the same labels as before: the test box's signals are named after their sensors ("CB-PW AC L2 Power"), so only an install whose signals carry their own names, like the tester's, sees a change. The new naming was checked by hand against those and the tester's names ("Circuit - Power 1 Forecast" gives "Circuit - Power 1"); it was not seen on the tester's own screen before release.
+- Consumer check: no setting, entity or attribute is added, moved or renamed. Only the Power Flow card's file changes; a browser may need a reload to load it. Plans are unchanged.
 
 ## [0.94.520] - 2026-11-05
 

@@ -13,6 +13,8 @@ says what is wrong and where to fix it, and clears itself once fixed:
 - placeholder battery numbers;
 - a battery participant whose "States that mean available" matched none of
   the states its availability entity reported in the last 7 days.
+- a Nimbus dashboard with no **Nimbus Tabs** card, so no *Check for
+  updates* button ([how to add it](dashboards.md#keeping-the-tabs-up-to-date-the-nimbus-tabs-card)).
 
 ## Common problems
 

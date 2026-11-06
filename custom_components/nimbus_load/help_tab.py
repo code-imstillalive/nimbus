@@ -218,6 +218,20 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.95.0",
+        "6 Nov 2026",
+        (
+            (
+                "**Power Flow:** a new layout. Grid between the inverters, "
+                "House in the centre, your circuits fanned out below."
+            ),
+            (
+                "**Repairs** reminds you to add the Nimbus Tabs card when "
+                "your dashboard has no *Check for updates* button."
+            ),
+        ),
+    ),
+    (
         "0.94.521",
         "5 Nov 2026",
         ("**Power Flow:** circuits carry the names you gave them.",),

@@ -43,6 +43,7 @@ hardcoded) are resolved from the card's own YAML `config:` block instead
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 from typing import NamedTuple
@@ -90,6 +91,11 @@ _CARDS: tuple[_CardAsset, ...] = (
     # own forecast table.
     _CardAsset("nimbus-flow-card.js", "nimbus-flow-card"),
 )
+
+
+def _file_digest(path: Path) -> str:
+    """The first 8 hex digits of the file's SHA-256, for the cache-buster."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:8]
 
 
 async def async_register_frontend(hass: HomeAssistant, version: str) -> None:
@@ -149,7 +155,13 @@ async def async_register_frontend(hass: HomeAssistant, version: str) -> None:
         # synchronous call that mutates a frozenset in hass.data -- no
         # storage writes, no dependency on Lovelace's own data shape, and
         # works identically for storage-mode and YAML-mode Lovelace.
-        versioned_url = f"{url_path}?v={version}"
+        # Household, 6 Nov 2026: a test build carries the release's version,
+        # so a browser kept the old card; the file's own digest changes the
+        # URL whenever the file does.
+        digest = await hass.async_add_executor_job(
+            _file_digest, _FRONTEND_DIR / card.filename
+        )
+        versioned_url = f"{url_path}?v={version}-{digest}"
         add_extra_js_url(hass, versioned_url)
         _LOGGER.info(
             "Nimbus: %s registered at %s -- available in every dashboard "

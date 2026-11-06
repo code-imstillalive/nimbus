@@ -69,10 +69,11 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders(
         has_load_forecast=True,
         failed_streak={"count": 5, "since": "2026-09-20T06:00:00+00:00"},
         availability_mismatches=[("p1", "Car", "sensor.c", ("Charge",), "Charging")],
+        tabs_card_missing=True,
     )
     infeasible = sh._plan_failing_issue({"count": 5, "status": "infeasible"})
     every.append(infeasible)
-    assert len({i.kind for i in every}) == 14
+    assert len({i.kind for i in every}) == 15
     for issue in every:
         words = set(re.findall(r"\{(\w+)\}", json.dumps(ISSUES[issue.kind])))
         assert words == set(issue.placeholders), issue.kind
@@ -90,6 +91,17 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders(
     ).placeholders["causes"]
     assert "more than one setting conflicts" in alone
     assert infeasible.placeholders["causes"] == sh._CAUSES_UNKNOWN
+
+    # test_a_dashboard_without_the_tabs_card_is_told_how_to_add_it
+    # Household, 6 Nov 2026: tabs pasted before 0.94.507 have no "Check for
+    # updates". Only a dashboard showing Nimbus cards counts, and the card on
+    # any dashboard clears it.
+    old = {"views": [{"cards": [{"type": "custom:nimbus-flow-card"}]}]}
+    tabs = {"views": [{"cards": [{"type": "custom:nimbus-tabs-card"}]}]}
+    other = {"views": [{"cards": [{"type": "entities"}]}]}
+    assert sh.tabs_card_missing([old, other])
+    assert not sh.tabs_card_missing([old, tabs])
+    assert not sh.tabs_card_missing([other, None])
 
     # test_a_trained_or_rule_based_forecast_needs_nothing
     for data in [
