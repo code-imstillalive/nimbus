@@ -47,3 +47,13 @@ def test_powered_circuits_show_under_the_households_names():
     # own title.
     assert "String(a.friendly_name || this._attrs(src).friendly_name || src)" in body
     assert r'.replace(/\s*forecast$/i, "")' in body
+
+    # #2299 (Mark Purcell, Cottonwood): a second whole-house meter
+    # ("Sigen Plant Total Load") was drawn as a circuit equal to House. Every
+    # whole-house meter the household named is excluded, not only the load
+    # forecast's own source.
+    site = src[src.index("_site() {") :]
+    site = site[: site.index("\n  }\n")]
+    assert "cfg.solver_whole_house_cross_check_sensor" in site
+    assert "cfg.solver_load_forecast_entities" in site
+    assert "...site.houseAlso" in src[src.index("const drawn = new Set(") :][:200]
