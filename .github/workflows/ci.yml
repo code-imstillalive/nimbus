@@ -219,9 +219,18 @@ jobs:
           python-version: "3.14"
       - name: Install mypy
         run: pip install mypy numpy
-      - name: Run mypy (strict, solver/ + ml/ only)
+      - name: Run mypy (strict, solver/ + ml/ + HA-free device modules, #2289 item 9)
         run: |
           mypy custom_components/nimbus_load/solver custom_components/nimbus_load/ml \
+            custom_components/nimbus_load/device_accounting.py \
+            custom_components/nimbus_load/device_bindings.py \
+            custom_components/nimbus_load/device_contract.py \
+            custom_components/nimbus_load/device_forecasts.py \
+            custom_components/nimbus_load/device_import.py \
+            custom_components/nimbus_load/device_observation.py \
+            custom_components/nimbus_load/device_readiness.py \
+            custom_components/nimbus_load/device_units.py \
+            custom_components/nimbus_load/forecast_stats.py \
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------
