@@ -48,7 +48,7 @@ def site(monkeypatch):
     monkeypatch.setattr(sw, "ha_get", get)
     monkeypatch.setattr(shared, "ha_get", get)  # the unit lookup reads it here
     monkeypatch.setattr(sw, "entity_exists", lambda eid: eid in states)
-    monkeypatch.setattr(sw, "_SOLAR_SOURCE_WARNED", set())
+    monkeypatch.setattr(solar, "_SOLAR_SOURCE_WARNED", set())
     return states
 
 
