@@ -27,8 +27,10 @@ import os
 import re
 import sys
 import urllib.error
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from time import monotonic
+from typing import Any
 from zoneinfo import ZoneInfo
 
 # nimbus issue #590: same dual-mode try/except shape as every other
@@ -2990,7 +2992,21 @@ def _publish_side_reports(
     return solar_delivery
 
 
-def main() -> None:
+@dataclass(frozen=True)
+class _Settings:
+    """What `_settings_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    cfg: dict
+    cfg_unmoded: dict
+    now: datetime
+    grid_times: list[datetime]
+    period_hours_arr: list[float]
+    n_periods: int
+
+
+def _settings_phase() -> _Settings:
+    """The solve's settings, household mode, start time and time grid: the first
+    phase of `main()`, moved verbatim (#2289 item 6 step 9)."""
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see solver_shared.fetch_solver_config()'s own docstring
     # for the full "installable by anyone" context this closes.
@@ -3036,7 +3052,43 @@ def main() -> None:
     now = datetime.now(UTC).astimezone(LOCAL_TZ).replace(second=0, microsecond=0)
     grid_times, period_hours_arr = solver_shared.build_tiered_grid(now)
     n_periods = len(grid_times)
+    return _Settings(
+        cfg=cfg,
+        cfg_unmoded=cfg_unmoded,
+        now=now,
+        grid_times=grid_times,
+        period_hours_arr=period_hours_arr,
+        n_periods=n_periods,
+    )
 
+
+@dataclass(frozen=True)
+class _Inputs:
+    """What `_input_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    failed_load_entities: Any
+    live_load_kw: Any
+    load_forecast_coverage_hours: Any
+    load_forecast_error: Any
+    load_forecast_source_decision: Any
+    load_forecast_source_used: Any
+    load_forecast_warnings: Any
+    load_kw: Any
+    load_lower_kw: Any
+    load_upper_kw: Any
+    solar_delivery: Any
+    solar_kw: Any
+    solar_lower_kw: Any
+    solar_quantile_result: Any
+    solar_upper_kw: Any
+    summed_18_now_kw: Any
+    whole_house_now_kw: Any
+
+
+def _input_phase(
+    cfg, cfg_unmoded, grid_times, n_periods, now, period_hours_arr
+) -> _Inputs:
+    """The solar and load inputs, the household load-total publish and the side reports: phase 2 of `main()`, moved verbatim (#2289 item 6 step 9)."""
     # Solar forecast sources -- every configured/auto-detected source
     # fetched, blended, and live-anchored for period 0. Moved out of
     # this function wholesale by nimbus issue #735 stage 1 (pure code
@@ -3110,7 +3162,48 @@ def main() -> None:
     # The non-essential publishes (nimbus #735 stage 6). See
     # _publish_side_reports(): none of them may break the real solve.
     solar_delivery = _publish_side_reports(cfg, cfg_unmoded, now, grid_times, solar_kw)
+    return _Inputs(
+        failed_load_entities=failed_load_entities,
+        live_load_kw=live_load_kw,
+        load_forecast_coverage_hours=load_forecast_coverage_hours,
+        load_forecast_error=load_forecast_error,
+        load_forecast_source_decision=load_forecast_source_decision,
+        load_forecast_source_used=load_forecast_source_used,
+        load_forecast_warnings=load_forecast_warnings,
+        load_kw=load_kw,
+        load_lower_kw=load_lower_kw,
+        load_upper_kw=load_upper_kw,
+        solar_delivery=solar_delivery,
+        solar_kw=solar_kw,
+        solar_lower_kw=solar_lower_kw,
+        solar_quantile_result=solar_quantile_result,
+        solar_upper_kw=solar_upper_kw,
+        summed_18_now_kw=summed_18_now_kw,
+        whole_house_now_kw=whole_house_now_kw,
+    )
 
+
+@dataclass(frozen=True)
+class _PriceSources:
+    """What `_price_sources_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    _prices: Any
+    export_bonus_price: Any
+    export_price_lower_band: Any
+    export_real_mask: Any
+    has_price_forecast_array: Any
+    import_price_upper_band: Any
+    import_real_mask: Any
+    match_fraction: Any
+    p2p_recent_volume_kwh: Any
+    price_source_freshness: Any
+    price_source_on_aemo: Any
+    spot_export: Any
+    spot_import_raw: Any
+
+
+def _price_sources_phase(cfg, grid_times, n_periods, now) -> _PriceSources:
+    """The price sources: the price forecast array check, the price arrays, and whether the source is AEMO. Phase 3 of `main()`, moved verbatim (#2289 item 6 step 9)."""
     # Two price paths, gated on whether a forecast-array price sensor is
     # configured (CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR), never on a
     # retailer's literal entity existing (2026-09-02). An install without
@@ -3141,7 +3234,52 @@ def main() -> None:
     price_source_on_aemo = bool(
         price_source_freshness and price_source_freshness.get("fallback") == "aemo"
     )
+    return _PriceSources(
+        _prices=_prices,
+        export_bonus_price=export_bonus_price,
+        export_price_lower_band=export_price_lower_band,
+        export_real_mask=export_real_mask,
+        has_price_forecast_array=has_price_forecast_array,
+        import_price_upper_band=import_price_upper_band,
+        import_real_mask=import_real_mask,
+        match_fraction=match_fraction,
+        p2p_recent_volume_kwh=p2p_recent_volume_kwh,
+        price_source_freshness=price_source_freshness,
+        price_source_on_aemo=price_source_on_aemo,
+        spot_export=spot_export,
+        spot_import_raw=spot_import_raw,
+    )
 
+
+@dataclass(frozen=True)
+class _PriceBlend:
+    """What `_price_blend_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    export_price_cross_spread: Any
+    export_price_source: Any
+    import_price_cross_spread: Any
+    import_price_source: Any
+    price_consolidation_result: Any
+    rrp_crosscheck_result: Any
+    spot_export: Any
+    spot_export_source: Any
+    spot_import_raw: Any
+    spot_import_source: Any
+
+
+def _price_blend_phase(
+    _prices,
+    cfg,
+    export_real_mask,
+    grid_times,
+    import_real_mask,
+    now,
+    period_hours_arr,
+    price_source_on_aemo,
+    spot_export,
+    spot_import_raw,
+) -> _PriceBlend:
+    """The settled-period override, the secondary-source blend, consolidation, the RRP cross-check and the p5min guard. Phase 4 of `main()`, moved verbatim (#2289 item 6 step 9)."""
     # Every period inside the current settlement block takes the source's
     # live settled `state`, not a forecast or blended value (nimbus #220).
     # The settled price is a contractual fact, and a forecast-array lookup
@@ -3267,6 +3405,94 @@ def main() -> None:
         ),
         ha_get,
     )
+    return _PriceBlend(
+        export_price_cross_spread=export_price_cross_spread,
+        export_price_source=export_price_source,
+        import_price_cross_spread=import_price_cross_spread,
+        import_price_source=import_price_source,
+        price_consolidation_result=price_consolidation_result,
+        rrp_crosscheck_result=rrp_crosscheck_result,
+        spot_export=spot_export,
+        spot_export_source=spot_export_source,
+        spot_import_raw=spot_import_raw,
+        spot_import_source=spot_import_source,
+    )
+
+
+def main() -> None:
+    _settings = _settings_phase()
+    cfg = _settings.cfg
+    cfg_unmoded = _settings.cfg_unmoded
+    now = _settings.now
+    grid_times = _settings.grid_times
+    period_hours_arr = _settings.period_hours_arr
+    n_periods = _settings.n_periods
+
+    _input = _input_phase(
+        cfg=cfg,
+        cfg_unmoded=cfg_unmoded,
+        grid_times=grid_times,
+        n_periods=n_periods,
+        now=now,
+        period_hours_arr=period_hours_arr,
+    )
+    failed_load_entities = _input.failed_load_entities
+    live_load_kw = _input.live_load_kw
+    load_forecast_coverage_hours = _input.load_forecast_coverage_hours
+    load_forecast_error = _input.load_forecast_error
+    load_forecast_source_decision = _input.load_forecast_source_decision
+    load_forecast_source_used = _input.load_forecast_source_used
+    load_forecast_warnings = _input.load_forecast_warnings
+    load_kw = _input.load_kw
+    load_lower_kw = _input.load_lower_kw
+    load_upper_kw = _input.load_upper_kw
+    solar_delivery = _input.solar_delivery
+    solar_kw = _input.solar_kw
+    solar_lower_kw = _input.solar_lower_kw
+    solar_quantile_result = _input.solar_quantile_result
+    solar_upper_kw = _input.solar_upper_kw
+    summed_18_now_kw = _input.summed_18_now_kw
+    whole_house_now_kw = _input.whole_house_now_kw
+
+    _price_sources = _price_sources_phase(
+        cfg=cfg, grid_times=grid_times, n_periods=n_periods, now=now
+    )
+    _prices = _price_sources._prices
+    export_bonus_price = _price_sources.export_bonus_price
+    export_price_lower_band = _price_sources.export_price_lower_band
+    export_real_mask = _price_sources.export_real_mask
+    has_price_forecast_array = _price_sources.has_price_forecast_array
+    import_price_upper_band = _price_sources.import_price_upper_band
+    import_real_mask = _price_sources.import_real_mask
+    match_fraction = _price_sources.match_fraction
+    p2p_recent_volume_kwh = _price_sources.p2p_recent_volume_kwh
+    price_source_freshness = _price_sources.price_source_freshness
+    price_source_on_aemo = _price_sources.price_source_on_aemo
+    spot_export = _price_sources.spot_export
+    spot_import_raw = _price_sources.spot_import_raw
+
+    _price_blend = _price_blend_phase(
+        _prices=_prices,
+        cfg=cfg,
+        export_real_mask=export_real_mask,
+        grid_times=grid_times,
+        import_real_mask=import_real_mask,
+        now=now,
+        period_hours_arr=period_hours_arr,
+        price_source_on_aemo=price_source_on_aemo,
+        spot_export=spot_export,
+        spot_import_raw=spot_import_raw,
+    )
+    export_price_cross_spread = _price_blend.export_price_cross_spread
+    export_price_source = _price_blend.export_price_source
+    import_price_cross_spread = _price_blend.import_price_cross_spread
+    import_price_source = _price_blend.import_price_source
+    price_consolidation_result = _price_blend.price_consolidation_result
+    rrp_crosscheck_result = _price_blend.rrp_crosscheck_result
+    spot_export = _price_blend.spot_export
+    spot_export_source = _price_blend.spot_export_source
+    spot_import_raw = _price_blend.spot_import_raw
+    spot_import_source = _price_blend.spot_import_source
 
     # TOU network fees and the flat fee rate apply to every install
     # (nimbus #152), and are zero until the household sets them.

@@ -232,7 +232,8 @@ def test_threshold_is_5000_or_within_10_percent_of_the_cap():
     # test_main_guards_the_scheduling_prices_after_the_blend: Wiring: main() applies the guard to spot_import_raw/spot_export after
     import inspect
 
-    src = inspect.getsource(solver_writer.main)
+    # The blend phase of main() since #2289 item 6 step 9.
+    src = inspect.getsource(solver_writer._price_blend_phase)
     guard = src.index("p5min_guard.guard_schedule_prices(")
     assert src.index("blend_price_with_secondary_sources(") < guard
     assert src.index('import_price_source[_i] = "primary"') < guard
