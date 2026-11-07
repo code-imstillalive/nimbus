@@ -116,6 +116,10 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
   lines with the number should change.
 - **Afterwards:** grep for `<<<<<<<`/`>>>>>>>` in every touched file before
   committing.
+- **A hunk resolved to neither side leaves extra blank lines.** Run
+  `ruff format` on the file, and make the format check gate the commit:
+  `ruff format --check <files> && git commit ...`. A check on its own line
+  does not stop the commit (it happened twice on 7 Nov 2026).
 
 ## 6. The PR
 
