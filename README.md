@@ -502,12 +502,11 @@ Both are `SensorEntity` classes attached to the Nimbus hub device, with the
 `forecast` list excluded from the Recorder (`_unrecorded_attributes`) so long-term
 statistics keep working without tripping the 16 KB per-attribute limit.
 
-### Legacy standalone-script path
+### Standalone script: retired
 
-One older path remains fully supported for the one case the native path
-can't cover: you'd rather run the Solver on a separate always-on device than
-inside HA's process. The standalone script (`nimbus_solver_forecast_writer.py`)
-lives in `docs/real-world-integration/`. Both paths run byte-identical solve logic.
+The Solver runs only inside Home Assistant. The standalone cron script
+(`nimbus_solver_forecast_writer.py`), which ran it on a separate device
+against HA's REST API, was removed on 7 Nov 2026 (#2289 item 5).
 
 **Removed:** the `nimbus_solver_app` Supervisor add-on (deprecated since
 v0.73.0) has been removed from this repo entirely — ahead of the v1.0.0
@@ -821,7 +820,7 @@ default, range, and unit table for every `number.nimbus_solver_*` entity above.
    `solver_writer.py`'s `PLAN_STATE_PATH` and `LOCK_PATH` (both env-var
    overridable; defaults live under `.storage/` too).
 4. If you also installed the `nimbus_solver_app` Supervisor add-on (removed
-   from this repo, see "Legacy standalone-script path" above): Settings →
+   from this repo, see "Standalone script: retired" above): Settings →
    Add-ons → **Nimbus Solver** → **Uninstall**, then remove the repository
    from Add-on Store → Repositories.
 
