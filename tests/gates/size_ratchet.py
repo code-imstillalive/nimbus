@@ -96,7 +96,8 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    32  # solver_writer.py alone as of nimbus #2289 item 6 steps 1-2
+    26  # solver_writer.py alone as of nimbus #2289 item 6 step 5
+    # (six load-forecast readers to solver_inputs/load.py); 32 as of nimbus #2289 item 6 steps 1-2
     # (update_solar_delivery_ratio to solver_inputs/solar.py, build_tiered_grid
     # to solver_shared.py); 34 as of
     # nimbus #2289 item 5 (B.2b: the REST

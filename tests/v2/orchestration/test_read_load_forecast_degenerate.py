@@ -8,7 +8,8 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
-import solver_writer
+import solver_shared
+from solver_inputs import load as load_inputs
 
 
 def _grid_times(n):
@@ -47,9 +48,9 @@ class TestBoundaryAtTenPercent(unittest.TestCase):
         # 9/100 nonzero -> ratio 0.09 < 0.1 -> should fail.
         points = {i: 2.0 for i in range(9)}
         state = _state_with_n_points(points, total=100)
-        with patch.object(solver_writer, "ha_get", return_value=state):
+        with patch.object(solver_shared, "ha_get", return_value=state):
             _load_kw, _lower, _upper, error, _coverage = (
-                solver_writer.read_load_forecast_sensor(
+                load_inputs.read_load_forecast_sensor(
                     "sensor.nimbus_a_real_load_forecast", _grid_times(100)
                 )
             )

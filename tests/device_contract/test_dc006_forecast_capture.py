@@ -341,7 +341,7 @@ def test_in_active_the_solver_reads_through_the_contract():
         raise RuntimeError("stop after the read")
 
     with (
-        patch.object(solver_writer, "read_load_forecast_sensor", reader),
+        patch.object(load, "read_load_forecast_sensor", reader),
         pytest.raises(RuntimeError, match="stop after the read"),
     ):
         load.build_load_arrays(
