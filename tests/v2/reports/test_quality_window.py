@@ -86,11 +86,10 @@ def history(monkeypatch):
 
     monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
 
-    # Every other read finds nothing: an empty Home Assistant, in process.
-    hass = use_native_fake(monkeypatch, sw, FakeHA(states={}))
+    # Every other read fails at once: no Home Assistant attached.
+    monkeypatch.setattr(sw.NATIVE, "hass", None)
     series["_calls"] = calls
-    yield series
-    hass.close()
+    return series
 
 
 def window(c=None, start=DAY, end=END, partial=True):
@@ -298,7 +297,7 @@ def test_the_outage_probe_reads_only_states_after_the_last_row(
     monkeypatch, rows, error, expected
 ):
     history = {"sensor.pv": [HistoryPoint(w.isoformat(), s) for s, w in (rows or [])]}
-    hass = use_native_fake(monkeypatch, sw, FakeHA(history=history))
+    hass = use_native_fake(monkeypatch, sw, FakeHA(states={}, history=history))
     if error:
 
         def down(*_a, **_k):

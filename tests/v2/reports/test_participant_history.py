@@ -174,7 +174,9 @@ def recorder(monkeypatch):
                 for r in rows
             ]
         }
-        opened.append(use_native_fake(monkeypatch, sw, FakeHA(history=history)))
+        opened.append(
+            use_native_fake(monkeypatch, sw, FakeHA(states={}, history=history))
+        )
         if fail:
 
             def down(*_a, **_k):
@@ -286,15 +288,14 @@ def test_the_quality_report_scores_home_and_every_participant(site, monkeypatch)
 
     monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
     monkeypatch.setattr(sw, "fetch_entity_power_history_kw", fetch)
-    # Every other read finds nothing: an empty Home Assistant.
-    hass = use_native_fake(monkeypatch, sw, FakeHA(states={}))
+    # Every other read fails at once: no Home Assistant attached.
+    monkeypatch.setattr(sw.NATIVE, "hass", None)
     now = END + timedelta(hours=10)
     assert sw.compute_daily_quality_report(cfg, now)["scored_participants"] == ["home"]
     site.add()
     report = sw.compute_daily_quality_report(cfg, now)
     assert report["scored_participants"] == ["home", "ev"]
     assert report["j_ach"] == pytest.approx(report["j_ref"], abs=1e-6)  # all idle
-    hass.close()
 
 
 def test_a_participant_whose_positive_is_discharge_reads_it_so(site):
