@@ -31,7 +31,7 @@ HA-import-free apart from the service call, which goes through `hass`.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -151,7 +151,7 @@ def find_energy_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, str]]
         entity_id = options.get(key)
         unit = energy_unit_of(hass, entity_id)
         if unit is not None:
-            found.append((label, entity_id, unit))
+            found.append((label, cast(str, entity_id), unit))
     for subentry in (getattr(entry, "subentries", {}) or {}).values():
         if subentry.subentry_type not in (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL):
             continue
@@ -287,7 +287,7 @@ def find_non_power_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, st
         eid = options.get(key)
         unit = _unit_of(hass, eid)
         if is_non_power_unit(unit) or is_energy_unit(unit):
-            found.append((label, eid, str(unit)))
+            found.append((label, cast(str, eid), str(unit)))
     for key, label in (
         (CONF_BATTERY_SENSOR, "Forecaster: battery sensor"),
         (CONF_GRID_SENSOR, "Forecaster: grid sensor"),
@@ -296,7 +296,7 @@ def find_non_power_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, st
         eid = options.get(key)
         unit = _unit_of(hass, eid)
         if is_non_power_unit(unit):
-            found.append((label, eid, str(unit)))
+            found.append((label, cast(str, eid), str(unit)))
     fields = [(t, f, p) for t, f, p in _SUBENTRY_POWER_FIELDS]
     fields += [(SUBENTRY_TYPE_LOAD, CONF_LOAD_SENSOR, "Load")]
     fields += [(SUBENTRY_TYPE_SIGNAL, CONF_LOAD_SENSOR, "Power Signal")]
@@ -323,7 +323,7 @@ def find_non_power_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, st
                 is_energy_unit(unit) and not energy_reported_elsewhere
             ):
                 title = getattr(subentry, "title", "")
-                found.append((f"{prefix} '{title}'", eid, str(unit)))
+                found.append((f"{prefix} '{title}'", cast(str, eid), str(unit)))
     return found
 
 

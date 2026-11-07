@@ -204,7 +204,7 @@ def replay(
                 and b in sources[s]
                 and (
                     b not in ((blend_sources or {}).get(side) or {})
-                    or s in blend_sources[side][b]
+                    or s in ((blend_sources or {}).get(side) or {})[b]
                 )
             }
             published = _pairs((sources.get(pc.BLEND_SOURCE) or {}).get(b) or {})
