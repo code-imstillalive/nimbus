@@ -167,14 +167,16 @@ def test_a_forecast_swapped_with_its_own_band_cannot_build(
     # test_a_deferred_cycle_holds_the_last_real_signals
     with monkeypatch.context() as mp:
         posted = _posts(mp)
-        sw.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=True)
+        publish.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=True)
         assert posted == []  # nothing to hold yet
-        sw.publish_flex_signals(_at(ON).plan, hold_last=False)
+        publish.publish_flex_signals(_at(ON).plan, hold_last=False)
         (real,) = posted
         assert real[0] == "sensor.nimbus_flex_signals"
-        sw.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=True)
+        publish.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=True)
         assert posted[-1] == real  # the same payload, its own generated_at kept
-        sw.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=False)
+        publish.publish_flex_signals(
+            SimpleNamespace(grid_signals=None), hold_last=False
+        )
         assert len(posted) == 2  # switched off: nothing posted
 
     # test_a_deferred_cycle_holds_the_last_telemetry_record
