@@ -1343,6 +1343,44 @@ def p2p_bonus_price_by_period(
     )
 
 
+def native_state_changes(
+    entity_id: str, start: datetime, end: datetime, *, no_attributes: bool
+) -> list[Any]:
+    """One entity's recorder state changes over [start, end], native mode only.
+
+    Called from the solve's worker thread: the read runs on HA's loop through
+    the recorder's executor, and this blocks up to 30 s for it. The one place
+    the solve path reads the recorder (#2289 item 5, B.2b), so a test can
+    replace it without installing a fake `homeassistant` package. Raises on
+    any failure; every caller degrades on its own.
+    """
+    import asyncio
+
+    from homeassistant.components.recorder import get_instance, history
+
+    hass = NATIVE.hass
+
+    async def _fetch() -> dict:
+        return await get_instance(hass).async_add_executor_job(
+            history.state_changes_during_period,
+            hass,
+            start,
+            end,
+            entity_id,
+            no_attributes,
+        )
+
+    coro = _fetch()
+    try:
+        future = asyncio.run_coroutine_threadsafe(coro, hass.loop)
+    except Exception:
+        # nimbus #1825: never scheduled, so close it rather than leave a
+        # never-awaited coroutine behind.
+        coro.close()
+        raise
+    return future.result(timeout=30).get(entity_id, [])
+
+
 def fetch_entity_went_unavailable(
     entity_id: str, after: datetime, end: datetime
 ) -> bool | None:
@@ -1368,25 +1406,7 @@ def fetch_entity_went_unavailable(
     raw: list[str] = []
     if NATIVE.hass is not None:
         try:
-            import asyncio
-
-            from homeassistant.components.recorder import (
-                get_instance as _recorder_get_instance,
-            )
-            from homeassistant.components.recorder import history as _recorder_history
-
-            async def _fetch() -> dict:
-                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
-                    _recorder_history.state_changes_during_period,
-                    NATIVE.hass,
-                    after,
-                    end,
-                    entity_id,
-                    True,  # no_attributes
-                )
-
-            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
-            states = future.result(timeout=30).get(entity_id, [])
+            states = native_state_changes(entity_id, after, end, no_attributes=True)
             raw = [s.state for s in states if s.last_changed > after]
         except Exception:
             _LOGGER.debug(
@@ -1438,26 +1458,7 @@ def fetch_entity_history_range(
     sw = _solver_writer()
     if NATIVE.hass is not None:
         try:
-            import asyncio
-
-            from homeassistant.components.recorder import (
-                get_instance as _recorder_get_instance,
-            )
-            from homeassistant.components.recorder import history as _recorder_history
-
-            async def _fetch() -> dict:
-                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
-                    _recorder_history.state_changes_during_period,
-                    NATIVE.hass,
-                    start,
-                    end,
-                    entity_id,
-                    True,  # no_attributes
-                )
-
-            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
-            changes = future.result(timeout=30)
-            states = changes.get(entity_id, [])
+            states = native_state_changes(entity_id, start, end, no_attributes=True)
         except Exception:
             # nimbus issue #363 (Mark Purcell, codebase review): degrade
             # stays, breadcrumb added -- same reasoning as fetch_price_
@@ -1531,33 +1532,7 @@ def fetch_entity_attribute_history_range(
     sw = _solver_writer()
     if NATIVE.hass is not None:
         try:
-            import asyncio
-
-            from homeassistant.components.recorder import (
-                get_instance as _recorder_get_instance,
-            )
-            from homeassistant.components.recorder import history as _recorder_history
-
-            async def _fetch() -> dict:
-                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
-                    _recorder_history.state_changes_during_period,
-                    NATIVE.hass,
-                    start,
-                    end,
-                    entity_id,
-                    False,  # no_attributes -- must be False, the whole point here
-                )
-
-            coro = _fetch()
-            try:
-                future = asyncio.run_coroutine_threadsafe(coro, NATIVE.hass.loop)
-            except Exception:
-                # nimbus #1825: never scheduled, so close it rather than
-                # leave a never-awaited coroutine behind.
-                coro.close()
-                raise
-            changes = future.result(timeout=30)
-            states = changes.get(entity_id, [])
+            states = native_state_changes(entity_id, start, end, no_attributes=False)
         except Exception:
             _LOGGER.debug(
                 "Nimbus Solver: fetch_entity_attribute_history_range(%s, %s) "

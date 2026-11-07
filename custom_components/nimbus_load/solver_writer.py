@@ -301,6 +301,7 @@ try:
         ha_post_state,
         import_fee_rate,
         last_posted,
+        native_state_changes,
         p2p_blocks_daily_energy_kwh,
         p2p_bonus_price_by_period,
         parse_iso,
@@ -342,6 +343,7 @@ except ImportError:
         ha_post_state,
         import_fee_rate,
         last_posted,  # noqa: F401 -- re-export for solver_runtime (#1658)
+        native_state_changes,
         p2p_blocks_daily_energy_kwh,  # noqa: F401 -- re-export: reached as sw.<name> from solver_inputs/prices.py (#1537)
         p2p_bonus_price_by_period,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         parse_iso,
@@ -5930,26 +5932,7 @@ def fetch_entity_power_history_kw(
     """
     if NATIVE.hass is not None:
         try:
-            import asyncio
-
-            from homeassistant.components.recorder import (
-                get_instance as _recorder_get_instance,
-            )
-            from homeassistant.components.recorder import history as _recorder_history
-
-            async def _fetch() -> dict:
-                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
-                    _recorder_history.state_changes_during_period,
-                    NATIVE.hass,
-                    start,
-                    end,
-                    entity_id,
-                    False,  # no_attributes=False -- unit_of_measurement lives there
-                )
-
-            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
-            changes = future.result(timeout=30)
-            states = changes.get(entity_id, [])
+            states = native_state_changes(entity_id, start, end, no_attributes=False)
         except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             _LOGGER.debug(
                 "Nimbus Solver: fetch_entity_power_history_kw(%s) recorder read failed",
@@ -6032,26 +6015,7 @@ def fetch_entity_state_history_range(
     """
     if NATIVE.hass is not None:
         try:
-            import asyncio
-
-            from homeassistant.components.recorder import (
-                get_instance as _recorder_get_instance,
-            )
-            from homeassistant.components.recorder import history as _recorder_history
-
-            async def _fetch() -> dict:
-                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
-                    _recorder_history.state_changes_during_period,
-                    NATIVE.hass,
-                    start,
-                    end,
-                    entity_id,
-                    True,  # no_attributes
-                )
-
-            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
-            changes = future.result(timeout=30)
-            states = changes.get(entity_id, [])
+            states = native_state_changes(entity_id, start, end, no_attributes=True)
         except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             _LOGGER.debug(
                 "Nimbus Solver: fetch_entity_state_history_range(%s) recorder read failed",
