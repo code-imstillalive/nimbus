@@ -9,6 +9,7 @@ from pathlib import Path
 
 import _solver_path  # noqa: F401
 import solver_writer as sw
+from solver_reports import quality as quality_reports
 
 quality = sys.modules[sw.publish_daily_quality_report.__module__]
 
@@ -18,6 +19,6 @@ def test_the_card_has_a_sentence_for_a_stale_price_day():
         Path(sw.__file__).resolve().parent / "frontend" / "nimbus-regret-card.js"
     )
     card = card_path.read_text(encoding="utf-8")
-    assert f'code === "{sw._RELIABILITY_PRICE}"' in card
+    assert f'code === "{quality_reports._RELIABILITY_PRICE}"' in card
     assert 'reason === "price_source_stale"' in card
     assert "attrs.price_stale_repriced === true" in card
