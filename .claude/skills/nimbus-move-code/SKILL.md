@@ -52,6 +52,11 @@ the end of its body sits after that line, so it is left behind as an orphan
 in the old module. Check the lines just after each cut, and move or delete
 them.
 
+A constant can carry its own docstring: a separate string statement on the
+lines right after the assignment. It is an `ast.Expr`, not part of the
+`Assign`, so move it with its constant. Print the first non-blank line after
+every cut to catch it.
+
 Ruff cannot check **attribute** names. After the move, confirm every
 `module.attr` the moved code uses really exists in that module.
 
@@ -65,6 +70,13 @@ grep -rnE "(sw|solver_writer)\.(name1|name2)|setattr\((sw|solver_writer)[^,]*, *
 grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT_PUBLISHERS
 ```
 
+- **Names the moved code calls, not only the moved names.** List every
+  function the moved code calls, and grep the tests for patches on those
+  names in the *old* module. If the destination module has a convention for
+  reaching such a name (for example `solver_reports/quality.py` calls
+  `sw._compute_report_for_window` so that `sw` patches intercept, as its
+  docstring says), the moved code follows it. Step 7a broke a
+  denominator-warning test exactly this way (7 Nov 2026).
 - **Indirect dependencies:** a moved function that reads `ha_get` now
   resolves it in its new module. A test that runs it, or `main()`, with only
   `sw.ha_get` patched must also patch the new module's `ha_get`.
