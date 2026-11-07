@@ -62,107 +62,13 @@ the real, live wiring, not a sanitized toy example.
    solver_config`/your Power Signal entities directly before assuming
    the chart itself is wrong.
 
-## Know before you deploy the cron path: the two big sensors get no attribute history
+## The standalone Solver script is retired
 
-This is the one real, structural thing a cron deployment gives up that
-the native HACS integration does not, and nothing in the system tells
-you about it (nimbus issue
-[#944](https://github.com/code-imstillalive/nimbus/issues/944)).
-
-**What happens.** `sensor.nimbus_solver_battery_forecast` and
-`sensor.nimbus_household_load_total_forecast` carry large per-period
-arrays (`forecast`, and `batteries` on a fleet install). On the native
-integration those are excluded from the recorder via HA's
-`_unrecorded_attributes`, which keeps the recorded row small. **The
-cron path cannot use that mechanism at all** — it publishes over the
-REST API, `_unrecorded_attributes` is an *entity* concept the REST API
-has no way to express, and HA applies it only when a state carries
-`state_info`, which a REST-posted state never does.
-
-So on a cron install the whole payload is measured against HA's
-16,384-byte per-state attribute cap, and for those two sensors it is
-over it. Measured on a real install:
-
-```
-forecast                    17,583 B
-source_entities                778 B
-load_forecast_source_used      762 B
------------------------------------
-total                      ~19,295 B   ->  over the cap
-```
-
-**The consequence is worse than losing the big array**, because HA
-drops the entire attribute row rather than the offending key:
-
-1. every attribute is dropped, not just the large one
-2. `unit_of_measurement` goes with them
-3. the statistics compiler then sees no unit where it previously had
-   `kW`, and **suppresses long-term statistics** for that entity
-
-**Your live dispatch is unaffected.** The current state and all its
-attributes are correct and readable in real time — dashboards, the
-topology card and any automation reading `attributes.forecast` all work
-normally. What is lost is *history*: those two sensors have no recorded
-attribute trail and no long-term statistics on a cron install.
-
-Since v0.94.342 the writer logs this explicitly when it happens, naming
-the entity, the payload size, the three largest contributing attributes
-and the real consequence — previously the only clue was a recorder
-warning that reads like a generic database-performance note.
-
-**Nothing here is worth working around by trimming the arrays before
-posting.** They are what the live consumers read; dropping them to save
-the recorded row would break the dashboard to fix the history. #944
-tracks the options that are actually on the table.
-
-## `files/nimbus_solver_forecast_writer.py` — the whole Solver setup
-
-This is the actual glue: a plain host cron script (runs every minute,
-no HA restart ever needed for a change here) that reads live sensors,
-builds `GridConfig`/`BatteryConfig`/`SolarConfig`/`LoadConfig` from
-them, calls this repo's own `network.build_plan()`, and pushes the
-result to `sensor.nimbus_solver_battery_forecast`. This plan now drives real,
-live battery and grid dispatch on the reference household — it has
-graduated out of observe-only shadow mode.
-
-Three things worth knowing before reading it:
-
-- **This cron path cannot keep attribute history for the two big output
-  sensors, and that is a property of the transport, not a bug you can
-  configure away** (nimbus issue #944). `_unrecorded_attributes` — the
-  mechanism that keeps the per-period `forecast` series out of the
-  recorder so it cannot trip HA's 16 KB per-attribute cap — only applies
-  to states written *by an entity*, because HA passes it through
-  `state.state_info` (`recorder/db_schema.py`), and only
-  `async_write_ha_state()` populates that. This script publishes over
-  `POST /api/states/<entity_id>`, which reaches `hass.states.async_set()`
-  with `state_info=None`, so nothing is excluded, the whole ~19 KB
-  payload is measured, and the recorder drops **every** attribute on the
-  row (`return b"{}"`) — `unit_of_measurement` included, which then
-  suppresses that entity's long-term statistics too.
-  What you lose: attribute history and statistics on
-  `sensor.nimbus_solver_battery_forecast` and
-  `sensor.nimbus_household_load_total_forecast`. What still works: the
-  live state and live attributes (so every dashboard card reading
-  `attributes.forecast` is unaffected), dispatch, and every smaller
-  sensor. The only symptom is a `recorder.db_schema` warning that reads
-  like a database performance note. The HACS/native install does not
-  have this limitation, since it writes through the entity.
-
-- It reads its economic settings (risk aversion, P2P bonus, battery
-  capacity, etc.) live from `sensor.nimbus_solver_config`, itself
-  sourced from the `number.nimbus_solver_*` dashboard entities you can
-  see in `custom_components/nimbus_load/number.py` — so a household
-  can tune these from a dashboard slider, not just the config-flow
-  wizard.
-- Grep for `has_localvolts` — every branch gated on it is genuinely
-  this-household-specific (real LocalVolts P2P pricing, a real bill-
-  verified TOU network tariff table, a real 5pm/midnight/7am cost
-  schedule). The `else:` fallback branches next to each one are the
-  portable path: a household's own configured import/export price
-  sensor, held flat, no assumptions about retailer/region/tariff
-  structure. That's the split to look at for "what would this need to
-  look like for someone who isn't on this specific setup."
+`files/nimbus_solver_forecast_writer.py`, a host cron script that ran the
+Solver against Home Assistant's REST API, has been removed (#2289 item 5,
+7 Nov 2026). The Solver runs only inside Home Assistant now, installed through
+HACS, and its plan sensors keep their recorder history there. Nothing on the
+reference household ran it any more (checked on both of its machines).
 
 ## `files/topology-card-v4.js` + `files/topology_map.yaml` + `files/lovelace_build_topology_dashboard.py`
 
@@ -366,9 +272,8 @@ LocalVolts P2P settlement API directly (`secrets.yaml` credentials,
 `sensor.lv_v2_p2p_confirmed_history`), this household's own real
 automation entity names (`input_number.p2p_grid_export_target_kw`,
 `config/automations.yaml`'s own P2P/self-consume automations), and a
-real, bill-verified Energex TOU tariff table. Included anyway, same
-"show the real wiring, not a sanitized example" philosophy as
-`nimbus_solver_forecast_writer.py` above -- specifically because of a
+real, bill-verified Energex TOU tariff table. Included anyway, in the
+"show the real wiring, not a sanitized example" spirit -- specifically because of a
 real, general, worth-reusing FINDING made fixing it (2026-08-22, direct
 Mark Purcell question: "why is it missing so much of the mark?"):
 
