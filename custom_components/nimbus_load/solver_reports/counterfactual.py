@@ -16,6 +16,8 @@ different phase's decision, not this one's.
 
 from __future__ import annotations
 
+import json
+import urllib.error
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -396,3 +398,62 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
         else None,
         "p2p_configured": checkpoint_hour >= 0,
     }
+
+
+# --- moved from solver_writer.py (#2289 item 6, step 7b part 3): the publisher ---
+
+
+COUNTERFACTUAL_ENTITY_ID = "sensor.nimbus_counterfactual_soc"
+
+
+def publish_nimbus_only_soc_counterfactual(cfg: dict, now: datetime) -> None:
+    """Publishes sensor.nimbus_counterfactual_soc -- the generic,
+    built-in equivalent of the reference household's own NUC1
+    "Nimbus-only Counterfactual SoC" card (see
+    compute_nimbus_only_soc_counterfactual()'s own docstring). Same
+    idempotency-check-first pattern as publish_daily_quality_report():
+    reads back this sensor's own currently-published latest_date before
+    ever attempting a real day-long rolling replay (96 LP solves), so a
+    solver cycle that runs every minute doesn't redo that work 1440
+    times for an already-scored day -- and the same real 2026-08-30 fix
+    (issues #289/#292): the fast path re-pushes the same already-read
+    state/attributes instead of returning with nothing published, so
+    this entity's own freshness stamp keeps refreshing and it never
+    goes stale/unavailable between real recomputes.
+    """
+    sw = _solver_writer()
+    yesterday = (now - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    yesterday_key = yesterday.date().isoformat()
+    try:
+        # solver_shared.resolve_real_entity_id() -- see publish_daily_quality_report()'s
+        # matching comment / that function's own docstring for the full
+        # entity-id-collision incident this guards against.
+        existing = sw.ha_get(
+            solver_shared.resolve_real_entity_id(COUNTERFACTUAL_ENTITY_ID)
+        )
+        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            sw.ha_post_state(
+                COUNTERFACTUAL_ENTITY_ID, existing["state"], existing["attributes"]
+            )
+            return
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        pass  # never seen before, or transiently unreachable -- fall through and try to compute
+    day_entry = compute_nimbus_only_soc_counterfactual(cfg, yesterday)
+    if day_entry is None:
+        return
+    sw.ha_post_state(
+        COUNTERFACTUAL_ENTITY_ID,
+        day_entry["nimbus_only_soc_close_pct"],
+        {
+            "unit_of_measurement": "%",
+            "friendly_name": "Nimbus-only Counterfactual SoC",
+            "latest_date": yesterday_key,
+            "generated_at": now.isoformat(),
+            # nimbus issue #1256: stamped with the computation -- see the
+            # flex report above.
+            **sw._version_stamp(),
+            **day_entry,
+        },
+    )

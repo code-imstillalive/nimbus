@@ -133,6 +133,9 @@ class TestTheHistoricalScorersKeepTheUnmodedBaseline(unittest.TestCase):
         import solver_shared
         import solver_writer
         from _isolated_state import isolated_state_paths
+        from solver_reports import backtest as backtest_reports
+        from solver_reports import counterfactual as counterfactual_reports
+        from solver_reports import flex as flex_reports
         from test_main_golden_output_guardrail import _SOLVER_CONFIG_ATTRS
 
         attrs = dict(_SOLVER_CONFIG_ATTRS)
@@ -175,9 +178,11 @@ class TestTheHistoricalScorersKeepTheUnmodedBaseline(unittest.TestCase):
                 "publish_daily_quality_report",
                 side_effect=_capture_quality,
             ),
-            patch.object(solver_writer, "publish_daily_flex_report"),
-            patch.object(solver_writer, "publish_nimbus_only_soc_counterfactual"),
-            patch.object(solver_writer, "publish_efficiency_backtest_report"),
+            patch.object(flex_reports, "publish_daily_flex_report"),
+            patch.object(
+                counterfactual_reports, "publish_nimbus_only_soc_counterfactual"
+            ),
+            patch.object(backtest_reports, "publish_efficiency_backtest_report"),
             # nimbus issue #1330: all four persisted paths, not just this one.
             isolated_state_paths(solver_writer),
         ):
