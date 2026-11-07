@@ -175,7 +175,7 @@ def test_an_overnight_or_open_ended_window_is_one_window(site):
     )
     site.load("open", **HWS, deferrable_earliest_hour=1.0)
     now = datetime(2026, 9, 9, 10, 0, tzinfo=TZ)
-    grid, _ = sw.build_tiered_grid(now)
+    grid, _ = shared.build_tiered_grid(now)
     _, (ev, open_ended), _ = site.build(now, grid=grid)
     assert ev.windows is None and ev.earliest_period < ev.deadline_period
     assert open_ended.windows is None and open_ended.deadline_period == len(grid) - 1
@@ -289,7 +289,7 @@ def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(site, capl
 
 
 def _windows(now, delivered=0.0, done=False, grid=None):
-    grid = grid or sw.build_tiered_grid(now)[0]
+    grid = grid or shared.build_tiered_grid(now)[0]
     return grid, cl._build_daily_adequacy_windows(
         grid, now, 6.0, 16.0, 2.0, today_delivered_kwh=delivered, today_done=done
     )

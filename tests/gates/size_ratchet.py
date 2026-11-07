@@ -96,7 +96,9 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    34  # solver_writer.py alone as of nimbus #2289 item 5 (B.2b: the REST
+    33  # solver_writer.py alone as of nimbus #2289 item 6 step 2
+    # (build_tiered_grid moved to solver_shared.py); 34 as of
+    # nimbus #2289 item 5 (B.2b: the REST
     # transport's removal took ha_call_service_with_response and
     # fetch_entity_state_history_range under the limit); 36 as of nimbus #1305
     # Phase 6. The ratchet only

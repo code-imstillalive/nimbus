@@ -268,6 +268,7 @@ except ImportError:
 # logger after this same spec repoints them -- aliasing is what keeps
 # those suites passing, not what breaks them.
 try:
+    from . import solver_shared
     from .solver_shared import (
         _ENTITY_UPDATE_HANDLERS,
         _LOGGER,
@@ -309,6 +310,7 @@ try:
         safe_num,
     )
 except ImportError:
+    import solver_shared  # type: ignore[no-redef]
     from solver_shared import (  # type: ignore[no-redef]
         _ENTITY_UPDATE_HANDLERS,
         _LOGGER,
@@ -321,8 +323,8 @@ except ImportError:
         NATIVE,
         NETWORK_FEE_BLOCK_KEYS,  # noqa: F401 -- re-export, see comment below
         P2P_BLOCK_KEYS,  # noqa: F401 -- re-export, see comment below
-        TIER1_PERIOD_HOURS,
-        TIER2_PERIOD_HOURS,
+        TIER1_PERIOD_HOURS,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
+        TIER2_PERIOD_HOURS,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         _cfg_int,
         _cfg_num,
         _kw_scale_factor,
@@ -483,43 +485,6 @@ LOAD_FORECAST_ERROR_NOTIFIED_PATH = os.environ.get(
     "/opt/nimbus_solver_load_forecast_error.txt",
 )
 
-# Tiered horizon: 1-minute periods for the first TIER0_MINUTES, 5-minute
-# periods to 24 h, then coarser, so a 96 h horizon stays a few hundred
-# periods; the LP's solve time grows roughly cubically with period count.
-# Far periods are coarse where the price forecasts have already run out. A
-# solve slower than the tick skips a tick (the overlap guard), never runs
-# twice.
-TIER0_MINUTES = 5.0  # ultra-fine tier: how far out 1-min resolution runs
-TIER0_PERIOD_MINUTES = 1.0
-# nimbus issue #451 (Mark Purcell): TIER1_HOURS used to be a fixed 24.0 --
-# tier1's own 5-min resolution ran for a full real day regardless of what
-# the upstream price data could actually support at that resolution.
-# Real finding: Nimbus does not have a genuine 5-minute-resolution
-# forward price for 24h. LocalVolts costsFlexUp/earningsFlexUp is a
-# genuine 5-min number, but only for the CURRENT settlement interval;
-# AEMO's own PD7DAY predispatch report (the longer-horizon price source)
-# is natively 30-min. Every "5-min" period beyond the current+next real
-# NEM trading interval was really just one of those 30-min numbers
-# stamped six times with compute_5min_offset()'s own historical bump on
-# top -- fake precision, paid for in real solver load (365 periods at
-# the old shape vs ~200 now). Tier1 is now boundary-snapped to the real
-# current + next NEM trading interval (:00/:30) instead of a fixed
-# duration -- see build_tiered_grid()'s own docstring for the exact
-# mechanism. TRADING_INTERVAL_MINUTES names the real NEM settlement
-# cadence tier1's own snapping (and tier2's own resolution below) both
-# key off.
-TRADING_INTERVAL_MINUTES = 30
-TOTAL_HORIZON_HOURS = 96.0  # tier0 + tier1 + tier2 combined span from tier1_start
-# The real, ceiling-not-typical max span tier1 can ever be now that it's
-# boundary-snapped rather than fixed-duration -- "current + next 30-min
-# trading interval" tops out at 60 real minutes (tier1_start landing
-# exactly on a :00/:30 mark), never more. Used by the two report-scoring
-# functions below (compute_daily_quality_report/compute_efficiency_
-# backtest_report) to decide whether a scored window fits entirely
-# inside tier1's own real span -- see nimbus issues #438/#441 for why
-# this matching matters (a report scored at the wrong resolution
-# silently disagrees with what the live dispatch it's grading actually
-# did).
 
 # Network and certificate fees come from the household's own fee numbers
 # through import_fee_rate() below, never from constants here (household,
@@ -5353,98 +5318,6 @@ def resample_price_with_extrapolation(
     return out, real_mask
 
 
-def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
-    """Real wall-clock period boundaries for the tiered horizon (see the
-    TIER1_*/TIER2_* constants' own comment for why this exists).
-
-    Tier 0 (1-min, first 5 real minutes) needs no bridge into tier 1
-    (5-min): both are far finer than any real TOU rate boundary (which
-    only ever changes on the hour) or NEM trading-interval boundary
-    (:00/:30), so there's no alignment concern the way tier1->tier2 has
-    -- 5-min periods stack cleanly against 5-min periods regardless of
-    exactly where tier0's own 5 minutes happened to end.
-
-    REAL BUG FOUND AND FIXED (2026-08-17, live report with an annotated
-    screenshot: "why start on odd number that is weird!!! ... why not
-    start with 00, 01, 02, 03, 04, 05, 10, 15, 20"). This function used to
-    start tier 0 from raw `now` -- the real wall-clock moment the writer
-    happened to run, seconds/microseconds included, no rounding at all.
-    Since tier 1 then continued directly from wherever tier 0's own 5
-    real minutes happened to land, EVERY period in the whole table
-    inherited that same arbitrary offset -- confirmed live via the
-    deployed forecast's own raw timestamps landing on :13/:28/:43/:58
-    instead of any clean clock mark. (Separately, confirmed live the SAME
-    session that this fix's own PREVIOUS version -- 5-min tier1 periods
-    at all -- had never actually made it onto the live NUC despite an
-    earlier turn's deploy claiming success: the live sensor's own
-    `hours` field read a flat 0.25 for every period, the OLD 15-min-only
-    build. Both a real code bug and a real deploy failure, found and
-    fixed together.)
-
-    Fix: round `now` UP to the next whole real MINUTE (tier 0's own
-    start) -- then run 1-min tier-0 periods only as far as the next clean
-    5-MINUTE mark (0-4 periods, whatever it actually takes to reach one;
-    zero if `now` already rounds onto a clean 5-min mark), so tier 1
-    always starts on a genuine :00/:05/:10/... boundary. This is the same
-    real "snap to clock, don't drift with whatever `now` happens to be"
-    principle already applied to tier 1's own end boundary below.
-
-    nimbus issue #451 (Mark Purcell): tier 1's own END used to be a
-    fixed 24h after tier1_start, then tier 2 snapped to the next real
-    HOUR boundary. Both replaced: tier1_end now snaps to the end of the
-    real NEXT NEM trading interval (:00/:30) after the one containing
-    tier1_start -- i.e. tier 1 covers exactly the CURRENT + NEXT real
-    30-min trading interval, never more, since that's the genuine limit
-    of what LocalVolts/AEMO's own 5-min-resolution price data actually
-    covers (see the TRADING_INTERVAL_MINUTES/MAX_TIER1_HOURS constants'
-    own comment). Because tier1_end is now itself always a clean :00/:30
-    mark (TIER1_PERIOD_HOURS=5min divides evenly into it), tier 2 starts
-    exactly on a real trading-interval boundary by construction -- no
-    separate bridging period is needed the way the old hour-snapped
-    tier1->tier2 boundary required one. TOU rate boundaries (real Peak/
-    Off-peak/Shoulder switches, which only ever change on the hour) stay
-    correctly aligned too, since every real hour mark is also a :00
-    trading-interval mark.
-    """
-    times: list[datetime] = []
-    hours: list[float] = []
-    minute_start = now.replace(second=0, microsecond=0)
-    if minute_start < now:
-        minute_start += timedelta(minutes=1)
-    tier1_start = minute_start
-    while _local(tier1_start).minute % 5 != 0:
-        tier1_start += timedelta(minutes=1)
-    t = minute_start
-    while t < tier1_start:
-        times.append(t)
-        hours.append(TIER0_PERIOD_MINUTES / 60.0)
-        t += timedelta(minutes=TIER0_PERIOD_MINUTES)
-    # End of the trading interval CONTAINING tier1_start, then extended
-    # by one more full interval to cover "current + next" -- the `<=`
-    # (not `<`) on the first loop guard means a tier1_start that already
-    # sits exactly on a :00/:30 mark still advances to the FOLLOWING
-    # boundary first (it's the start of its own interval, not the end),
-    # before the same one-interval extension applies uniformly either way.
-    tier1_end = tier1_start.replace(second=0, microsecond=0)
-    while tier1_end <= tier1_start or (
-        _local(tier1_end).minute % TRADING_INTERVAL_MINUTES != 0
-    ):
-        tier1_end += timedelta(minutes=1)
-    tier1_end += timedelta(minutes=TRADING_INTERVAL_MINUTES)
-    t = tier1_start
-    while t < tier1_end:
-        times.append(t)
-        hours.append(TIER1_PERIOD_HOURS)
-        t += timedelta(hours=TIER1_PERIOD_HOURS)
-    t = tier1_end
-    horizon_end = tier1_start + timedelta(hours=TOTAL_HORIZON_HOURS)
-    while t < horizon_end:
-        times.append(t)
-        hours.append(TIER2_PERIOD_HOURS)
-        t += timedelta(hours=TIER2_PERIOD_HOURS)
-    return times, hours
-
-
 def load_previous_plan() -> network.Plan | None:
     """Reconstruct a real network.Plan from the last successful solve's
     own persisted dispatch arrays, for passing as build_plan()'s own
@@ -8615,7 +8488,7 @@ def main() -> None:
     _log_active_household_specific_overrides_once(cfg)
 
     now = datetime.now(UTC).astimezone(LOCAL_TZ).replace(second=0, microsecond=0)
-    grid_times, period_hours_arr = build_tiered_grid(now)
+    grid_times, period_hours_arr = solver_shared.build_tiered_grid(now)
     n_periods = len(grid_times)
 
     # Solar forecast sources -- every configured/auto-detected source
