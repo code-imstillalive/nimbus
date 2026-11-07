@@ -65,6 +65,13 @@ grep -rnE "(sw|solver_writer)\.(name1|name2)|setattr\((sw|solver_writer)[^,]*, *
 grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT_PUBLISHERS
 ```
 
+- **Names the moved code calls, not only the moved names.** List every
+  function the moved code calls, and grep the tests for patches on those
+  names in the *old* module. If the destination module has a convention for
+  reaching such a name (for example `solver_reports/quality.py` calls
+  `sw._compute_report_for_window` so that `sw` patches intercept, as its
+  docstring says), the moved code follows it. Step 7a broke a
+  denominator-warning test exactly this way (7 Nov 2026).
 - **Indirect dependencies:** a moved function that reads `ha_get` now
   resolves it in its new module. A test that runs it, or `main()`, with only
   `sw.ha_get` patched must also patch the new module's `ha_get`.
