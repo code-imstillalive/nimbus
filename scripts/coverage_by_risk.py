@@ -77,6 +77,7 @@ RISK_TIERS: list[tuple[str, str, int]] = [
     ("price_intervals.py", "prices", 1),
     ("pricing_source.py", "prices", 1),
     ("solver_inputs/prices.py", "prices", 1),
+    ("solver_inputs/p2p.py", "prices", 1),
     ("solver_inputs/price_consolidation.py", "prices", 1),
     ("solver_inputs/price_freshness.py", "prices", 1),
     ("solver_inputs/price_error_history.py", "prices", 1),

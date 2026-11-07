@@ -21,7 +21,8 @@ import solver_shared
 import solver_writer as sw
 from golden.fake_ha import FakeHA, HistoryPoint
 from native_transport import use_native_fake
-from solver_inputs import prices
+from solver_inputs import p2p, prices
+from solver_reports import quality as quality_reports
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)  # 16:00 Brisbane
 
@@ -293,7 +294,7 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha):
                     )()
                 )
                 mp.setattr(sw.NATIVE, "hass", hass)
-                assert sw._p2p_unit_scale(unit) == scale
+                assert p2p._p2p_unit_scale(unit) == scale
 
     # test_rate_rows_become_intervals
     # test_rate_rows_become_intervals
@@ -319,16 +320,16 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha):
         {"time": "bad", "end": "bad", "value": 1},
         "not a row",
     ]
-    assert sw._p2p_rate_intervals(rows, 0.01, lv_feed=False) == [
-        (t, t + timedelta(minutes=30), sw.P2P_RATE, 0.2),
-        (t + timedelta(hours=2), t + timedelta(hours=3), sw.P2P_NO_MATCH, 0.0),
+    assert p2p._p2p_rate_intervals(rows, 0.01, lv_feed=False) == [
+        (t, t + timedelta(minutes=30), p2p.P2P_RATE, 0.2),
+        (t + timedelta(hours=2), t + timedelta(hours=3), p2p.P2P_NO_MATCH, 0.0),
     ]
     # A matched-rate feed's rows without an end are its own 5-minute intervals.
-    lv = sw._p2p_rate_intervals(rows, 0.01, lv_feed=True)
+    lv = p2p._p2p_rate_intervals(rows, 0.01, lv_feed=True)
     assert (
         t + timedelta(minutes=30),
         t + timedelta(minutes=35),
-        sw.P2P_RATE,
+        p2p.P2P_RATE,
         0.1,
     ) in lv
 
@@ -348,9 +349,9 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha):
         {"time": _iso(end), "volume": "x", "proportionP2P": 0.5, "matchedCost": 1},
         42,
     ]
-    assert sw._p2p_triple_intervals(rows) == [
-        (T0, end, sw.P2P_RATE, 0.25),
-        (end - timedelta(minutes=5), end, sw.P2P_NO_MATCH, 0.0),
+    assert p2p._p2p_triple_intervals(rows) == [
+        (T0, end, p2p.P2P_RATE, 0.25),
+        (end - timedelta(minutes=5), end, p2p.P2P_NO_MATCH, 0.0),
     ]
 
     # test_a_p2p_source_that_is_absent_unknown_or_expired_is_unavailable
@@ -360,16 +361,16 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha):
         {"state": "Unknown", "attributes": {}},
     ):
         assert (
-            sw._p2p_source_observations(state, "sensor.p2p", T0)["status"]
-            == sw.P2P_UNAVAILABLE
+            p2p._p2p_source_observations(state, "sensor.p2p", T0)["status"]
+            == p2p.P2P_UNAVAILABLE
         )
     old = _p2p_state([])
-    out = sw._p2p_source_observations(
-        old, "sensor.p2p", T0 + sw.P2P_RATE_SOURCE_MAX_AGE + timedelta(seconds=1)
+    out = p2p._p2p_source_observations(
+        old, "sensor.p2p", T0 + p2p.P2P_RATE_SOURCE_MAX_AGE + timedelta(seconds=1)
     )
-    assert out["status"] == sw.P2P_UNAVAILABLE and out["snapshot"] == T0
-    fresh = sw._p2p_source_observations(
-        old, "sensor.p2p", T0 + sw.P2P_RATE_SOURCE_MAX_AGE
+    assert out["status"] == p2p.P2P_UNAVAILABLE and out["snapshot"] == T0
+    fresh = p2p._p2p_source_observations(
+        old, "sensor.p2p", T0 + p2p.P2P_RATE_SOURCE_MAX_AGE
     )
     assert fresh["status"] == "ok"
 
@@ -379,8 +380,8 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha):
         unit_of_measurement="kWh",
     )
     assert (
-        sw._p2p_source_observations(state, "sensor.p2p", T0)["status"]
-        == sw.P2P_UNAVAILABLE
+        p2p._p2p_source_observations(state, "sensor.p2p", T0)["status"]
+        == p2p.P2P_UNAVAILABLE
     )
 
     # test_a_matched_rate_feed_reports_its_horizon_and_sorted_intervals
@@ -396,12 +397,12 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha):
         interpolation_mode="previous",
         lastUpdate=_iso(T0),
     )
-    out = sw._p2p_source_observations(state, "sensor.p2p", T0)
+    out = p2p._p2p_source_observations(state, "sensor.p2p", T0)
     assert out["status"] == "ok"
     assert [i[0] for i in out["intervals"]] == [T0 + timedelta(minutes=5), later]
     assert out["horizon"] == (T0, later + timedelta(minutes=5))
     # A plain rate source has no horizon.
-    plain = sw._p2p_source_observations(
+    plain = p2p._p2p_source_observations(
         _p2p_state(rows, unit_of_measurement="c/kWh"), "sensor.p2p", T0
     )
     assert plain["horizon"] is None and plain["intervals"] == []
@@ -411,8 +412,8 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha):
     state = _p2p_state(
         [{"time": _iso(end), "volume": 1.0, "proportionP2P": 1.0, "matchedCost": 0.3}]
     )
-    out = sw._p2p_source_observations(state, "sensor.p2p", None)
-    assert out["intervals"] == [(T0, end, sw.P2P_RATE, 0.3)]
+    out = p2p._p2p_source_observations(state, "sensor.p2p", None)
+    assert out["intervals"] == [(T0, end, p2p.P2P_RATE, 0.3)]
 
     # test_the_meter_sign_is_trusted_only_once_reconciled_for_this_meter
     for rec, sign in [
@@ -560,7 +561,7 @@ def test_power_history_coverage(cal):
         ),
     ]:
         pts = [(T0 + timedelta(minutes=m), 1.0) for m in times]
-        out = sw._power_history_coverage(pts, _grid(4), 0.5)
+        out = quality_reports._power_history_coverage(pts, _grid(4), 0.5)
         if expected is None:
             assert out is None
             continue
@@ -686,35 +687,39 @@ def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
     # test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing
     # test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing
     feed = _source(
-        T0, (0, sw.P2P_RATE, 0.2), (1, sw.P2P_RATE, 0.0), (2, sw.P2P_NO_MATCH, 0.0)
+        T0, (0, p2p.P2P_RATE, 0.2), (1, p2p.P2P_RATE, 0.0), (2, p2p.P2P_NO_MATCH, 0.0)
     )
     # Period 3 is uncovered: inside a block it takes the median of the
     # published rates (the $0 match counts, the no-match does not).
     assert _resolve(feed, blocks=[5.0, 5.0, 5.0, 5.0]) == [0.2, 0.0, 0.0, 0.1]
     assert _resolve(feed, blocks=[5.0, 5.0, 5.0, 0.0])[3] == 0.0  # outside the block
     assert _resolve(feed)[3] == 0.0  # no blocks configured
-    down = _source(T0, (3, sw.P2P_RATE, 0.4), status=sw.P2P_UNAVAILABLE)
+    down = _source(T0, (3, p2p.P2P_RATE, 0.4), status=p2p.P2P_UNAVAILABLE)
     assert (
         _resolve(down, blocks=[5.0] * 4) == [0.0] * 4
     )  # an unavailable feed gives nothing
 
     # test_inside_a_feeds_horizon_silence_is_no_match_and_past_it_uncovered
     horizon = (T0, T0 + 2 * M5)
-    feed = _source(T0, (0, sw.P2P_RATE, 0.3), horizon=horizon)
-    assert sw._p2p_observation_at(feed, T0 + M5) == (sw.P2P_NO_MATCH, 0.0)
-    assert sw._p2p_observation_at(feed, T0 + 3 * M5) == (sw.P2P_UNCOVERED, 0.0)
+    feed = _source(T0, (0, p2p.P2P_RATE, 0.3), horizon=horizon)
+    assert p2p._p2p_observation_at(feed, T0 + M5) == (p2p.P2P_NO_MATCH, 0.0)
+    assert p2p._p2p_observation_at(feed, T0 + 3 * M5) == (p2p.P2P_UNCOVERED, 0.0)
     assert _resolve(feed, blocks=[5.0] * 4) == [0.3, 0.0, 0.3, 0.3]
 
     # test_no_source_one_unreadable_source_or_the_same_one_twice
     with monkeypatch.context() as mp:
         grid = _grid(3, minutes=5)
-        assert sw.resample_real_p2p_rate(grid, None) == [0.0] * 3
-        mp.setattr(sw, "ha_get", lambda eid: {"state": "1", "attributes": "broken"})
-        assert sw._read_p2p_state("sensor.p2p") is None
-        assert sw.resample_real_p2p_rate(grid, "sensor.p2p") == [0.0] * 3
+        assert p2p.resample_real_p2p_rate(grid, None) == [0.0] * 3
+        mp.setattr(
+            solver_shared, "ha_get", lambda eid: {"state": "1", "attributes": "broken"}
+        )
+        assert p2p._read_p2p_state("sensor.p2p") is None
+        assert p2p.resample_real_p2p_rate(grid, "sensor.p2p") == [0.0] * 3
         asked = []
-        mp.setattr(sw, "ha_get", lambda eid: asked.append(eid) or {"attributes": {}})
-        sw.resample_real_p2p_rate(grid, "sensor.p2p", fallback_sensor_id="sensor.p2p")
+        mp.setattr(
+            solver_shared, "ha_get", lambda eid: asked.append(eid) or {"attributes": {}}
+        )
+        p2p.resample_real_p2p_rate(grid, "sensor.p2p", fallback_sensor_id="sensor.p2p")
         assert asked == ["sensor.p2p"]  # configured twice, read once
 
     # test_one_raw_triple_feed_keeps_the_original_step_lookup: The single raw-triple path is the pre-#1537 algorithm, unchanged:
@@ -730,14 +735,16 @@ def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
             },
         ]
         mp.setattr(
-            sw, "ha_get", lambda eid: {"state": "1", "attributes": {"forecast": rows}}
+            solver_shared,
+            "ha_get",
+            lambda eid: {"state": "1", "attributes": {"forecast": rows}},
         )
         grid = _grid(4, minutes=5)
-        assert sw.resample_real_p2p_rate(grid, "sensor.p2p") == pytest.approx(
+        assert p2p.resample_real_p2p_rate(grid, "sensor.p2p") == pytest.approx(
             [0.4, 0.0, 0.0, 0.0]
         )
         blocks = [5.0, 5.0, 5.0, 5.0]
-        assert sw.resample_real_p2p_rate(grid, "sensor.p2p", blocks) == pytest.approx(
+        assert p2p.resample_real_p2p_rate(grid, "sensor.p2p", blocks) == pytest.approx(
             [0.4, 0.3, 0.3, 0.3]
         )
 
@@ -768,7 +775,9 @@ def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
             "p2p_match_fraction": lambda **k: 0.65,
             "p2p_recent_avg_volume_kwh": lambda **k: 60.0,
         }.items():
-            mp.setattr(sw, name, value)
+            mp.setattr(p2p if hasattr(p2p, name) else sw, name, value)
+            if name == "ha_get":
+                mp.setattr(solver_shared, name, value)
 
         def build(cfg):
             return prices.build_price_arrays(
@@ -809,7 +818,7 @@ def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
         ({"attributes": {"lastUpdate": "garbage"}, "last_updated": _iso(T0)}, T0),
         ({"attributes": {}}, None),
     ]:
-        assert sw._p2p_snapshot_time(state) == snapshot
+        assert p2p._p2p_snapshot_time(state) == snapshot
 
 
 # --- two matched-rate sources, one answer per period (#1537) ---------------------------------
@@ -830,7 +839,7 @@ def _source(snapshot, *intervals, horizon=None, status="ok"):
 
 
 def _resolve(*sources, blocks=None, n=4):
-    return sw._resolve_p2p_observations(list(sources), _grid(n, minutes=5), blocks)
+    return p2p._resolve_p2p_observations(list(sources), _grid(n, minutes=5), blocks)
 
 
 BLOCKS = {
@@ -1022,8 +1031,10 @@ def _lv_rates(monkeypatch, grid, window, rows=None, **row):
             {"intervalEnd": (t + timedelta(minutes=5)).isoformat(), **LV_ROW, **row}
             for t in grid
         ]
-    monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})
-    return sw.resample_real_p2p_rate(grid, "sensor.p2p", window)
+    monkeypatch.setattr(
+        solver_shared, "ha_get", lambda _e: {"attributes": {"forecast": rows}}
+    )
+    return p2p.resample_real_p2p_rate(grid, "sensor.p2p", window)
 
 
 NAN = float("nan")
@@ -1065,7 +1076,9 @@ def array_branch(monkeypatch):
             "p2p_match_fraction": lambda **k: 0.65,
             "p2p_recent_avg_volume_kwh": lambda **k: recent,
         }.items():
-            monkeypatch.setattr(sw, name, value)
+            monkeypatch.setattr(p2p if hasattr(p2p, name) else sw, name, value)
+            if name == "ha_get":
+                monkeypatch.setattr(solver_shared, name, value)
         return prices.build_price_arrays(
             {
                 "solver_import_price_sensor": "sensor.i",

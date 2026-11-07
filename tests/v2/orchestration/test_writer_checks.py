@@ -16,6 +16,7 @@ import solver_writer as sw
 from golden.fake_ha import FakeHA
 from native_transport import use_native_fake
 from solver_inputs import load as load_inputs
+from solver_reports import quality as quality_reports
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)
 
@@ -162,7 +163,7 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
         ({"soc": True, "regret": True, "meter": "disagrees"}, False),
         ({"soc": True, "regret": True, "meter": "agrees"}, True),
     ]:
-        got = sw._epr_reliability(
+        got = quality_reports._epr_reliability(
             kwargs["soc"],
             kwargs["regret"],
             kwargs.get("denominator"),
@@ -207,7 +208,7 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
         ({"epr_reliable": False, "meter_reconciliation": {"status": "agrees"}}, "?"),
         ({"epr_reliable": False}, "?"),
     ]:
-        assert sw._epr_reliability_code(entry) == code
+        assert quality_reports._epr_reliability_code(entry) == code
 
     # test_the_oldest_provisional_day_whose_settlement_has_landed_is_rescored
     with monkeypatch.context() as mp:

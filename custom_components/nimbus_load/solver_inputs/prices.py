@@ -51,7 +51,7 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     import device_bindings  # type: ignore[no-redef]
 
-from . import loss_factors, price_consolidation
+from . import loss_factors, p2p, price_consolidation
 
 
 def _bucket_5min(t):
@@ -390,7 +390,7 @@ def build_price_arrays(
         # own configured blocks, not a fixed 17:00-24:00.
         # nimbus #1537 item 3: an optional second matched-rate source, used
         # per period where the first shows no match.
-        p2p_export = sw.resample_real_p2p_rate(
+        p2p_export = p2p.resample_real_p2p_rate(
             grid_times,
             cfg.get("solver_p2p_matched_rate_forecast_sensor"),
             sw.fetch_p2p_fixed_export_kw(cfg, grid_times),
@@ -513,8 +513,8 @@ def build_price_arrays(
         # computed and reported (pushed sensor attribute) for informational
         # context -- no longer used to price the LP.
         p2p_settlement_sensor = cfg.get("solver_p2p_settlement_history_sensor")
-        match_fraction = sw.p2p_match_fraction(settlement_sensor=p2p_settlement_sensor)
-        p2p_recent_volume_kwh = sw.p2p_recent_avg_volume_kwh(
+        match_fraction = p2p.p2p_match_fraction(settlement_sensor=p2p_settlement_sensor)
+        p2p_recent_volume_kwh = p2p.p2p_recent_avg_volume_kwh(
             settlement_sensor=p2p_settlement_sensor
         )
         # nimbus #1537: with no settlement history to measure from, the
