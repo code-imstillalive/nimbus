@@ -3041,7 +3041,7 @@ near-perfect skill on every install, forever.
 This entity carries `whole_house_now_kw`, snapshotted BEFORE the anchor
 precisely so #429's cross-check compares two genuine forecasts. It is
 the forecast OF the ground-truth sensor, which is exactly the pairing a
-skill measurement wants. See solver/_solver_writer().nowcast_skill.py's own docstring.
+skill measurement wants. See solver/nowcast_skill.py's own docstring.
 """
 
 
