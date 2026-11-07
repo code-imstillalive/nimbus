@@ -1,150 +1,23 @@
-#!/usr/bin/env python3
-"""Runs the Nimbus Solver over a real 96h tiered horizon (24h fine-
-grained @ 15-min + 72h coarse @ 1-hour, see TIER1_*/TIER2_* constants
-and build_tiered_grid() for why) using real live sensor data, and pushes
-the resulting proposed battery plan to
-sensor.nimbus_solver_battery_forecast so it can be plotted on a real
-dashboard -- same REST-push pattern as lv_p2p_forecast_writer.py,
-haeo_forecast_to_influxdb.py, and every other forecast writer already
-running in this project.
+"""The Nimbus Solver's solve cycle: reads the household's live inputs, runs
+the LP over a tiered horizon (build_tiered_grid()) and publishes the plan to
+sensor.nimbus_solver_battery_forecast and its sibling sensors.
 
-OBSERVATION ONLY -- this script only ever calls GET then one POST to a
-plain sensor. It never calls number.set_value, never calls a script,
-never touches Modbus. The Solver package itself
-(custom_components/nimbus_load/solver/) has zero Home Assistant imports
-and is not wired to anything live -- this script is the very first (and
-so far only) thing that ever calls it against real data, and even this
-only produces a number to look at, not an action.
+It runs only inside Home Assistant: solver_runtime.py imports it, calls
+set_native_hass(hass), and runs main() in a worker thread every cycle. The
+standalone cron deployment it started as, which talked to HA over its REST
+API, is retired (nimbus #2289 item 5, B.2a, 7 Nov 2026), and so is the
+Supervisor add-on (#357).
 
-PLATFORM REQUIREMENT -- this is a plain HOST cron script, not something
-HACS installs or HA runs for you, so it needs real shell + cron access
-to deploy at all. IMPORTANT, easy to get wrong: that does NOT mean HA
-itself has to run as Docker/Supervised. This script only ever talks to
-HA over plain HTTP (see HA_BASE below -- GET/POST against the REST API,
-nothing else), never touches HA's local filesystem or process, so it
-can run from ANY always-on shell-capable device on the same network as
-HA -- a Raspberry Pi, an old laptop, a NAS with Docker, a cheap VPS,
-whatever's already sitting around. If HA itself IS Docker/Supervised,
-the simplest option is just running this on that same box (HA_BASE =
-localhost, as below). If HA itself is Home Assistant OS specifically
-(genuinely no general shell/cron surface at all, confirmed no way
-around that), this script needs a SEPARATE device -- HA_BASE then
-points at HAOS's real LAN IP instead of localhost, and the required
-sensor.nimbus_solver_config/nimbus_solver_config still updates the same
-way regardless of where this script physically runs, since it's all
-just HTTP either way.
+The urllib branches that remain in ha_get(), ha_post_state(),
+fetch_price_history() and the history readers are the stub test suite's
+transport (tests patch urlopen onto golden.fake_ha.FakeHA). No install
+reaches them, because native mode always has hass. Replacing that transport
+with an in-process fake, and then deleting the branches, is B.2b.
 
-UPDATE (2026-08-22) -- there is now a FOURTH, genuinely pure-integration
-option, and it's the one to reach for first on any fresh install: this
-exact file (byte-identical, see set_native_hass() below) also ships as
-part of the nimbus_load custom_component itself
-(custom_components/nimbus_load/solver_writer.py, same repo) and gets run
-in-process by custom_components/nimbus_load/solver_runtime.py -- no
-separate device, no cron, no Add-on Store git-clone-with-no-auth wall
-(a real, live blocker hit installing the HAOS add-on this repo used to
-ship against this private repo), and no separate token file at all. This
-is now genuinely the SIMPLEST path for anyone new: install the Nimbus
-integration via HACS, run its "Solver settings" wizard, done -- the
-forecast starts producing itself. The standalone-script path below still
-exists and is unchanged/still fully supported -- this household's own
-live NUC deployment keeps using cron exactly as documented below,
-deliberately not migrated in the same change that added the native path,
-to avoid any risk to a real, already-working production system for a
-change that exists to help OTHER installs.
-
-nimbus issue #357 (2026-09-04): the `nimbus_solver_app` HAOS Supervisor
-add-on this section used to describe as "a bigger, separate build, still
-available" has been removed from this repo entirely -- it had silently
-drifted out of sync with this file's own solver code (missing several
-fixes) with no real path to staying maintained as a third copy, and the
-native in-process path above already covers every architecture it did.
-The Solver's own config-flow "Solver settings" wizard (Nimbus hub ->
-Configure) installs and works fine via HACS on ANY platform including
-HAOS -- it's what actually makes the native path possible now.
-
-Deliberately reads LocalVolts' own native price sensors
-(sensor.localvolts_price_forecast, sensor.localvolts_p2p_price_forecast)
-rather than HAEO's already-blended number.grid_import_price/
-grid_export_price -- per this project's own standing rule that Nimbus
-(and anything built on it, including this Solver test) must never
-reference a HAEO entity, since Nimbus exists to be a genuine HAEO
-alternative, not something that depends on it.
-
-PREREQUISITE (2026-08-20, replaces the old input_number-package-file
-step below): this script now reads its battery/grid/price config from
-sensor.nimbus_solver_config -- a real bridge sensor that mirrors
-whatever the household filled in through Nimbus's own HA-native
-"Configure" -> "Solver settings" wizard (see fetch_solver_config()'s own
-docstring for the full "installable by anyone, not just this household"
-reasoning). This closes the gap a fresh install (Mark Purcell, or
-anyone) used to hit: no more hand-created YAML package file, no more
-Python constants to edit -- just a form in the HA UI. Before deploying
-THIS script, on the NUC that will run it:
-  cd /opt/homeassistant/config/nimbus_repo && git pull origin main
-  # nimbus_repo's own custom_components/nimbus_load/ is a Python
-  # custom_component -- a config/module change here ALWAYS needs a full
-  # restart to load (a reload_all cannot reload changed Python modules,
-  # per this project's own documented rule). Needs nimbus >= 0.32.0 (the
-  # version that added sensor.nimbus_solver_config itself) -- check
-  # custom_components/nimbus_load/manifest.json's own "version" field.
-  docker restart opt_homeassistant_1
-  # Then, in the HA UI: Settings -> Devices & services -> Nimbus ->
-  # Configure -> "Solver settings" -- fill in every field across all 6
-  # steps (Battery / Power / Grid / Price & Forecast Sources / Economic
-  # Policy / P2P, the last one optional -- leave blank if this household
-  # has no community-trading/P2P scheme at all). Confirm
-  # sensor.nimbus_solver_config reads state "configured" (Developer
-  # Tools -> States) before running this script -- fetch_solver_config()
-  # raises a clear RuntimeError naming exactly what's still missing if
-  # this is skipped, rather than a confusing crash deep inside network.py.
-
-Deploy (run via cron on whichever NUC currently holds the VIP -- this
-script runs on the NUC HOST, not inside the HA container, same as every
-other writer script in this project):
-  cd /opt/homeassistant && git pull origin main
-  git show origin/main:scripts/nimbus_solver_forecast_writer.py > /opt/nimbus_solver_forecast_writer.py
-  python3 -c "import numpy" || pip3 install --user numpy
-  python3 -c "import highspy" || pip3 install --break-system-packages highspy
-  # highspy is the real, compiled LP solver lp.py imports at module load
-  # time (import highspy, near the top of solver/lp.py) -- without it,
-  # the very first run crashes immediately with ModuleNotFoundError,
-  # before this script's own config/entity checks ever get a chance to
-  # run. --break-system-packages is needed on Debian-family hosts (PEP
-  # 668) since this isn't going in a venv -- confirmed live 2026-08-18
-  # installing a real matching manylinux wheel with zero build-from-
-  # source needed, on this project's own Debian-based NUC. Genuinely
-  # untested on any OS/architecture outside this household -- if the
-  # wheel doesn't exist for your platform, that's real, new information
-  # worth reporting back, not something to assume will "just work."
-  # /opt is root-owned -- homehub cannot create a brand-new file directly
-  # inside it (documented project-wide convention, CLAUDE.md "NUC Script
-  # Deployment" section). Pre-create the log file with the right
-  # ownership BEFORE the first cron tick, or cron's own `>>` redirect
-  # fails silently every single run and python3 never even starts --
-  # confirmed live 2026-08-17, this exact gap: cron was correctly
-  # scheduled, but "Entity not found" persisted indefinitely because the
-  # log file (and therefore the script itself) had never once actually
-  # run.
-  sudo touch /opt/nimbus_solver_forecast_writer.log && sudo chown homehub:homehub /opt/nimbus_solver_forecast_writer.log
-  python3 /opt/nimbus_solver_forecast_writer.py   # one-off test run first
-  (crontab -l 2>/dev/null; echo "* * * * * python3 /opt/nimbus_solver_forecast_writer.py >> /opt/nimbus_solver_forecast_writer.log 2>&1") | crontab -
-  # 2026-08-17, direct real ask: "we want to be better not behind" (vs
-  # HAEO's own faster cadence) -- was */5 (before that, */15). Genuinely
-  # the fastest a 1-tick-per-run cron CAN safely go: the real LP solve
-  # measured live this session at 44.95s-52.31s, leaving real but not
-  # huge margin under a 60s tick. A bare `* * * * *` alone would risk a
-  # slow run still executing when the next tick fires (two solves
-  # competing for CPU, writing conflicting plan-state files) -- see
-  # acquire_lock()/release_lock() below, a real PID-file overlap guard
-  # that makes this safe: a tick that fires while a previous run is
-  # still genuinely in progress exits cleanly instead of ever running
-  # concurrently, rather than needing a slower, more conservative
-  # cadence "just in case."
-
-Token: /home/homehub/.ha_token (same file every other writer script uses)
-Solver source: /opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load/solver/
-(the real git clone of code-imstillalive/nimbus -- see CLAUDE.md's own
-"What is and isn't tracked in git" section for this layout)
+Observation and dispatch both go through Home Assistant: the plan is
+published as sensors, and controllable loads are commanded through HA
+services by solver_dispatch/guard.py. Settings come from
+sensor.nimbus_solver_config, the Solver settings wizard's bridge sensor.
 """
 
 from __future__ import annotations
@@ -595,27 +468,10 @@ except ImportError:
         compute_quality_report,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
     )
 
-if os.environ.get("SUPERVISOR_TOKEN") and not os.environ.get("HA_BASE"):
-    # Running inside a real HA Supervisor app/add-on container with
-    # homeassistant_api: true set in that add-on's own config.yaml --
-    # Supervisor auto-injects SUPERVISOR_TOKEN and proxies the real REST
-    # API at this internal address. Best understanding from HA's own
-    # published docs as of 2026-08-21, NOT yet live-verified against a
-    # real Supervisor install -- if this base path is wrong, every
-    # ha_get()/POST call below will fail loudly (a plain HTTPError), not
-    # silently, so it'll be obvious on the very first real test run.
-    HA_BASE = "http://supervisor/core"
-else:
-    HA_BASE = os.environ.get("HA_BASE", "http://localhost:8123")
-# ^ "localhost" (the default) only works if THIS script runs on the same
-# machine as HA itself (true here -- HA runs in Docker on this NUC, this
-# script runs on that same NUC's host). If HA is Home Assistant OS, or
-# otherwise runs somewhere this script can't reach via localhost, set the
-# HA_BASE env var to HA's real LAN IP instead (e.g.
-# "http://192.168.1.50:8123") -- nothing else in this script cares where
-# it's physically running, every HA interaction below is a plain HTTP
-# GET/POST against this base URL.
-TOKEN_PATH = os.environ.get("HA_TOKEN_PATH", "/home/homehub/.ha_token")
+# The test transport's base URL (see the module docstring): tests set HA_BASE
+# to golden.fake_ha's address. No install uses it.
+HA_BASE = os.environ.get("HA_BASE", "http://localhost:8123")
+TOKEN_PATH = os.environ.get("HA_TOKEN_PATH")
 # Plan-to-plan stability state, read by load_previous_plan() and written by
 # save_plan_state(): two solves minutes apart must not flip strategy on a thin
 # margin (2026-08-16). Native mode points it at hass.config.path().
@@ -1098,30 +954,8 @@ def scheduled_salvage_value_rate(cfg: dict, hour: int) -> float:
     return default_rate
 
 
-# Same 2026-08-21 portability pass -- checked in order: SUPERVISOR_TOKEN
-# (auto-injected by HA's own Supervisor into a real app/add-on container,
-# no manual token setup at all) beats a raw HA_TOKEN env var (any other
-# non-Supervisor container/host) beats the original TOKEN_PATH file (this
-# NUC's own unchanged default).
-#
-# Real bug caught before it ever shipped (2026-08-22, building the PURE
-# INTEGRATION native path below): this whole block runs unconditionally
-# at MODULE IMPORT TIME, before set_native_hass() (further down this
-# file) even exists to be called -- so importing this file natively,
-# in-process, inside custom_components/nimbus_load/ would previously
-# have crashed immediately with a bare FileNotFoundError on TOKEN_PATH,
-# on any system that isn't this exact household's own NUC (no
-# /home/homehub/.ha_token, and no SUPERVISOR_TOKEN either, since native
-# mode doesn't go through Supervisor at all) -- long before the native
-# seam ever got a chance to make TOKEN completely irrelevant. Genuinely
-# needed for REST/standalone mode (cron, or the now-removed
-# nimbus_solver_app addon while it existed) -- unchanged, still fails
-# loudly there, which is correct, existing,
-# already-accepted behaviour for that deployment path. Wrapped in
-# try/except purely so a MISSING token can never crash native mode,
-# which never reads TOKEN at all (see ha_get()/ha_post_state()/
-# fetch_price_history() above -- every REST branch that would actually
-# USE this value is skipped entirely once _NATIVE_HASS is set).
+# The test transport's bearer token: the HA_TOKEN env var, else the file at
+# HA_TOKEN_PATH. Resolved lazily (nimbus #349), never at import.
 _TOKEN: str | None = None
 _TOKEN_LOADED = False
 
@@ -1143,8 +977,8 @@ def _load_token() -> str | None:
     if _TOKEN_LOADED:
         return _TOKEN
     _TOKEN_LOADED = True
-    _TOKEN = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HA_TOKEN")
-    if not _TOKEN:
+    _TOKEN = os.environ.get("HA_TOKEN")
+    if not _TOKEN and TOKEN_PATH:
         try:
             with open(TOKEN_PATH, "r", encoding="utf-8") as f:
                 _TOKEN = f.read().strip()
@@ -9491,22 +9325,3 @@ def main() -> None:
             load_kw, load_forecast_error, live_load_kw
         ),
     )
-
-
-if __name__ == "__main__":
-    if not acquire_lock():
-        print(
-            f"[{datetime.now(UTC).astimezone(LOCAL_TZ).isoformat()}] previous run still in progress -- skipping this tick",
-            flush=True,
-        )
-        sys.exit(0)
-    try:
-        main()
-    except urllib.error.HTTPError as e:
-        print(
-            f"HTTP error: {e.code} {e.read().decode('utf-8', errors='replace')}",
-            file=sys.stderr,
-        )
-        raise
-    finally:
-        release_lock()

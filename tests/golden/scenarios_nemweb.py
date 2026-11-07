@@ -158,23 +158,15 @@ def _plain_native(fake: FakeHA):
 
 
 def _register(name, folder, region, now_iso, variant, purpose, overrides=None):
-    register(
-        Scenario(
-            name=name,
-            instant=now_iso,
-            build=lambda: build(folder, region, now_iso, variant, overrides or {}),
-            purpose=purpose,
-        )
-    )
-    # nimbus #2289 item 5, step B.1 (Mark Purcell, 7 Nov 2026): a native twin
-    # with the same inputs. The REST original stays until B.2.
+    # nimbus #2289 item 5: native mode only. The REST originals were retired
+    # with the standalone mode (B.2a); each snapshot keeps its native_ name.
     register(
         Scenario(
             name=f"native_{name}",
             instant=now_iso,
             build=lambda: build(folder, region, now_iso, variant, overrides or {}),
             native=_plain_native,
-            purpose=f"native twin of {name}",
+            purpose=f"{name}: {purpose}",
         )
     )
 

@@ -355,26 +355,6 @@ def _build(instant: str) -> FakeHA:
     return FakeHA(states=states(now), history=history(now))
 
 
-register(
-    Scenario(
-        name="rich_site_afternoon",
-        instant="2026-09-20T05:40:00+00:00",
-        build=lambda: _build("2026-09-20T05:40:00+00:00"),
-        purpose="every configured input, an hour before a P2P block, offer curve and flex signals on",
-    )
-)
-
-register(
-    Scenario(
-        name="rich_site_after_midnight",
-        instant="2026-09-20T14:05:00+00:00",
-        build=lambda: _build("2026-09-20T14:05:00+00:00"),
-        purpose="the first cycles after local midnight: inside the reserve window, scoring the day before",
-        cycles=2,
-    )
-)
-
-
 CIRCUITS = (
     "sensor.nimbus_fake_circuit_a_power_forecast",
     "sensor.nimbus_fake_circuit_b_power_forecast",
@@ -467,17 +447,6 @@ def _build_variant(instant: str) -> FakeHA:
     ]
     hist["sensor.fake_grid_meter"] = hist["sensor.fake_grid_power"]
     return FakeHA(states=st, history=hist)
-
-
-register(
-    Scenario(
-        name="rich_site_circuits_and_limits",
-        instant="2026-09-21T03:10:00+00:00",
-        build=lambda: _build_variant("2026-09-21T03:10:00+00:00"),
-        purpose="circuit load sum, price event, envelopes, short spot tail, P2P triples, grid meter, live max discharge, spike alert",
-        cycles=2,
-    )
-)
 
 
 # --- native mode: the same site inside Home Assistant, with an EV ----------
@@ -576,9 +545,9 @@ register(
 )
 
 
-# nimbus #2289 item 5, step B.1 (Mark Purcell, 7 Nov 2026): the REST rich-site
-# scenarios above also run in native mode with the same inputs. The REST
-# originals stay until the standalone mode is retired (B.2).
+# nimbus #2289 item 5 (Mark Purcell, 7 Nov 2026): the rich-site scenarios run
+# in native mode. B.1 added the native twins; B.2a retired the REST originals
+# with the standalone mode.
 def _plain_native(fake: FakeHA):
     from golden.fake_native import FakeNativeHass
 
