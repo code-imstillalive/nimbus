@@ -258,7 +258,7 @@ def build_price_arrays(
         # nimbus #1698 (Mark Purcell): an Amber Express price sensor carries the
         # interval's wholesale in the same response; collected each solve, it
         # is the reference for the intervals it covers. Empty otherwise.
-        same_poll_wholesale = sw.collect_amber_spot(
+        same_poll_wholesale = collect_amber_spot(
             (
                 cfg.get("solver_import_price_sensor"),
                 cfg.get("solver_export_price_sensor"),
