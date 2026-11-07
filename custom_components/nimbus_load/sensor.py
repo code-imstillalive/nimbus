@@ -4451,7 +4451,7 @@ class NimbusFlexReportSensor(_NimbusSolverPushSensor):
     anything" headline number. offered_up_kwh/offered_down_kwh are
     `None` (not 0) on a day switch.nimbus_solver_flex_signals_enabled
     was off -- see compute_daily_flex_report()'s own docstring in
-    solver_writer.py for the full reasoning behind every field.
+    solver_reports/flex.py for the full reasoning behind every field.
     """
 
     # nimbus issue #983: computed once per scored day, so a restart

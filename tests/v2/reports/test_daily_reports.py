@@ -20,6 +20,8 @@ import solver_writer as sw
 from _module_time import ModuleTime
 from golden.fake_ha import FakeHA
 from native_transport import use_native_fake
+from solver_reports import backtest as backtest_reports
+from solver_reports import counterfactual as counterfactual_reports
 from solver_reports.quality import QUALITY_REPORT_SCHEMA
 
 quality = sys.modules[sw.publish_daily_quality_report.__module__]
@@ -179,27 +181,29 @@ def test_the_counterfactual_splits_the_round_trip_efficiency(ha, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("publish", "entity", "compute"),
+    ("owner", "publish", "entity", "compute"),
     [
         (
-            sw.publish_efficiency_backtest_report,
-            sw.BACKTEST_ENTITY_ID,
+            backtest_reports,
+            backtest_reports.publish_efficiency_backtest_report,
+            backtest_reports.BACKTEST_ENTITY_ID,
             "compute_efficiency_backtest_report",
         ),
         (
-            sw.publish_nimbus_only_soc_counterfactual,
-            sw.COUNTERFACTUAL_ENTITY_ID,
+            counterfactual_reports,
+            counterfactual_reports.publish_nimbus_only_soc_counterfactual,
+            counterfactual_reports.COUNTERFACTUAL_ENTITY_ID,
             "compute_nimbus_only_soc_counterfactual",
         ),
     ],
     ids=["backtest", "counterfactual"],
 )
 def test_a_day_already_scored_is_re_pushed_as_it_is_not_recomputed(
-    ha, monkeypatch, publish, entity, compute
+    ha, monkeypatch, owner, publish, entity, compute
 ):
     existing = {"state": "1.23", "attributes": {"latest_date": "2026-08-24"}}
     ha["states"][entity] = existing
-    monkeypatch.setattr(sw, compute, lambda *_a: pytest.fail("recomputed"))
+    monkeypatch.setattr(owner, compute, lambda *_a: pytest.fail("recomputed"))
     publish(cfg(), NOW)
     assert ha["posts"] == [(entity, existing["state"], existing["attributes"])]
 
@@ -208,9 +212,9 @@ def test_a_new_day_is_scored_and_published_with_its_date(ha, monkeypatch):
     # test_a_new_day_is_scored_and_published_with_its_date
     ha["series"]["sensor.real_solar"] = flat(3.0)
     ha["series"]["sensor.real_load"] = flat(1.0)
-    sw.publish_efficiency_backtest_report(cfg(), NOW)
+    backtest_reports.publish_efficiency_backtest_report(cfg(), NOW)
     ((entity, _state, attrs),) = ha["posts"]
-    assert entity == sw.BACKTEST_ENTITY_ID and "candidates" in attrs
+    assert entity == backtest_reports.BACKTEST_ENTITY_ID and "candidates" in attrs
     assert attrs["latest_date"] == "2026-08-24"
 
     # test_an_oracle_that_cannot_solve_is_no_report_not_a_crash
