@@ -3625,6 +3625,60 @@ def _price_arrays_phase(
     )
 
 
+@dataclass(frozen=True)
+class _Battery:
+    """What `_battery_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    _soc_envelope: Any
+    charge_discharge_efficiency: Any
+    initial_soc_kwh: Any
+    price_spike_active: Any
+    spike_override_kw: Any
+
+
+def _battery_phase(
+    capacity_kwh, cfg, import_price, initial_pct, max_discharge_kw, max_pct, min_pct
+) -> _Battery:
+    """The battery's SoC envelope and the spike override clamped to the live ceiling. Phase 7 of `main()`, moved verbatim (#2289 item 6 step 9)."""
+    # nimbus issue #735 stage 5: the SoC-envelope slice (configured
+    # percents to kWh, the #328 honest pass-through, the #601 warn-once
+    # excursion log, the separate PHYSICAL clamp, and the round-trip
+    # efficiency) lives in solver_inputs/battery_soc.py. Five inputs,
+    # four outputs -- measured narrower than either seam already
+    # extracted. The element construction immediately below is
+    # DELIBERATELY not extracted with it: the same measurement puts it
+    # at 27 inputs, which would be a worse call site than the inline
+    # code. See that module's own docstring for the numbers.
+    _soc_envelope = battery_soc_inputs.resolve_soc_envelope(
+        cfg,
+        capacity_kwh=capacity_kwh,
+        min_pct=min_pct,
+        max_pct=max_pct,
+        initial_pct=initial_pct,
+    )
+    initial_soc_kwh = _soc_envelope.initial_soc_kwh
+    charge_discharge_efficiency = _soc_envelope.charge_discharge_efficiency
+    # nimbus issue #567 (issue #694: now wins over P2P, see
+    # price_inputs.resolve_price_spike_override()'s own docstring): real-time "sell
+    # into a price spike, right now" override. spike_detected is
+    # published below regardless of whether spike_override_kw ends up
+    # armed/active, so the dashboard's own "$$$" visibility signal fires
+    # purely on detection.
+    spike_override_kw, price_spike_active = price_inputs.resolve_price_spike_override(
+        cfg, import_price[0]
+    )
+    spike_override_kw = price_inputs.clamp_spike_override_to_live_ceiling(
+        cfg, spike_override_kw, max_discharge_kw
+    )
+    return _Battery(
+        _soc_envelope=_soc_envelope,
+        charge_discharge_efficiency=charge_discharge_efficiency,
+        initial_soc_kwh=initial_soc_kwh,
+        price_spike_active=price_spike_active,
+        spike_override_kw=spike_override_kw,
+    )
+
+
 def main() -> None:
     _settings = _settings_phase()
     cfg = _settings.cfg
@@ -3739,36 +3793,20 @@ def main() -> None:
     import_price_upper = _price_arrays.import_price_upper
     n_clamped = _price_arrays.n_clamped
 
-    # nimbus issue #735 stage 5: the SoC-envelope slice (configured
-    # percents to kWh, the #328 honest pass-through, the #601 warn-once
-    # excursion log, the separate PHYSICAL clamp, and the round-trip
-    # efficiency) lives in solver_inputs/battery_soc.py. Five inputs,
-    # four outputs -- measured narrower than either seam already
-    # extracted. The element construction immediately below is
-    # DELIBERATELY not extracted with it: the same measurement puts it
-    # at 27 inputs, which would be a worse call site than the inline
-    # code. See that module's own docstring for the numbers.
-    _soc_envelope = battery_soc_inputs.resolve_soc_envelope(
-        cfg,
+    _battery = _battery_phase(
         capacity_kwh=capacity_kwh,
-        min_pct=min_pct,
-        max_pct=max_pct,
+        cfg=cfg,
+        import_price=import_price,
         initial_pct=initial_pct,
+        max_discharge_kw=max_discharge_kw,
+        max_pct=max_pct,
+        min_pct=min_pct,
     )
-    initial_soc_kwh = _soc_envelope.initial_soc_kwh
-    charge_discharge_efficiency = _soc_envelope.charge_discharge_efficiency
-    # nimbus issue #567 (issue #694: now wins over P2P, see
-    # price_inputs.resolve_price_spike_override()'s own docstring): real-time "sell
-    # into a price spike, right now" override. spike_detected is
-    # published below regardless of whether spike_override_kw ends up
-    # armed/active, so the dashboard's own "$$$" visibility signal fires
-    # purely on detection.
-    spike_override_kw, price_spike_active = price_inputs.resolve_price_spike_override(
-        cfg, import_price[0]
-    )
-    spike_override_kw = price_inputs.clamp_spike_override_to_live_ceiling(
-        cfg, spike_override_kw, max_discharge_kw
-    )
+    _soc_envelope = _battery._soc_envelope
+    charge_discharge_efficiency = _battery.charge_discharge_efficiency
+    initial_soc_kwh = _battery.initial_soc_kwh
+    price_spike_active = _battery.price_spike_active
+    spike_override_kw = _battery.spike_override_kw
     # nimbus issue #1303 (spec 004, Phase 4 of #1298): the 244-line plan-
     # assembly span that used to sit inline here now lives in solver_plan.py.
     #
