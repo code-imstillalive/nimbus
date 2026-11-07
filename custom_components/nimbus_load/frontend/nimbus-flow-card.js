@@ -358,7 +358,10 @@ class NimbusFlowCard extends HTMLElement {
       pos["inv" + k] = { x: n === 1 ? W / 2 - 160 : 260 + ((W - 520) * k) / Math.max(1, n - 1), y: invY, r: 46 };
     });
     pos.house = { x: W / 2, y: houseY, r: 50 };
-    pos.grid = { x: n === 1 ? W / 2 + 160 : W / 2, y: invY, r: 46 };
+    // With two or more inverters, Grid sits below their row (household,
+    // 7 Nov 2026): a flow from one inverter to another runs along the row, and
+    // drawn through Grid it doubled up on Grid's own lines.
+    pos.grid = { x: n === 1 ? W / 2 + 160 : W / 2, y: n === 1 ? invY : invY + 70, r: 46 };
     // Strings above their inverter.
     m.invs.forEach((inv, k) => {
       const mine = m.site.strings.map((s, j) => ({ s, j })).filter(({ s }) => s.source === inv.id);
@@ -422,6 +425,9 @@ class NimbusFlowCard extends HTMLElement {
         .pill.off { color: ${FLOW_COLORS.amber}; background: rgba(255,179,64,0.14); }
         .pill.sun { color: ${FLOW_COLORS.solar}; background: rgba(245,181,61,0.12); }
         .pill.sun.low { color: ${FLOW_COLORS.amber}; background: rgba(255,179,64,0.14); }
+        .pill.wait { color: ${FLOW_COLORS.muted}; background: rgba(154,160,172,0.14); }
+        /* .pill sets display, which would otherwise override [hidden]. */
+        [hidden] { display: none !important; }
         svg { display: block; width: 100%; height: auto; }
         .flow { fill: none; stroke-linecap: round; }
         .run { animation: run linear infinite; }
@@ -525,9 +531,11 @@ class NimbusFlowCard extends HTMLElement {
 
     // Plan and solar pills.
     const planPill = root.getElementById("plan");
-    planPill.hidden = !m.p0;
-    planPill.className = "pill " + (m.offPlan ? "off" : "ok");
-    planPill.textContent = m.offPlan ? "Off plan" : "On plan";
+    // No plan yet, e.g. for the minute after Nimbus reloads: say so, rather
+    // than leave the last plan's pills up. Prices come from the plan too.
+    planPill.hidden = false;
+    planPill.className = "pill " + (!m.p0 ? "wait" : m.offPlan ? "off" : "ok");
+    planPill.textContent = !m.p0 ? "Waiting for the plan" : m.offPlan ? "Off plan" : "On plan";
     const sun = root.getElementById("sun");
     const fcSolar = m.p0 ? parseFloat(m.p0.solar_kw) || 0 : 0;
     if (fcSolar > 0.5) {
@@ -638,9 +646,12 @@ class NimbusFlowCard extends HTMLElement {
       } else if (m.grid > FLOW_MIN_KW) { text = `Buying ${buy.toFixed(1)}c`; colour = C.grid; }
       else { text = `Buy ${buy.toFixed(1)}c · Sell ${sell.toFixed(1)}c`; colour = C.muted; }
       const g = this._el("g", { class: "tag" }, G.tags);
+      // Above the inverter row even where Grid sits below it, clear of the
+      // line between the inverters.
       const w = 18 + text.length * 7.3, p = pos.grid;
-      this._el("rect", { x: p.x - w / 2, y: p.y - p.r - 40, width: w, height: 26, rx: 13, stroke: colour }, g);
-      this._el("text", { x: p.x, y: p.y - p.r - 22, fill: colour }, g).textContent = text;
+      const top = Math.min(p.y, pos.inv0 ? pos.inv0.y : p.y) - p.r;
+      this._el("rect", { x: p.x - w / 2, y: top - 40, width: w, height: 26, rx: 13, stroke: colour }, g);
+      this._el("text", { x: p.x, y: top - 22, fill: colour }, g).textContent = text;
     }
 
     this._renderToday(m.site.switchboard);
