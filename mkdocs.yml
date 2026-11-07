@@ -30,6 +30,7 @@ theme:
 exclude_docs: |
   worklog/
   handover/
+  changelog/
   specs/
   design/
   ivv/
