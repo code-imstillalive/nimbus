@@ -385,7 +385,7 @@ def _resolve_battery_participant_history(
             SUBENTRY_TYPE_BATTERY_PARTICIPANT,
         )
     except ImportError:  # pragma: no cover - standalone/cron path
-        from const import (
+        from const import (  # type: ignore[no-redef]
             CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
             CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
@@ -818,8 +818,8 @@ def _participant_departure_deadline(
     *,
     grid_times: list,
     period_hours: float | Sequence[float],
-    departure_hour: object,
-    must_have_soc_pct: object,
+    departure_hour: float | str | None,
+    must_have_soc_pct: float | str | None,
     capacity_kwh: float,
     initial_soc_kwh: float,
     actual_charge_kw: np.ndarray,

@@ -250,7 +250,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             SUBENTRY_TYPE_BATTERY_PARTICIPANT,
         )
     except ImportError:  # pragma: no cover - standalone/cron path
-        from const import (
+        from const import (  # type: ignore[no-redef]
             CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
             CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
