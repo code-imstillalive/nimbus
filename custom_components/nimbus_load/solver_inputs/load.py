@@ -46,6 +46,7 @@ import re
 import urllib.error
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import cast
 
 try:
     from .. import solver_shared
@@ -365,7 +366,12 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
             load_upper_kw,
             load_forecast_error,
             load_forecast_coverage_hours,
-        ) = read_load_forecast_sensor(_load_total_sensor(cfg), grid_times, now)
+        ) = cast(
+            # On error the three lists are None; the error branch below
+            # replaces them with zeros before anything reads them.
+            tuple[list[float], list[float], list[float], str | None, float | None],
+            read_load_forecast_sensor(_load_total_sensor(cfg), grid_times, now),
+        )
         if load_forecast_error is not None:
             # nimbus issue #370 (Mark Purcell, codebase review): a
             # transient startup-race error (the entity exists but hasn't
