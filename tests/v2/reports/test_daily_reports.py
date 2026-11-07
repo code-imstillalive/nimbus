@@ -17,6 +17,8 @@ from datetime import date, datetime, timedelta
 import pytest
 import solver_writer as sw
 from _module_time import ModuleTime
+from golden.fake_ha import FakeHA
+from native_transport import use_native_fake
 from solver_reports.quality import QUALITY_REPORT_SCHEMA
 
 quality = sys.modules[sw.publish_daily_quality_report.__module__]
@@ -92,9 +94,6 @@ def ha(monkeypatch):
             return site["states"][eid]
         raise urllib.error.URLError("not found")
 
-    def offline(*_a, **_k):
-        raise urllib.error.URLError("no Home Assistant in this test")
-
     monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
     monkeypatch.setattr(sw, "ha_get", get)
     monkeypatch.setattr(
@@ -102,8 +101,10 @@ def ha(monkeypatch):
         "ha_post_state",
         lambda eid, state, attrs: site["posts"].append((eid, state, attrs)),
     )
-    monkeypatch.setattr(urllib.request, "urlopen", offline)
-    return site
+    # Every other read finds nothing: an empty Home Assistant, in process.
+    hass = use_native_fake(monkeypatch, sw, FakeHA(states={}))
+    yield site
+    hass.close()
 
 
 # --- the Nimbus-only SoC counterfactual -------------------------------------------------------

@@ -96,7 +96,10 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    36  # solver_writer.py alone as of nimbus #1305 Phase 6. The ratchet only
+    34  # solver_writer.py alone as of nimbus #2289 item 5 (B.2b: the REST
+    # transport's removal took ha_call_service_with_response and
+    # fetch_entity_state_history_range under the limit); 36 as of nimbus #1305
+    # Phase 6. The ratchet only
     # ever tightens, and this is the fifth time it has: 67 at d5b044b, 61
     # after spec 001 moved six functions to solver_shared.py, 53 after Phase
     # 2b/2c moved eight reporting functions to solver_reports/ (three of them

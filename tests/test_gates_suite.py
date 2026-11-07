@@ -472,8 +472,6 @@ class TestTheHelperCoversEveryPersistedPath(unittest.TestCase):
                 # computed value.
                 if isinstance(node.value, ast.Call):
                     declared.add(target.id)
-        # TOKEN_PATH is read-only credentials, never written by main().
-        declared.discard("TOKEN_PATH")
         missing = sorted(declared - set(PERSISTED_PATH_CONSTANTS))
         self.assertEqual(
             missing,

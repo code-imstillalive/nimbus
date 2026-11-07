@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import importlib
 import logging
-import urllib.error
-import urllib.request
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
+import solver_shared
 import solver_writer as sw
-from golden.fake_ha import BASE, FakeHA, HistoryPoint
+from golden.fake_ha import FakeHA, HistoryPoint
+from native_transport import use_native_fake
 from solver_inputs import prices
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)  # 16:00 Brisbane
@@ -36,13 +36,11 @@ def _iso(t):
 
 @pytest.fixture
 def ha(monkeypatch):
-    """A fake HA the module reaches over its own REST code."""
+    """A fake HA the module reaches in native mode, in process."""
     fake = FakeHA(states={})
-    monkeypatch.setattr(sw, "HA_BASE", BASE)
-    monkeypatch.setattr(sw, "_load_token", lambda: "test")
-    monkeypatch.setattr(sw.NATIVE, "hass", None)
-    monkeypatch.setattr(urllib.request, "urlopen", fake.urlopen)
-    return fake
+    hass = use_native_fake(monkeypatch, sw, fake)
+    yield fake
+    hass.close()
 
 
 # --- instantaneous readings on the plan grid -------------------------------
@@ -622,11 +620,9 @@ def cal(monkeypatch):
     install_ha_stubs()
     psw = importlib.import_module("custom_components.nimbus_load.solver_writer")
     fake = FakeHA(states={})
-    monkeypatch.setattr(psw, "HA_BASE", BASE)
-    monkeypatch.setattr(psw, "_load_token", lambda: "test")
-    monkeypatch.setattr(psw.NATIVE, "hass", None)
-    monkeypatch.setattr(urllib.request, "urlopen", fake.urlopen)
-    return psw, fake
+    hass = use_native_fake(monkeypatch, psw, fake)
+    yield psw, fake
+    hass.close()
 
 
 @pytest.mark.parametrize(
@@ -844,28 +840,6 @@ BLOCKS = {
 }
 
 
-def test_the_access_token_comes_from_the_environment_then_its_file(
-    monkeypatch, tmp_path
-):
-    for name in ("SUPERVISOR_TOKEN", "HA_TOKEN"):
-        monkeypatch.delenv(name, raising=False)
-    token_file = tmp_path / "token"
-    monkeypatch.setattr(sw, "TOKEN_PATH", str(token_file))
-
-    def fresh():
-        monkeypatch.setattr(sw, "_TOKEN_LOADED", False)
-        monkeypatch.setattr(sw, "_TOKEN", None)
-        return sw._load_token()
-
-    assert fresh() is None  # no environment, no file
-    token_file.write_text("from-file\n", encoding="utf-8")
-    assert fresh() == "from-file"
-    monkeypatch.setenv("HA_TOKEN", "from-env")
-    assert fresh() == "from-env"
-    token_file.write_text("changed", encoding="utf-8")
-    assert sw._load_token() == "from-env"  # read once, then kept
-
-
 # --- a price event the household arms to test the plan (#1213) ------------------------------
 
 EVENT_DAY = datetime(2026, 9, 26, tzinfo=UTC)
@@ -1021,11 +995,9 @@ def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(
     with monkeypatch.context() as mp:
 
         def boom(*_a, **_k):
-            raise urllib.error.HTTPError("url", 500, "server error", {}, None)
+            raise RuntimeError("recorder read failed")
 
-        mp.setattr(sw.NATIVE, "hass", None)
-        mp.setattr(sw, "_load_token", lambda: "t")
-        mp.setattr(urllib.request, "urlopen", boom)
+        mp.setattr(solver_shared, "native_state_changes", boom)
         assert (
             sw.fetch_entity_history_range("sensor.price", T0, T0 + timedelta(hours=1))
             == []

@@ -571,12 +571,9 @@ logger-objects = ["custom_components.nimbus_load.solver_shared._LOGGER"]
 # against a real `lint-imports` run with zero `ignore_imports` (below),
 # not assumed from the plan's own table.
 #
-# One new exception is added: `solver_shared -> solver_writer`, for the
-# identical, spec-001-documented reason `_NATIVE_HASS`/`HA_BASE`/
-# `_load_token()` stay behind in `solver_writer.py` and are read via the
-# same deferred `_solver_writer()` seam (nimbus issue #861) -- this is the
-# one new late-import call site the spec's own Migration explicitly
-# authorises, not an oversight.
+# #1301 added `solver_shared -> solver_writer` for `HA_BASE`/`_load_token()`;
+# #2289 item 5 (B.2b) removed both with the REST transport, and the exception
+# with them.
 #
 # `unmatched_ignore_imports_alerting` is left at its default (`error`), so
 # if any one of these eight imports is ever fixed for real, this contract
@@ -639,7 +636,6 @@ ignore_imports = [
     "custom_components.nimbus_load.solver_reports.flex -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_reports.quality -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_publish -> custom_components.nimbus_load.solver_writer",
-    "custom_components.nimbus_load.solver_shared -> custom_components.nimbus_load.solver_writer",
     # nimbus issue #1305 (spec 006, Phase 6): the dispatch guard, same seam.
     "custom_components.nimbus_load.solver_dispatch.guard -> custom_components.nimbus_load.solver_writer",
 ]
