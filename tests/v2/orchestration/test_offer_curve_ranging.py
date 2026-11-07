@@ -6,6 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import solver_publish
 import solver_writer
 
 
@@ -36,7 +37,7 @@ class TestBuildOfferCurveBands(unittest.TestCase):
         # information -- collapse them, unlike the #677 collision case
         # (two DIFFERENT values silently colliding), which is why this
         # is safe where that wasn't.
-        bands = solver_writer._build_offer_curve_bands(
+        bands = solver_publish._build_offer_curve_bands(
             [(-1.0, 30.0), (0.04287104246724765, 30.0), (0.04287204246724765, 29.446)],
             [(-1.0, 0.0429), (-1.0, 0.0429), (0.0429, 0.043)],
         )
@@ -54,7 +55,7 @@ class TestBuildOfferCurveBands(unittest.TestCase):
         # degenerate basis -- two bands both open at -inf, one's range a
         # strict subset of the other's, same kw. Real live numbers,
         # verbatim from the bug report.
-        bands = solver_writer._build_offer_curve_bands(
+        bands = solver_publish._build_offer_curve_bands(
             [(0.02, -0.0), (0.05, -0.0), (0.08, 0.0)],
             [
                 (float("-inf"), 0.0369),
@@ -74,7 +75,7 @@ class TestBuildOfferCurveBands(unittest.TestCase):
         # Same incident, export side -- the nested pair is bands 2/3
         # this time (bands 1/2 are adjacent-but-disjoint, correctly kept
         # separate: no subset relation between them).
-        bands = solver_writer._build_offer_curve_bands(
+        bands = solver_publish._build_offer_curve_bands(
             [(0.03, 0.0), (0.09, -0.0), (0.25, 0.0)],
             [
                 (float("-inf"), 0.0749),
@@ -108,14 +109,14 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
         def pending(seconds):
             return SimpleNamespace(offer_curve_deferred=dict, seconds=seconds)
 
-        run = solver_writer.sweep_offer_curve
-        self.addCleanup(solver_writer._LAST_OFFER_CURVE.update, at=None, seconds=None)
+        run = solver_publish.sweep_offer_curve
+        self.addCleanup(solver_publish._LAST_OFFER_CURVE.update, at=None, seconds=None)
         with patch.object(solver_writer.network, "complete_offer_curve", complete):
-            solver_writer._LAST_OFFER_CURVE.update(at=None, seconds=None)
+            solver_publish._LAST_OFFER_CURVE.update(at=None, seconds=None)
             run(pending(60.0), 0.0)
             self.assertIsNotNone(run(pending(60.0), 90.0).offer_curve_deferred)
             run(pending(60.0), 180.0)
-            solver_writer._LAST_OFFER_CURVE.update(at=None, seconds=None)
+            solver_publish._LAST_OFFER_CURVE.update(at=None, seconds=None)
             run(pending(1.0), 0.0)
             run(pending(1.0), 10.0)
             done = SimpleNamespace(offer_curve_deferred=None)
@@ -127,7 +128,7 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
         def fails(plan):
             raise ValueError("re-solve did not reach optimal (status='Unknown')")
 
-        solver_writer._LAST_OFFER_CURVE.update(at=None, seconds=None)
+        solver_publish._LAST_OFFER_CURVE.update(at=None, seconds=None)
         with (
             patch.object(solver_writer.network, "complete_offer_curve", fails),
             self.assertLogs(solver_writer._LOGGER, "WARNING") as logs,
@@ -144,7 +145,7 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
             offer_curve_sweep_seconds=0.0922,
         )
         with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_offer_curve(plan)
+            solver_publish.publish_offer_curve(plan)
         post.assert_called_once()
         entity_id, state, attrs = post.call_args[0]
         self.assertEqual(entity_id, "sensor.nimbus_offer_curve")
@@ -180,7 +181,7 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
             offer_curve_export_ranging=[None, (0.05, 0.15)],
         )
         with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_offer_curve(plan)
+            solver_publish.publish_offer_curve(plan)
         _entity_id, _state, attrs = post.call_args[0]
         self.assertEqual(
             attrs["price_limits"],

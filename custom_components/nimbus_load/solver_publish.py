@@ -3055,3 +3055,360 @@ def publish_plan(
         f"binding_now={binding_now!r} energy_shadow_price_now={plan.duals.get('power_balance_t0', 0.0) / period_hours_arr[0]:.4f} "
         f"p2p_volume_cap_shadow_price={p2p_volume_cap_shadow_price}"
     )
+
+
+# --- moved from solver_writer.py (#2289 item 6, step 6): the offer curve and flex signals ---
+
+
+#: nimbus #2132: a sweep slower than this, s, is refreshed only every
+#: OFFER_CURVE_SLOW_REFRESH_S rather than every cycle. Half a solver tick.
+OFFER_CURVE_SLOW_SECONDS = 30.0
+
+
+#: Under sensor.nimbus_offer_curve's 300 s staleness, with room for a sweep.
+OFFER_CURVE_SLOW_REFRESH_S = 180.0
+
+
+_LAST_OFFER_CURVE: dict[str, float | None] = {"at": None, "seconds": None}
+
+
+def sweep_offer_curve(plan, now: float):
+    """nimbus #2132: `plan` with its deferred offer curve swept (#2121), or
+    left unswept this cycle when the last sweep took longer than
+    OFFER_CURVE_SLOW_SECONDS and the published curve is younger than
+    OFFER_CURVE_SLOW_REFRESH_S -- publish_offer_curve() then leaves the last
+    curve in place. Swept every cycle (`now` is time.monotonic()), a slow
+    sweep -- 58 to 67 s on a two-battery shared-charger site with six
+    adequacy loads -- ran beside Home Assistant taking in the plan just
+    published, and stretched the cycle to about 90 s, so every other solver
+    tick was skipped. The curve informs offers; dispatch never reads it."""
+    if plan.offer_curve_deferred is None:
+        return plan
+    at, seconds = _LAST_OFFER_CURVE["at"], _LAST_OFFER_CURVE["seconds"]
+    if (
+        at is not None
+        and seconds is not None
+        and seconds > OFFER_CURVE_SLOW_SECONDS
+        and now - at < OFFER_CURVE_SLOW_REFRESH_S
+    ):
+        return plan
+    try:
+        swept = network.complete_offer_curve(plan)
+    except ValueError as err:
+        # 29 Oct 2026, the reference household: one re-solve in the sweep
+        # ended 'Unknown' and the error failed the whole cycle, after the
+        # plan was published. The curve is left as last published instead.
+        solver_shared._LOGGER.warning(
+            "Nimbus offer curve: not swept this cycle (%s)", err
+        )
+        return plan
+    _LAST_OFFER_CURVE.update(at=now, seconds=swept.offer_curve_sweep_seconds)
+    return swept
+
+
+def publish_offer_curve(plan) -> None:
+    """nimbus issue #494 (Signals 5/7 of #489): pushes sensor.nimbus_
+    offer_curve when build_plan() actually computed one this cycle
+    (switch.nimbus_solver_offer_curve_enabled on) -- no-op otherwise,
+    same "None means not computed this cycle" convention Plan.grid_
+    signals already uses for #491. Called from main() right after
+    publish_plan() -- deliberately a small standalone push rather than
+    threaded through publish_plan()'s own already-long parameter list,
+    since this needs nothing beyond the plan itself.
+
+    State is period 0's own real grid_import_kw -- a live, dashboard-
+    visible instance of #494's own "curve at the current retail price
+    equals the main plan's period-0 import" consistency check, not a
+    separately-derived figure that could silently drift from it.
+
+    `import_curve`/`export_curve` (nimbus issue #706, superseding #677's
+    own dict shape): a list of self-contained band objects --
+    `{"price_lower", "price_upper", "kw"}`, one per real breakpoint --
+    not a `{price: kW}` dict with a SEPARATE parallel `_ranging` dict
+    correlated only by a rounded 4dp price-string key. That key-based
+    design is what let two distinct real sweep points that happened to
+    round to the identical displayed price silently collide -- one
+    kept, the other genuinely dropped, no warning strong enough to make
+    that anything but real, live data loss (confirmed on this
+    household's own real data, six collisions in one solve cycle, one
+    of them ~0.8 kW apart -- not float noise). A list of bands has
+    nothing to collide on: every real breakpoint keeps its own real
+    (price range, kW) pair, always, with no dedup logic needed
+    anywhere. Still price-sorted ascending (network.py's own walk
+    output order, unchanged). `price_lower`/`price_upper` are `None`
+    only for a band whose own ranging interval came back invalid at
+    that step (see `LPResult.sweep_cost_with_ranging()`'s own
+    docstring); `kw` is always the real solved value regardless.
+
+    `price_limits` (nimbus issue #705): the real AEMO NEM domain the walk
+    itself is bounded by (`network._OFFER_CURVE_DOMAIN_MIN`/`_MAX`), as
+    a genuine JSON object rather than only ever living as a Python
+    constant a dashboard/consumer has no way to read -- so a household
+    (or a future correction, if AEMC's own multi-year MPC escalation
+    moves the real cap again) can see exactly what domain this cycle's
+    curve was walked against without reading this module's own source.
+    """
+    if plan.offer_curve_import is None or plan.offer_curve_export is None:
+        return
+    import_curve = _build_offer_curve_bands(
+        plan.offer_curve_import, plan.offer_curve_import_ranging
+    )
+    export_curve = _build_offer_curve_bands(
+        plan.offer_curve_export, plan.offer_curve_export_ranging
+    )
+    _solver_writer().ha_post_state(
+        "sensor.nimbus_offer_curve",
+        round(float(plan.grid_import_kw[0]), 3),
+        {
+            "unit_of_measurement": "kW",
+            "friendly_name": "Nimbus Offer Curve",
+            "import_curve": import_curve,
+            "export_curve": export_curve,
+            "price_limits": {
+                "market_floor_price": network._OFFER_CURVE_DOMAIN_MIN,
+                "market_price_cap": network._OFFER_CURVE_DOMAIN_MAX,
+                # nimbus issue #1293: found by the codebase-wide grep that
+                # #1253's "zero hardcoded currency strings" claim should have
+                # run, and fixed the OPPOSITE way to every other site.
+                #
+                # These two numbers are AEMO's own Market Floor Price and
+                # Market Price Cap -- Australian market constants, not this
+                # household's money. Resolving them against
+                # `hass.config.currency` would relabel a genuinely-AUD figure
+                # as EUR on a European install, which is a false statement
+                # about the value rather than a localisation. So it is pinned
+                # to an explicit ISO code instead: honest, unambiguous, and
+                # deliberately NOT household-dependent. The bare symbol it
+                # replaced was ambiguous across a dozen currencies, which is
+                # the same objection #1253 raised everywhere else.
+                "unit": "AUD/kWh",
+                "source": "AEMO Market Floor Price / Market Price Cap "
+                "(nimbus issue #705, confirmed by Mark Purcell)",
+            },
+            "sweep_seconds": round(plan.offer_curve_sweep_seconds, 4)
+            if plan.offer_curve_sweep_seconds is not None
+            else None,
+            "generated_at": datetime.now(UTC)
+            .astimezone(solver_shared.LOCAL_TZ)
+            .isoformat(),
+        },
+    )
+
+
+def _build_offer_curve_bands(
+    curve: list[tuple[float, float]],
+    ranging: list[tuple[float, float] | None] | None,
+) -> list[dict[str, float | None]]:
+    """nimbus issue #706: one self-contained band object per real
+    breakpoint -- see `publish_offer_curve()`'s own docstring for why
+    this replaced #677's two-dicts-keyed-by-rounded-price shape.
+
+    Adjacent EXACT duplicates (same price_lower/price_upper/kw, all
+    already rounded for display) are collapsed to one row -- unlike the
+    #677 collision this replaced, this loses no information: two
+    already-identical-after-rounding rows are indistinguishable to any
+    consumer by construction, so keeping both is pure noise, not a
+    second real breakpoint. This differs from the walk's own internal
+    near-duplicate raw solves (see network.py's own docstring on why a
+    retail solve landing on an already-walked price is harmless) only
+    in WHERE the comparison happens -- here, after rounding, on the
+    values a consumer actually sees.
+    """
+    bands: list[dict[str, float | None]] = []
+    for i, (_price, kw) in enumerate(curve):
+        interval = ranging[i] if ranging is not None else None
+        if interval is None:
+            price_lower: float | None = None
+            price_upper: float | None = None
+        else:
+            price_lower, price_upper = interval
+            price_lower = round(price_lower, 4)
+            price_upper = round(price_upper, 4)
+        band: dict[str, float | None] = {
+            "price_lower": price_lower,
+            "price_upper": price_upper,
+            "kw": round(kw, 3),
+        }
+        if bands and bands[-1] == band:
+            continue
+        # nimbus issue #730 (Mark Purcell, live finding): several
+        # independent solves (a walk step, the always-separate retail
+        # solve, sometimes the #705 backstop) can land in the SAME tied
+        # optimal basis under a degenerate LP -- each one's own ranging
+        # is real and independently correct ("how far THIS solve's own
+        # basis extends"), but sorted-by-price adjacency alone doesn't
+        # catch that a narrower neighbour's range is now fully swallowed
+        # by a wider one, both reporting the same value. Confirmed live:
+        # this exact shape self-healed on a re-fetch 22s later, so it's
+        # a real, intermittent artifact of the walk, not a persistent
+        # state. Generalizes the exact-duplicate collapse above to a
+        # nested/subset one: same kw, one band's range entirely inside
+        # the other's -- keep the wider band, drop the redundant one.
+        # Never invents a boundary value neither solve actually reported
+        # (unlike clipping against a neighbour would); a None bound (a
+        # genuinely missing/invalid ranging interval, never a real
+        # infinite one -- see this function's own docstring) is never
+        # treated as unbounded here, so containment stays unknowable
+        # rather than guessed whenever either side is None.
+        if bands and bands[-1]["kw"] == band["kw"]:
+            prev = bands[-1]
+            if _offer_curve_band_range_contains(
+                prev["price_lower"],
+                prev["price_upper"],
+                band["price_lower"],
+                band["price_upper"],
+            ):
+                continue
+            if _offer_curve_band_range_contains(
+                band["price_lower"],
+                band["price_upper"],
+                prev["price_lower"],
+                prev["price_upper"],
+            ):
+                bands[-1] = band
+                continue
+        bands.append(band)
+    return bands
+
+
+# nimbus issue #489: the last payload publish_flex_signals() actually posted,
+# re-posted verbatim on a cycle where ranging was deferred to the next 5-minute
+# interval (see solver_plan.FLEX_RANGING_INTERVAL_SECONDS). Without it the push
+# sensor would go `unavailable` after _STALE_AFTER_SECONDS (300 s) between two
+# ranging solves that are ~300 s apart. The payload keeps its own
+# `generated_at`, so a held value never claims to be newer than it is.
+_LAST_FLEX_SIGNALS_POST: dict = {}
+
+
+def publish_flex_signals(plan, *, hold_last: bool = False) -> None:
+    """nimbus issue #496 (Signals 7/7 of #489): pushes sensor.nimbus_
+    flex_signals when build_plan() actually computed ranging this cycle
+    (switch.nimbus_solver_flex_signals_enabled on) -- no-op otherwise,
+    same "None means not computed this cycle" convention publish_offer_
+    curve() already uses for #494. Called from main() right after
+    publish_offer_curve().
+
+    Period-0 only, deliberately -- this is a live "what can the grid
+    operator/aggregator/household call on RIGHT NOW" surface (#491's own
+    framing), not the full per-period forecast array every other array-
+    shaped Plan field already publishes on sensor.nimbus_solver_battery_
+    forecast. `Plan.grid_signals`' own array fields are one-per-period;
+    every value below is that array's own `[0]` entry.
+
+    Per-battery (`Plan.battery_signals`) and per-load (`Plan.load_
+    signals`) entries are published as plain JSON lists on this one
+    sensor's own attributes, not as their own dynamically-generated
+    per-battery/per-load entities -- the battery/load COUNT varies per
+    install and can change at any time (a subentry added/removed), and
+    generating/tearing-down real HA entities to match that live is a
+    genuinely different, riskier class of change (new entity-registry
+    lifecycle work) than this issue's own scope asked for. A household
+    with the common 1-battery, few-load shape sees a small, well-under-
+    16KB attribute list either way.
+    """
+    if plan.grid_signals is None:
+        # nimbus issue #489: ranging deferred to the next 5-minute interval --
+        # keep the last real payload alive. NOT when the switch is off
+        # (`hold_last` is False then), so switching it off still lets the
+        # sensors go stale exactly as before.
+        if hold_last and _LAST_FLEX_SIGNALS_POST:
+            _solver_writer().ha_post_state(
+                "sensor.nimbus_flex_signals",
+                _LAST_FLEX_SIGNALS_POST["state"],
+                dict(_LAST_FLEX_SIGNALS_POST["attributes"]),
+            )
+        return
+    gs = plan.grid_signals
+    battery_signals = [
+        {
+            "name": b.name,
+            "available_up_kw": round(float(b.available_up_kw[0]), 3),
+            "available_down_kw": round(float(b.available_down_kw[0]), 3),
+            "available_up_ranging_kw": (
+                round(float(b.available_up_ranging_kw[0]), 3)
+                if b.available_up_ranging_kw is not None
+                else None
+            ),
+            "available_down_ranging_kw": (
+                round(float(b.available_down_ranging_kw[0]), 3)
+                if b.available_down_ranging_kw is not None
+                else None
+            ),
+        }
+        for b in plan.battery_signals
+    ]
+    load_signals = [
+        {
+            "name": ls.name,
+            "intent": ls.intent[0],
+            "band_min_kw": round(float(ls.band_min_kw[0]), 3),
+            "band_max_kw": round(float(ls.band_max_kw[0]), 3),
+            "reduced_cost_per_kwh": round(float(ls.reduced_cost_per_kwh[0]), 4),
+            "degenerate": bool(ls.degenerate[0]),
+        }
+        for ls in plan.load_signals
+    ]
+    state = round(float(gs.flex_available_up_kw[0]), 3)
+    attributes = {
+        "unit_of_measurement": "kW",
+        "friendly_name": "Nimbus Flex Signals",
+        "grid_import_headroom_kw": round(float(gs.grid_import_headroom_kw[0]), 3),
+        "grid_import_headroom_kwh": round(float(gs.grid_import_headroom_kwh[0]), 3),
+        "grid_export_headroom_kw": round(float(gs.grid_export_headroom_kw[0]), 3),
+        "grid_export_headroom_kwh": round(float(gs.grid_export_headroom_kwh[0]), 3),
+        # nimbus issue #496: whether each headroom figure above is a real
+        # band or a zero-width tie. Without these a published 0.0 conflates
+        # "genuinely no headroom" with "the ranging could not say", and the
+        # two mean opposite things to anyone acting on the number.
+        #
+        # Measured on the reference household 2026-09-27: export headroom
+        # reached 19.069 kW while import never left 0.0. That asymmetry is
+        # consistent with import being pinned at a bound -- i.e. a CORRECT
+        # 0.0 -- but nothing published could distinguish that from a
+        # non-answer, which is what these two settle.
+        #
+        # `flex_available_up_kw`/`_down_kw` below are aliases of the two
+        # headroom arrays (#493 unbuilt), so their degeneracy is these same
+        # flags rather than separate ones -- deliberately not duplicated
+        # under a second name that could drift.
+        "grid_import_headroom_unranged": bool(gs.grid_import_headroom_unranged[0]),
+        "grid_export_headroom_unranged": bool(gs.grid_export_headroom_unranged[0]),
+        "forced_import_cost": round(float(gs.forced_import_cost[0]), 4),
+        "forced_export_cost": round(float(gs.forced_export_cost[0]), 4),
+        "flex_available_up_kw": round(float(gs.flex_available_up_kw[0]), 3),
+        "flex_available_down_kw": round(float(gs.flex_available_down_kw[0]), 3),
+        "load_headroom_up_kwh": round(float(gs.load_headroom_up_kwh[0]), 3),
+        "load_headroom_down_kwh": round(float(gs.load_headroom_down_kwh[0]), 3),
+        "battery_signals": battery_signals,
+        "load_signals": load_signals,
+        "generated_at": datetime.now(UTC)
+        .astimezone(solver_shared.LOCAL_TZ)
+        .isoformat(),
+    }
+    _solver_writer().ha_post_state("sensor.nimbus_flex_signals", state, attributes)
+    # nimbus issue #489: remembered so a deferred-ranging cycle can hold it.
+    _LAST_FLEX_SIGNALS_POST.clear()
+    _LAST_FLEX_SIGNALS_POST.update(state=state, attributes=dict(attributes))
+
+
+def _offer_curve_band_range_contains(
+    outer_lower: float | None,
+    outer_upper: float | None,
+    inner_lower: float | None,
+    inner_upper: float | None,
+) -> bool:
+    """True when [inner_lower, inner_upper] sits entirely inside
+    [outer_lower, outer_upper] -- nimbus issue #730's own nested-range
+    check. A `None` bound is a genuinely missing/invalid ranging
+    interval (never a real unbounded one; those already arrive as
+    `float('-inf')`/`float('inf')`, which compare correctly on their
+    own), so containment is never claimed when either range has one --
+    unknown must never be treated as "fits inside."""
+    if (
+        outer_lower is None
+        or outer_upper is None
+        or inner_lower is None
+        or inner_upper is None
+    ):
+        return False
+    return inner_lower >= outer_lower and inner_upper <= outer_upper

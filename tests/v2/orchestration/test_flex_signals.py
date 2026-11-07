@@ -8,6 +8,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import solver_publish
 import solver_writer
 
 
@@ -106,7 +107,7 @@ class TestPublishFlexSignals(unittest.TestCase):
             ],
         )
         with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_flex_signals(plan)
+            solver_publish.publish_flex_signals(plan)
         _, _, attrs = post.call_args[0]
         self.assertIsNone(attrs["battery_signals"][0]["available_up_ranging_kw"])
         self.assertIsNone(attrs["battery_signals"][0]["available_down_ranging_kw"])
@@ -127,7 +128,7 @@ class TestPublishFlexSignals(unittest.TestCase):
             ],
         )
         with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_flex_signals(plan)
+            solver_publish.publish_flex_signals(plan)
         _, _, attrs = post.call_args[0]
         self.assertEqual(len(attrs["load_signals"]), 2)
         self.assertEqual(attrs["load_signals"][0]["name"], "pool_pump")
