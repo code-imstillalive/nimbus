@@ -264,7 +264,6 @@ except ImportError:
 try:
     from . import solver_shared
     from .solver_shared import (
-        _ENTITY_UPDATE_HANDLERS,
         _LOGGER,
         _MAX_STATE_ATTRS_BYTES,
         _NATIVE_MANAGED_ENTITY_IDS,
@@ -305,7 +304,6 @@ try:
 except ImportError:
     import solver_shared  # type: ignore[no-redef]
     from solver_shared import (  # type: ignore[no-redef]
-        _ENTITY_UPDATE_HANDLERS,
         _LOGGER,
         _MAX_STATE_ATTRS_BYTES,  # noqa: F401 -- re-export, see comment below
         _NATIVE_MANAGED_ENTITY_IDS,  # noqa: F401 -- re-export, see comment below
@@ -926,13 +924,6 @@ def scheduled_salvage_value_rate(cfg: dict, hour: int) -> float:
 # cron/addon deployment, or a genuinely not-yet-migrated one) keeps
 # today's exact fallback behaviour, unchanged.
 
-# register_entity_handler() can also record an entity's real, HA-resolved
-# entity_id. Self-reads (the "already scored this day" checks in the
-# publish_* reports) go through resolve_real_entity_id(), because the literal
-# id can resolve to another entity once HA has suffixed this install's own
-# (seen on the test box, 2026-08-31).
-_ENTITY_REAL_IDS: dict[str, str] = {}
-
 
 def set_native_hass(hass) -> None:
     """Called once by the Nimbus integration itself, before running a
@@ -988,82 +979,6 @@ def set_native_hass(hass) -> None:
                 raw_time_zone,
                 LOCAL_TZ,
             )
-
-
-def register_entity_handler(
-    entity_id: str, handler, real_entity_id: str | None = None
-) -> None:
-    """Called once per migrated entity from sensor.py's async_setup_entry.
-
-    `handler(state, attributes)` will be scheduled on the event loop
-    (via hass.add_job) whenever ha_post_state() below is asked to update
-    this entity_id in native mode. In practice the handler is the
-    entity's own update_from_solver() method, which stores the values
-    and calls async_write_ha_state() so HA sees a real entity update
-    with all the SensorEntity class metadata attached.
-
-    Registration is idempotent (a re-registration cleanly replaces the
-    previous handler) so a config-entry reload doesn't leave a stale
-    handler pointing at a torn-down entity -- see issue #55's own
-    conversation about the module-level import-caching gotcha with
-    _ensure_ready() in solver_runtime.py.
-
-    `real_entity_id` (2026-08-31): the entity's OWN actual, HA-resolved
-    entity_id (self.entity_id), captured by the caller after async_add_
-    entities has run. `entity_id` above stays the literal dispatch key
-    ha_post_state() below is always called with -- that part was never
-    broken, since every call site uses the same literal string both to
-    register and to look up. What real_entity_id fixes is the SEPARATE
-    self-read some publish functions do (ha_get(entity_id), as a cheap
-    "did I already publish this" idempotency check) -- see
-    resolve_real_entity_id()'s own docstring for the full story. Optional
-    and additive: omitting it (every pre-2026-08-31 call site, until
-    sensor.py is updated) leaves resolve_real_entity_id() falling back to
-    the literal string unchanged, i.e. today's exact behaviour.
-    """
-    _ENTITY_UPDATE_HANDLERS[entity_id] = handler
-    if real_entity_id is not None:
-        _ENTITY_REAL_IDS[entity_id] = real_entity_id
-
-
-def unregister_entity_handler(entity_id: str) -> None:
-    """Symmetric partner to register_entity_handler(); safe to call for
-    an entity_id that was never registered. Called on config-entry
-    unload so a torn-down entity's handler doesn't linger."""
-    _ENTITY_UPDATE_HANDLERS.pop(entity_id, None)
-    _ENTITY_REAL_IDS.pop(entity_id, None)
-
-
-def resolve_real_entity_id(entity_id: str) -> str:
-    """Resolves a literal dispatch-key entity_id (e.g.
-    "sensor.nimbus_solver_quality_report") to the entity's own real,
-    HA-assigned entity_id, when register_entity_handler() recorded one --
-    otherwise returns entity_id unchanged (REST mode, or a caller that
-    hasn't passed real_entity_id).
-
-    Use this before any ha_get()/ha_post_state() call whose job is to
-    read back THIS install's own prior output (an idempotency check) --
-    never for the plain forward publish, which is correctly keyed by the
-    literal dispatch string regardless of collisions (see
-    register_entity_handler's own docstring).
-
-    Why this matters (2026-08-31, devhub quality-report flicker): the
-    literal string is only guaranteed to resolve to THIS entity when
-    nothing else in the same HA instance has already claimed it. Confirmed
-    live on devhub: a remote_homeassistant mirror of another Nimbus
-    install's identically-named sensor.nimbus_solver_quality_report wins
-    the plain entity_id first, so HA's own dedup bumps the local platform
-    entity to sensor.nimbus_solver_quality_report_2. A self-read via the
-    literal string then silently reads the UNRELATED mirror's state
-    instead of this install's own -- compute_daily_quality_report()'s
-    idempotency check believed "already scored today" every cycle
-    (because the mirror, a different working install, genuinely had
-    scored today), so this install's own quality-report entity only ever
-    got a fresh publish on the rare cycle the fast path happened to
-    re-push something valid through it, explaining the multi-hour stale/
-    unavailable stretches observed.
-    """
-    return _ENTITY_REAL_IDS.get(entity_id, entity_id)
 
 
 def entity_exists(entity_id: str) -> bool:
@@ -1262,7 +1177,9 @@ def _grid_meter_sign(meter_sensor: str) -> float | None:
     a day that AGREED on this same sensor is used: one reading near zero
     cannot tell the two signs apart."""
     try:
-        attrs = ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID)).get("attributes")
+        attrs = ha_get(solver_shared.resolve_real_entity_id(QUALITY_ENTITY_ID)).get(
+            "attributes"
+        )
     except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         _LOGGER.debug("Nimbus flex telemetry: meter sign unreadable", exc_info=True)
         return None
@@ -4076,7 +3993,7 @@ def publish_daily_flex_report(cfg: dict, now: datetime) -> None:
     """
     yesterday_key = (now - timedelta(days=1)).date().isoformat()
     try:
-        existing = ha_get(resolve_real_entity_id(FLEX_REPORT_ENTITY_ID))
+        existing = ha_get(solver_shared.resolve_real_entity_id(FLEX_REPORT_ENTITY_ID))
         if existing.get("attributes", {}).get("latest_date") == yesterday_key:
             _LOGGER.debug(
                 "Nimbus flex report: fast-path hit, already scored %s -- "
@@ -4923,7 +4840,7 @@ def read_day_ahead_value_add_history() -> dict[str, float]:
     `select_forecast_source()`'s own `no_trailing_record` gate keeps using the
     ML forecast.
 
-    **Read through `resolve_real_entity_id()`, never the literal string.** This
+    **Read through `solver_shared.resolve_real_entity_id()`, never the literal string.** This
     is a read-back of this install's own prior output, which is exactly the case
     that function's docstring reserves it for: on an instance where a
     `remote_homeassistant` mirror of ANOTHER Nimbus install has claimed the
@@ -4934,7 +4851,10 @@ def read_day_ahead_value_add_history() -> dict[str, float]:
     """
     try:
         attrs = (
-            ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID)).get("attributes") or {}
+            ha_get(solver_shared.resolve_real_entity_id(QUALITY_ENTITY_ID)).get(
+                "attributes"
+            )
+            or {}
         )
     except (
         urllib.error.HTTPError,
@@ -5087,7 +5007,10 @@ def repair_provisional_quality_history(cfg: dict, now: datetime) -> dict | None:
     """
     try:
         attrs = (
-            ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID)).get("attributes") or {}
+            ha_get(solver_shared.resolve_real_entity_id(QUALITY_ENTITY_ID)).get(
+                "attributes"
+            )
+            or {}
         )
     except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
         return None
@@ -5150,10 +5073,10 @@ def publish_efficiency_backtest_report(cfg: dict, now: datetime) -> None:
     """
     yesterday_key = (now - timedelta(days=1)).date().isoformat()
     try:
-        # resolve_real_entity_id() -- see publish_daily_quality_report()'s
+        # solver_shared.resolve_real_entity_id() -- see publish_daily_quality_report()'s
         # matching comment / that function's own docstring for the full
         # entity-id-collision incident this guards against.
-        existing = ha_get(resolve_real_entity_id(BACKTEST_ENTITY_ID))
+        existing = ha_get(solver_shared.resolve_real_entity_id(BACKTEST_ENTITY_ID))
         if existing.get("attributes", {}).get("latest_date") == yesterday_key:
             ha_post_state(BACKTEST_ENTITY_ID, existing["state"], existing["attributes"])
             return
@@ -5208,10 +5131,12 @@ def publish_nimbus_only_soc_counterfactual(cfg: dict, now: datetime) -> None:
     )
     yesterday_key = yesterday.date().isoformat()
     try:
-        # resolve_real_entity_id() -- see publish_daily_quality_report()'s
+        # solver_shared.resolve_real_entity_id() -- see publish_daily_quality_report()'s
         # matching comment / that function's own docstring for the full
         # entity-id-collision incident this guards against.
-        existing = ha_get(resolve_real_entity_id(COUNTERFACTUAL_ENTITY_ID))
+        existing = ha_get(
+            solver_shared.resolve_real_entity_id(COUNTERFACTUAL_ENTITY_ID)
+        )
         if existing.get("attributes", {}).get("latest_date") == yesterday_key:
             ha_post_state(
                 COUNTERFACTUAL_ENTITY_ID, existing["state"], existing["attributes"]

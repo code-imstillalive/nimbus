@@ -38,8 +38,8 @@ NO_RECORD = solver_writer.flex_telemetry.RecordBuild(
 
 def _reset() -> None:
     solver_writer.NATIVE.hass = None
-    solver_writer._ENTITY_UPDATE_HANDLERS.clear()
-    solver_writer._ENTITY_REAL_IDS.clear()
+    solver_shared._ENTITY_UPDATE_HANDLERS.clear()
+    solver_shared._ENTITY_REAL_IDS.clear()
     solver_shared._MANAGED_SKIP_STREAK.clear()
     solver_shared._MANAGED_SKIP_WARNED.clear()
     module = solver_writer.publish_flex_telemetry_record.__globals__
@@ -72,7 +72,7 @@ def test_the_entity_is_managed_so_its_early_posts_are_dropped(native):
 
     # test_ha_post_state_says_whether_it_delivered
     assert solver_writer.ha_post_state(ENTITY, "x", {}) is False
-    solver_writer.register_entity_handler(ENTITY, lambda s, a: None)
+    solver_shared.register_entity_handler(ENTITY, lambda s, a: None)
     assert solver_writer.ha_post_state(ENTITY, "x", {}) is True
     # an entity_id that never gets a handler still falls back to a raw write
     assert solver_writer.ha_post_state("sensor.nimbus_unmanaged_x", "x", {}) is True
@@ -85,7 +85,7 @@ def test_a_reason_dropped_at_startup_is_sent_once_the_entity_registers(native):
     ):
         _publish()  # first solve after restart: entity not registered yet
         assert received == []
-        solver_writer.register_entity_handler(
+        solver_shared.register_entity_handler(
             ENTITY, lambda s, a: received.append((s, a))
         )
         _publish()  # before #1634's fix this was skipped as "already posted"

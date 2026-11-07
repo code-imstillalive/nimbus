@@ -2692,7 +2692,7 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # string happens to resolve to if something else (e.g. a
         # remote_homeassistant mirror of another install) has claimed it.
         # See that function's own docstring for the full incident.
-        existing = sw.ha_get(sw.resolve_real_entity_id(sw.QUALITY_ENTITY_ID))
+        existing = sw.ha_get(solver_shared.resolve_real_entity_id(sw.QUALITY_ENTITY_ID))
         existing_attrs = existing.get("attributes", {}) or {}
         # nimbus issue #1248: the read SUCCEEDED, so the entity exists -- but
         # an `unavailable`/`unknown` state means HA has dropped the pushed

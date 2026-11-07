@@ -15,7 +15,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from custom_components.nimbus_load import sensor, solver_writer
+from custom_components.nimbus_load import sensor, solver_shared, solver_writer
 
 # --- helpers ---------------------------------------------------------------
 
@@ -227,8 +227,8 @@ def _clean_dispatch_state():
     wide so a leak between tests would falsely pass the "unregistered
     falls through" case.
     """
-    solver_writer._ENTITY_UPDATE_HANDLERS.clear()
-    solver_writer._ENTITY_REAL_IDS.clear()
+    solver_shared._ENTITY_UPDATE_HANDLERS.clear()
+    solver_shared._ENTITY_REAL_IDS.clear()
     solver_writer.NATIVE.hass = None
 
 

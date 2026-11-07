@@ -48,6 +48,7 @@ for every other test in the run, which is the cross-contamination
 from __future__ import annotations
 
 import asyncio
+import importlib
 import inspect
 import json
 import sys
@@ -449,8 +450,11 @@ def register_managed_entity_handlers(solver_writer: Any, hass: FakeNativeHass) -
     #312 ghost-state guard) -- so the scenario would solve correctly and
     record nothing, and the snapshot would pin an empty ``posted`` list.
     """
+    # The registry is in solver_shared (#2289 item 6); found through NATIVE,
+    # which lives there, so either import of solver_writer works.
+    shared = importlib.import_module(type(solver_writer.NATIVE).__module__)
     for entity_id in solver_writer._NATIVE_MANAGED_ENTITY_IDS:
-        solver_writer.register_entity_handler(
+        shared.register_entity_handler(
             entity_id, _handler_for(hass, entity_id), real_entity_id=entity_id
         )
 
