@@ -41,6 +41,7 @@ from solver.quality_report import (
 )
 from solver.regret import evaluate_realized_cost_multi
 from solver_inputs import battery_participants as participants
+from solver_reports import quality as quality_reports
 
 qr = sys.modules[compute_quality_report.__module__]
 N = 24
@@ -355,7 +356,7 @@ def test_without_a_commitment_the_grid_is_returned_untouched():
     assert _feasibility(DRIFTED, -0.73, min_pct=0.0)["achieved_within_lp_soc_bounds"]
 
     # test_without_a_trajectory_the_regret_verdict_still_stands
-    s = sw._achieved_feasibility_stats(
+    s = quality_reports._achieved_feasibility_stats(
         {}, -0.5, min_pct=2.0, max_pct=100.0, capacity_kwh=100.0
     )
     assert (s["regret_reliable"], s["epr_reason"]) == (False, "oracle_beaten")
@@ -368,7 +369,7 @@ def test_without_a_commitment_the_grid_is_returned_untouched():
     )
     rows = {"a": {"soc_pct": 10.0}, "b": {"battery_kw": 1.0}}
     assert (
-        sw._achieved_feasibility_stats(
+        quality_reports._achieved_feasibility_stats(
             rows, 1.0, min_pct=2.0, max_pct=100.0, capacity_kwh=100.0
         )["achieved_soc_min_pct"]
         == 10.0
@@ -685,7 +686,7 @@ def _feasibility(soc_pcts, regret, min_pct=2.0, max_pct=100.0, capacity=100.0):
         f"2026-09-15T{h:02d}:00:00+10:00": {"soc_pct": v}
         for h, v in enumerate(soc_pcts)
     }
-    return sw._achieved_feasibility_stats(
+    return quality_reports._achieved_feasibility_stats(
         hourly, regret, min_pct=min_pct, max_pct=max_pct, capacity_kwh=capacity
     )
 

@@ -52,6 +52,11 @@ the end of its body sits after that line, so it is left behind as an orphan
 in the old module. Check the lines just after each cut, and move or delete
 them.
 
+A constant can carry its own docstring: a separate string statement on the
+lines right after the assignment. It is an `ast.Expr`, not part of the
+`Assign`, so move it with its constant. Print the first non-blank line after
+every cut to catch it.
+
 Ruff cannot check **attribute** names. After the move, confirm every
 `module.attr` the moved code uses really exists in that module.
 
@@ -65,6 +70,13 @@ grep -rnE "(sw|solver_writer)\.(name1|name2)|setattr\((sw|solver_writer)[^,]*, *
 grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT_PUBLISHERS
 ```
 
+- **Names the moved code calls, not only the moved names.** List every
+  function the moved code calls, and grep the tests for patches on those
+  names in the *old* module. If the destination module has a convention for
+  reaching such a name (for example `solver_reports/quality.py` calls
+  `sw._compute_report_for_window` so that `sw` patches intercept, as its
+  docstring says), the moved code follows it. Step 7a broke a
+  denominator-warning test exactly this way (7 Nov 2026).
 - **Indirect dependencies:** a moved function that reads `ha_get` now
   resolves it in its new module. A test that runs it, or `main()`, with only
   `sw.ha_get` patched must also patch the new module's `ha_get`.
@@ -73,6 +85,18 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
   the same fake.
 - **Source-reading tests** (`Path(...).read_text()` on `solver_writer.py`)
   must read the file the code moved to.
+- **Patches written across several lines** (`mp.setattr(
+    sw, "ha_get", ...)`)
+  escape a one-line search. After rewriting, grep `-A1 "setattr($"` for any
+  remaining `sw, "<name>"` beside a call into the moved code (#2364).
+- **A new module reaching shared helpers through `solver_shared`** means a
+  test that faked `sw.ha_get` must also fake `solver_shared.ha_get`.
+- **Relative imports gain a dot** when code moves into a subpackage
+  (`solver_reports/`, `solver_inputs/`): `from .solver.x import` becomes
+  `from ..solver.x import`. Check every `from .` line inside moved function
+  bodies too. Pytest will not catch a missed one: the `except ImportError`
+  fallback finds the module through `pythonpath`, so only the relative-import
+  gate fails (#2361).
 
 ## 4. Lint without collateral damage
 
@@ -88,6 +112,11 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
 
 ## 5. Gates that catch what review misses
 
+- **A new module needs a risk tier.** Add it to `RISK_TIERS` in
+  `scripts/coverage_by_risk.py` beside its group (for example
+  `solver_inputs/p2p.py` under "prices", tier 1), or
+  `test_every_module_has_a_risk_tier` fails (#2364).
+
 - **No-op Patch Gate (#1316)** reports a patch site that went from touched to
   untouched. Treat it as a real finding:
   - a patch on the old module (fix the patch);
@@ -101,6 +130,11 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
 - **Import-linter:** removing the last import between two modules makes its
   `ignore_imports` entry unmatched, which fails. Remove the entry and lower
   `_EXPECTED_IGNORED_IMPORT_COUNT` in `tests/test_import_linter_contract.py`.
+  The other way round: a move can create a new crossing between sibling
+  layers (for example `solver_reports` reading `solver_inputs`). Run
+  `lint-imports` before pushing. Either keep the import where it was, or add
+  an `ignore_imports` entry with a comment giving the reason, and raise the
+  expected count (#2361).
 
 ## Merging stacked moves
 
