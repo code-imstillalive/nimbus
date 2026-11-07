@@ -225,6 +225,10 @@ WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
                 "**Topology:** a circuit's own devices hang off one line, "
                 "with their arrows no longer piled up."
             ),
+            (
+                '**Power Flow** says "Waiting for the plan" for the minute '
+                "after Nimbus reloads."
+            ),
         ),
     ),
     (
