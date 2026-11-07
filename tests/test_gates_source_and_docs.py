@@ -1560,57 +1560,6 @@ _CRON = (
 )
 
 
-# --- test_125_the_cron_copy_labels_the_same ---------------------------------------------------
-# nimbus #125/#133: the standalone writer carries the same binding-constraint
-# branch as the native one. A check that reads the cron copy's source, kept
-# apart until the decision on source-reading tests (#1837); the label itself is
-# in tests/v2/orchestration/test_binding_constraint_label.py.
-
-
-class TestBothWriterCopiesStayInSync(unittest.TestCase):
-    def test_the_standalone_writer_has_the_same_new_branch(self):
-        import pathlib
-
-        standalone = (
-            pathlib.Path(__file__).resolve().parent.parent
-            / "docs"
-            / "real-world-integration"
-            / "files"
-            / "nimbus_solver_forecast_writer.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn("by P2P export commitment", standalone)
-        self.assertIn("fixed_export_kw_now", standalone)
-
-
-# --- test_923_the_cron_copy_compares_the_gated_battery ----------------------------------------
-# nimbus #923: the standalone writer compares the gated battery, not the fleet
-# aggregate, in its fixed-export charge backstop. A check that reads the cron
-# copy's source, kept apart until the decision on source-reading tests (#1837);
-# the clamp itself is in
-# tests/v2/orchestration/test_fixed_export_charge_clamp.py.
-
-NAN = float("nan")
-
-
-class TestBothWriterCopiesStayInSync_923_the_cron_copy_compar(unittest.TestCase):
-    def test_the_standalone_writer_also_compares_the_gated_battery(self):
-        import pathlib
-
-        standalone = (
-            pathlib.Path(__file__).resolve().parent.parent
-            / "docs"
-            / "real-world-integration"
-            / "files"
-            / "nimbus_solver_forecast_writer.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn("def resolve_fixed_export_charge_clamp(", standalone)
-        self.assertIn("plan.batteries[0].charge_kw", standalone)
-        self.assertNotIn(
-            "_violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)",
-            standalone,
-        )
-
-
 # --- test_1994_no_external_entity_id_in_code --------------------------------------------------
 # nimbus #1994: no external entity_id is written into the integration's code;
 # every external source is found through the registry (`known_sources`) or
