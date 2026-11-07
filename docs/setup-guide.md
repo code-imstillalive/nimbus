@@ -283,7 +283,9 @@ Do not select a forecast or an optimiser output as its source.
 2. Dialog: **"Add a power signal"**. (Opened later from its cog, the same form reads **"Edit a power signal"**.)
 3. **🔴 Sensor to forecast** → your **whole-house power sensor**.
 4. **Role** → leave as **Other**. (Battery, Solar and Grid mark a signal for the dashboard
-   cards and keep it out of the Solver's household-load list.
+   cards and keep it out of the Solver's household-load list. If your inverter has a second
+   sensor for the whole house's total, such as a "Total Load" beside a "Consumed Power", add it
+   with Role **Whole house** so the Power Flow card doesn't draw it again as a circuit.
    [§16](#16-the-topology-diagram) shows which roles the topology diagram reads.)
 5. Submit.
 

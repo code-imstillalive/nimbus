@@ -8,14 +8,31 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.100.0] - 2026-11-07
+
+**A second whole-house meter can say so, and the Solver runs only inside Home Assistant.**
+
+- **Power signal role "Whole house"** (#2350, #2299, reviewed by Mark Purcell). Some inverters report the whole house twice, such as a Sigenergy "Total Load" beside "Consumed Power". Give the second one the role **Whole house** (Reconfigure → Role) and the Power Flow card no longer draws it again as a circuit; the Forecast card charts it with the loads. Display only: forecasts and plans are unchanged.
+- **The standalone Solver script is retired** (#2333). `solver_writer.py` no longer runs from cron or the Supervisor; Nimbus's own integration has run the Solver for every install for some time. If you still run the old standalone script, see the README.
+- Internal (all reviewed by Mark Purcell): the Solver reads and writes only through Home Assistant, and the REST transport and its token handling are gone (#2337, #2341); the regression tests run every scenario the way installs do; the first two steps of splitting the Solver's largest file (#2346, #2347).
+
 ## [0.99.0] - 2026-11-07
 
 **Topology: a circuit's own devices are easier to read; Power Flow says when it is waiting for a plan.**
 
-- **Topology** (#2338): a circuit with several devices under it now has one line down to them, with one arrow, and each device has its own arrow into its tile, indented further (64 px) and, while drawing power, in a deeper shade of purple than its circuit. The arrows no longer pile on top of each other.
+- **Topology** (#2338, #2343, #2344): a circuit with several devices under it now has one line down to them, with one arrow, and each device has its own arrow into its tile, indented further (64 px) and, while drawing power, in a deeper shade of purple than its circuit. The arrows no longer pile on top of each other.
 - **Power Flow says "Waiting for the plan"** (#2340) for the minute after Nimbus reloads, such as after saving a circuit's name, instead of keeping the last plan's "On plan" and "Solar xx% of forecast" up with no Buy/Sell price.
-- **Power Flow: no line through Grid.** With two or more inverters, Grid now sits a little below their row, so power going from one inverter to the other no longer runs through the Grid bubble on top of Grid's own lines. The Buy/Sell price stays above the row.
+- **Power Flow: no line through Grid** (#2342). With two or more inverters, Grid now sits a little below their row, so power going from one inverter to the other no longer runs through the Grid bubble on top of Grid's own lines. The Buy/Sell price stays above the row.
 - Internal: long incident notes moved out of five more modules' code comments into history files (#2331, #2332, #2334–#2336).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at 7d67af49** (`release/0.99.0`, installed untagged through Home Assistant's marketplace; the checks below were read at 12:43 on `eba97443`, which differs only by the sub-device colour, and devhub was restarted onto `7d67af49` at 12:50).
+  - 123 of the 127 Nimbus entities carrying a version read 0.99.0; the other four are the daily reports.
+  - Re-read on `7d67af49` at 12:58: the same 123 at 0.99.0, none of the 388 unavailable, plan `optimal` (solved 12:58), all 62 Solver numbers present.
+  - None of the 388 Nimbus entities unavailable; plan `optimal` (solved 12:43); all 62 Solver numbers kept their values over the restart.
+  - Help's What's New shows 0.99.0. No Nimbus Repairs. Log: no ERROR.
+  - The cards are served with every change: the Power Flow card carries "Waiting for the plan" and Grid's lower row; the Topology card carries the 64 px indent and the deeper purple (`#6a2486`, served at 12:51).
+  - The plan sensor had no forecast for 53 s after the restart, and the plan returned at 12:28:51. That is the window "Waiting for the plan" covers, the same ~50 s measured on a reload at 11:27.
+  - On screen, checked by the household on devhub: Power Flow with Grid below the inverter row and no line through it; Topology with sub-devices indented further and, after a second, deeper shade (#2344), in a purple they said reads distinctly ("thats better"). "Waiting for the plan" itself was not watched on screen; the 53 s window was measured on the plan sensor.
+- Consumer check: no setting or entity is moved or renamed; the changes are to the Power Flow and Topology cards' drawing only.
 
 ## [0.98.0] - 2026-11-07
 

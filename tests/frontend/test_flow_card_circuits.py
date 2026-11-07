@@ -75,3 +75,20 @@ def test_powered_circuits_show_under_the_households_names():
     render = render[: render.index("\n  }\n")]
     assert '"Waiting for the plan"' in render
     assert "planPill.hidden = !m.p0" not in render
+
+    # test_a_second_whole_house_meter_is_not_a_circuit (#2299, Mark Purcell,
+    # Cottonwood): a Sigenergy "Total Load" beside "Consumed Power" was drawn
+    # as a circuit equal to House. A power signal can now say it is the whole
+    # house; the circuit scan keeps every role but Other off the circuits.
+    circuits = src[src.index("_circuits(site, drawn) {") :]
+    circuits = circuits[: circuits.index("\n  }\n")]
+    assert 'if (a.signal_role && a.signal_role !== "other") continue;' in circuits
+    forecast = (FLOW.parent / "nimbus-forecast-card.js").read_text(encoding="utf-8")
+    assert 'else if (a.signal_role === "whole_house") out.loads.push(s);' in forecast
+    pkg = FLOW.parents[1]
+    form = (pkg / "flows" / "signal_subentry.py").read_text(encoding="utf-8")
+    assert "SIGNAL_ROLE_WHOLE_HOUSE," in form
+    for strings in ("strings.json", "translations/en.json"):
+        assert '"whole_house": "Whole house' in (pkg / strings).read_text(
+            encoding="utf-8"
+        )

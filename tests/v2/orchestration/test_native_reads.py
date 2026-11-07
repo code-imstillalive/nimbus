@@ -159,11 +159,11 @@ def test_power_history_from_the_recorder_is_in_kw(hass, publish, caplog):
     # --- service calls with a response ------------------------------------------------
     # test_a_service_response_comes_back_from_the_loop
     hass.service_result = {"calendar.x": {"events": []}}
-    assert sw.ha_call_service_with_response("calendar", "get_events", {}) == {
+    assert shared.ha_call_service_with_response("calendar", "get_events", {}) == {
         "calendar.x": {"events": []}
     }
     hass.service_result = RuntimeError("no such service")
-    assert sw.ha_call_service_with_response("calendar", "get_events", {}) is None
+    assert shared.ha_call_service_with_response("calendar", "get_events", {}) is None
 
     # test_a_managed_entity_without_a_handler_is_skipped_and_warned_after_ten_cycles
     caplog.clear()

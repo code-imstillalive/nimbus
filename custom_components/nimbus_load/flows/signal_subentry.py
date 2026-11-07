@@ -48,6 +48,7 @@ from ..const import (
     SIGNAL_ROLE_OTHER,
     SIGNAL_ROLE_SOLAR,
     SIGNAL_ROLE_TEMPERATURE,
+    SIGNAL_ROLE_WHOLE_HOUSE,
 )
 from ..power_input_check import energy_unit_field_errors
 from . import (
@@ -96,6 +97,7 @@ def _schema(
                         SIGNAL_ROLE_BATTERY,
                         SIGNAL_ROLE_SOLAR,
                         SIGNAL_ROLE_GRID,
+                        SIGNAL_ROLE_WHOLE_HOUSE,
                         SIGNAL_ROLE_TEMPERATURE,
                         SIGNAL_ROLE_HUMIDITY,
                     ],

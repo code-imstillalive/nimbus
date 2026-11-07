@@ -559,7 +559,7 @@ async def _async_handle_compute_quality_report(
     """
     from homeassistant.exceptions import HomeAssistantError
 
-    from . import solver_writer
+    from . import solver_shared, solver_writer
 
     start: datetime = call.data["start"]
     end: datetime = call.data["end"]
@@ -578,7 +578,7 @@ async def _async_handle_compute_quality_report(
         )
 
     def _blocking() -> dict | None:
-        cfg = solver_writer.fetch_solver_config()
+        cfg = solver_shared.fetch_solver_config()
         return solver_writer._compute_report_for_window(
             cfg, start, end, allow_partial=allow_partial
         )
@@ -687,7 +687,7 @@ async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) 
     """
     from homeassistant.exceptions import HomeAssistantError
 
-    from . import solver_writer
+    from . import solver_shared, solver_writer
 
     days: int = call.data.get("days", 1)
     # nimbus issue #1208: one named date costs one oracle MILP, however
@@ -720,7 +720,7 @@ async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) 
     _quality_report_shared(hass)["cache"].clear()
 
     def _blocking() -> dict:
-        cfg = solver_writer.fetch_solver_config()
+        cfg = solver_shared.fetch_solver_config()
         return solver_writer.rescore_quality_history(
             cfg, dt_util.now(), days, only_dates=only_dates
         )

@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import solver_shared
 import solver_writer as sw
 
 FIX = Path(__file__).resolve().parents[2] / "fixtures" / "pricing"
@@ -223,7 +224,7 @@ def openadr(monkeypatch):
             }
         monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": a})
         monkeypatch.setattr(
-            sw,
+            solver_shared,
             "ha_call_service_with_response",
             lambda d, s, data: calls.append((d, s, data)) or response,
         )

@@ -145,6 +145,9 @@ class NimbusForecastCard extends HTMLElement {
       if (a.subentry_type === "load") out.loads.push(s);
       else if (a.subentry_type === "power_signal") {
         if (a.signal_role === "temperature" || a.signal_role === "humidity") out.weather.push(s);
+        // A second meter of the whole house (#2299) is a load, not a guess
+        // from its name, which could land it under Solar.
+        else if (a.signal_role === "whole_house") out.loads.push(s);
         else out.signals.push(s);
       }
     }

@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import solver_shared
 import solver_writer as sw
 from golden.fake_ha import FakeHA
 from native_transport import use_native_fake
@@ -139,7 +140,7 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
         def boom(*_a):
             raise OSError("down")
 
-        mp.setattr(sw, "ha_call_service", boom)
+        mp.setattr(solver_shared, "ha_call_service", boom)
         sw._notify_load_forecast_error_once("x")
         (tmp_2 / "no").mkdir()
         (tmp_2 / "no" / "dir").write_text("old")
