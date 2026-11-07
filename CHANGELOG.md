@@ -10,9 +10,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [0.99.0] - 2026-11-07
 
-**Topology: a circuit's own devices are easier to read.**
+**Topology: a circuit's own devices are easier to read; Power Flow says when it is waiting for a plan.**
 
 - **Topology** (#2338): a circuit with several devices under it now has one line down to them, with one arrow, and each device has its own short arrow into its tile, indented further. The arrows no longer pile on top of each other.
+- **Power Flow says "Waiting for the plan"** (#2340) for the minute after Nimbus reloads, such as after saving a circuit's name, instead of keeping the last plan's "On plan" and "Solar xx% of forecast" up with no Buy/Sell price.
 - Internal: long incident notes moved out of five more modules' code comments into history files (#2331, #2332, #2334–#2336).
 
 ## [0.98.0] - 2026-11-07
