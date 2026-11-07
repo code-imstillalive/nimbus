@@ -23,6 +23,7 @@ import solver_writer as sw
 from golden.fake_ha import FakeHA, HistoryPoint
 from native_transport import use_native_fake
 from solver_inputs import battery_participants as bp
+from solver_reports import quality as quality_reports
 
 TZ = sw.LOCAL_TZ
 DAY = datetime(2026, 8, 24, tzinfo=TZ)
@@ -294,9 +295,11 @@ def test_the_quality_report_scores_home_and_every_participant(site, monkeypatch)
     monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
     monkeypatch.setattr(solver_shared, "fetch_entity_power_history_kw", fetch)
     now = END + timedelta(hours=10)
-    assert sw.compute_daily_quality_report(cfg, now)["scored_participants"] == ["home"]
+    assert quality_reports.compute_daily_quality_report(cfg, now)[
+        "scored_participants"
+    ] == ["home"]
     site.add()
-    report = sw.compute_daily_quality_report(cfg, now)
+    report = quality_reports.compute_daily_quality_report(cfg, now)
     assert report["scored_participants"] == ["home", "ev"]
     assert report["j_ach"] == pytest.approx(report["j_ref"], abs=1e-6)  # all idle
 
