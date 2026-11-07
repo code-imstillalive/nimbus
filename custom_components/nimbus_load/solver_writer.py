@@ -298,7 +298,6 @@ try:
         ha_post_state,
         import_fee_rate,
         last_posted,
-        native_state_changes,
         p2p_blocks_daily_energy_kwh,
         p2p_bonus_price_by_period,
         parse_iso,
@@ -340,7 +339,6 @@ except ImportError:
         ha_post_state,
         import_fee_rate,
         last_posted,  # noqa: F401 -- re-export for solver_runtime (#1658)
-        native_state_changes,
         p2p_blocks_daily_energy_kwh,  # noqa: F401 -- re-export: reached as sw.<name> from solver_inputs/prices.py (#1537)
         p2p_bonus_price_by_period,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         parse_iso,
@@ -5712,127 +5710,6 @@ def _history_coverage_by_series(
             max(0.0, (last - first).total_seconds() / 3600.0), first, last
         )
     return out
-
-
-def fetch_entity_power_history_kw(
-    entity_id: str, start: datetime, end: datetime
-) -> list[tuple[datetime, float]]:
-    """Real recorded power history normalised to kW **per row**, using
-    each sample's OWN recorded `unit_of_measurement`.
-
-    nimbus issue #843 (option A of Mark Purcell's own A/B/C steer,
-    2026-09-13). `fetch_entity_history_range()` above deliberately strips
-    attributes on BOTH paths -- `no_attributes=True` natively and
-    `&minimal_response` over REST -- so per-row units are not merely
-    ignored there, they are never fetched. Every caller therefore has to
-    lean on `_kw_scale_factor()`, which reads the sensor's CURRENT LIVE
-    unit exactly once and applies that single scale across the whole
-    window.
-
-    That is structurally unable to see a sensor whose unit changes
-    mid-window, which is a real, confirmed thing rather than a
-    hypothetical: Mark's own EV pack sensor reports `W` for ~80 seconds
-    as the car wakes from sleep, then switches to `kW` --
-
-        08:51:04.410  state=1514.417   unit="W"     <- really 1.514417 kW
-        08:51:30.004  state=-774.818   (still W)
-        08:52:27.078  state=-0.774994  <- kW from here on
-
-    -- so a live check returning `kW` scaled that 1514.417 by 1.0 and
-    the quality report published ~1,500 kW of achieved battery power
-    against a real ~80 kW fleet ceiling.
-
-    Deliberately a SEPARATE function rather than a flag on
-    fetch_entity_history_range(), and deliberately used by only ONE
-    caller (`_resolve_battery_participant_history()`'s participant power
-    fetch). Preserving attributes makes a recorder read materially
-    heavier -- they are a separate join, and the quality report fetches a
-    full day per sensor per participant -- so every other history read in
-    this file keeps the cheap attribute-stripped path. That scoping is
-    the whole reason option A was viable at all; a blanket change would
-    have imposed the cost on every install to fix a wake transient on one
-    sensor family.
-
-    Per-row conversion goes through `solver_shared.power_scale_or_none()`, the
-    one converter every Nimbus power reading shares (nimbus #1570), rather
-    than a convention of its own. A row with no unit at all is taken as
-    already-kW, matching `_kw_scale_factor()`'s own documented default for
-    the same case.
-
-    Same "degrade to [] on any failure, never crash" discipline as every
-    other real-data fetch here.
-    """
-    if NATIVE.hass is not None:
-        try:
-            states = native_state_changes(entity_id, start, end, no_attributes=False)
-        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-            _LOGGER.debug(
-                "Nimbus Solver: fetch_entity_power_history_kw(%s) recorder read failed",
-                entity_id,
-                exc_info=True,
-            )
-            return []
-        out: list[tuple[datetime, float]] = []
-        for s in states:
-            try:
-                v = float(s.state)
-            except (TypeError, ValueError):
-                continue
-            scale = power_scale_or_none(  # nimbus #1570, #1643
-                s.attributes.get("unit_of_measurement")
-            )
-            if scale is None:
-                continue  # not a power unit: no reading, not kW
-            v *= scale
-            out.append((s.last_changed.astimezone(LOCAL_TZ), v))
-        return sorted(out, key=lambda x: x[0])
-    # Native only (#2289 item 5): no hass means Home Assistant is not
-    # attached, so there is no history to read.
-    return []
-
-
-def fetch_entity_state_history_range(
-    entity_id: str, start: datetime, end: datetime
-) -> list[tuple[datetime, str]]:
-    """Real recorded STATE-STRING history for one entity over an
-    explicit [start, end) window -- same shape and same dual native/
-    REST mode as fetch_entity_history_range() just above, but keeps
-    each state as its raw string instead of casting to float.
-
-    nimbus issue #768 (Mark Purcell, 2026-09-13): needed for a
-    genuinely non-numeric state -- a battery_participant's own
-    `battery_participant_available_entity` (a `binary_sensor`,
-    "on"/"off", not a number). fetch_entity_history_range() itself
-    would silently drop EVERY point for an entity like this (its own
-    `float(s.state)` cast fails and skips it), returning an empty
-    history regardless of how much real data actually exists -- exactly
-    the kind of silent, misleading "history missing" this project's own
-    established discipline never wants (see that function's own several
-    real-bug-history comments).
-
-    Skips only a genuinely missing/unusable state (None, "unknown",
-    "unavailable") -- every other real string state is kept as-is,
-    unlike fetch_entity_history_range()'s own numeric-cast filter.
-    """
-    if NATIVE.hass is not None:
-        try:
-            states = native_state_changes(entity_id, start, end, no_attributes=True)
-        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-            _LOGGER.debug(
-                "Nimbus Solver: fetch_entity_state_history_range(%s) recorder read failed",
-                entity_id,
-                exc_info=True,
-            )
-            return []
-        out: list[tuple[datetime, str]] = []
-        for s in states:
-            if s.state in (None, "unknown", "unavailable"):
-                continue
-            out.append((s.last_changed.astimezone(LOCAL_TZ), s.state))
-        return sorted(out, key=lambda x: x[0])
-    # Native only (#2289 item 5): no hass means Home Assistant is not
-    # attached, so there is no history to read.
-    return []
 
 
 # nimbus issue #493 (Signals 4/7 of #489, item 1 -- Mark Purcell's own
