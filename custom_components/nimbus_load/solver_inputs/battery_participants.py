@@ -435,7 +435,9 @@ def _resolve_battery_participant_history(
         # own docstring for why this is a separate function and why every
         # other history read in this file deliberately keeps the cheaper
         # attribute-stripped path.
-        power_hist = sw.fetch_entity_power_history_kw(power_sensor, day_start, day_end)
+        power_hist = solver_shared.fetch_entity_power_history_kw(
+            power_sensor, day_start, day_end
+        )
         soc_hist = sw.fetch_entity_history_range(
             soc_sensor, day_start - timedelta(hours=6), day_end
         )
@@ -598,7 +600,7 @@ def _resolve_battery_participant_history(
                 # ran and the car was home all day". Say so once.
                 _warn_participant_history_is_ungated_once(str(name))
             if available_entity:
-                home_hist = sw.fetch_entity_state_history_range(
+                home_hist = solver_shared.fetch_entity_state_history_range(
                     available_entity, day_start, day_end
                 )
                 # Conservative default -- no real history at all for

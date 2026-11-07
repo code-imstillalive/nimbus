@@ -131,7 +131,7 @@ def test_power_history_from_the_recorder_is_in_kw(hass, publish, caplog):
         _s(-30, "5", unit_of_measurement="A"),
         _s(-40, "x", unit_of_measurement="W"),
     ]
-    got = sw.fetch_entity_power_history_kw("sensor.pv", START, END)
+    got = shared.fetch_entity_power_history_kw("sensor.pv", START, END)
     assert [v for _t, v in got] == [2.0, 3.0]
 
     # test_went_unavailable_counts_only_changes_after_the_cutoff
@@ -153,7 +153,7 @@ def test_power_history_from_the_recorder_is_in_kw(hass, publish, caplog):
     hass.history_error = RuntimeError("recorder busy")
     assert sw.fetch_entity_history_range("sensor.x", START, END) == []
     assert sw.fetch_entity_attribute_history_range("sensor.x", "a", START, END) == []
-    assert sw.fetch_entity_power_history_kw("sensor.x", START, END) == []
+    assert shared.fetch_entity_power_history_kw("sensor.x", START, END) == []
     assert shared.fetch_entity_went_unavailable("sensor.x", START, END) is None
 
     # --- service calls with a response ------------------------------------------------

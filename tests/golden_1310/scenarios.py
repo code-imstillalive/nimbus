@@ -54,6 +54,7 @@ test-only PR.
 from __future__ import annotations
 
 import dataclasses
+import importlib
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -305,13 +306,24 @@ def run_resolve_history(sw_module, resolve_fn) -> list:
     """Runs resolve_fn(...) against sw_module's own recorder-history
     seams, restoring every patched attribute afterwards."""
     original_hass = sw_module.NATIVE.hass
-    original_history = sw_module.fetch_entity_history_range
-    original_power = sw_module.fetch_entity_power_history_kw
-    original_state = sw_module.fetch_entity_state_history_range
+    # The readers moved to solver_shared (#2289 item 6); the reference capture
+    # ran code where they were on solver_writer. Patch every module that has
+    # one, so both revisions read the same history.
+    shared = importlib.import_module(type(sw_module.NATIVE).__module__)
+    fakes = {
+        "fetch_entity_history_range": history_fetch,
+        "fetch_entity_power_history_kw": history_fetch,
+        "fetch_entity_state_history_range": history_state_fetch,
+    }
+    saved = [
+        (module, name, getattr(module, name))
+        for module in (sw_module, shared)
+        for name in fakes
+        if hasattr(module, name)
+    ]
     sw_module.NATIVE.hass = history_native_hass()
-    sw_module.fetch_entity_history_range = history_fetch
-    sw_module.fetch_entity_power_history_kw = history_fetch
-    sw_module.fetch_entity_state_history_range = history_state_fetch
+    for module, name, _original in saved:
+        setattr(module, name, fakes[name])
     try:
         return resolve_fn(
             day_start=DAY_START,
@@ -322,9 +334,8 @@ def run_resolve_history(sw_module, resolve_fn) -> list:
         )
     finally:
         sw_module.NATIVE.hass = original_hass
-        sw_module.fetch_entity_history_range = original_history
-        sw_module.fetch_entity_power_history_kw = original_power
-        sw_module.fetch_entity_state_history_range = original_state
+        for module, name, original in saved:
+            setattr(module, name, original)
 
 
 # ---------------------------------------------------------------------------

@@ -545,7 +545,7 @@ def delivery(history, monkeypatch):
     history["sensor.real_battery"] = flat(1.0)
     on = (DAY + timedelta(hours=2), DAY + timedelta(hours=5))
     monkeypatch.setattr(
-        sw,
+        shared,
         "fetch_entity_power_history_kw",
         lambda _e, s, e: flat(lambda t: 0.65 if on[0] <= t < on[1] else 0.0, step=5)(
             s, e

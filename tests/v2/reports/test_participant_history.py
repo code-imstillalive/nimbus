@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import solver_shared
 import solver_writer as sw
 from golden.fake_ha import FakeHA, HistoryPoint
 from native_transport import use_native_fake
@@ -74,9 +75,13 @@ def site(monkeypatch):
             ),
         ),
     )
-    monkeypatch.setattr(sw, "fetch_entity_power_history_kw", lambda *_a: s.power)
+    monkeypatch.setattr(
+        solver_shared, "fetch_entity_power_history_kw", lambda *_a: s.power
+    )
     monkeypatch.setattr(sw, "fetch_entity_history_range", lambda *_a: s.soc)
-    monkeypatch.setattr(sw, "fetch_entity_state_history_range", lambda *_a: s.presence)
+    monkeypatch.setattr(
+        solver_shared, "fetch_entity_state_history_range", lambda *_a: s.presence
+    )
 
     def add(data=None, sid="s1", kind="battery_participant"):
         s.subentries[sid] = SimpleNamespace(
@@ -167,7 +172,7 @@ def recorder(monkeypatch):
     """Read `rows` as the recorder's history of sensor.x, in native mode."""
     opened = []
 
-    def run(rows, fn=sw.fetch_entity_power_history_kw, fail=False):
+    def run(rows, fn=solver_shared.fetch_entity_power_history_kw, fail=False):
         history = {
             "sensor.x": [
                 HistoryPoint(r["last_changed"], r["state"], r.get("attributes"))
@@ -182,7 +187,7 @@ def recorder(monkeypatch):
             def down(*_a, **_k):
                 raise RuntimeError("recorder down")
 
-            monkeypatch.setattr(sw, "native_state_changes", down)
+            monkeypatch.setattr(solver_shared, "native_state_changes", down)
         return [v for _t, v in fn("sensor.x", DAY, END)]
 
     yield run
@@ -287,7 +292,7 @@ def test_the_quality_report_scores_home_and_every_participant(site, monkeypatch)
         return every(series.get(entity, 0.0))
 
     monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
-    monkeypatch.setattr(sw, "fetch_entity_power_history_kw", fetch)
+    monkeypatch.setattr(solver_shared, "fetch_entity_power_history_kw", fetch)
     now = END + timedelta(hours=10)
     assert sw.compute_daily_quality_report(cfg, now)["scored_participants"] == ["home"]
     site.add()
