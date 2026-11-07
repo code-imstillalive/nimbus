@@ -1492,8 +1492,6 @@ def _note_flex_shadow_raw(plan, reduced, hours: float) -> float | None:
     return None if solar_reduced is None else solar_reduced / hours
 
 
-
-
 # nimbus issue #1073: how much throughput the SMALLER direction needs,
 # as a fraction of the larger, before a window counts as genuinely
 # two-directional.
