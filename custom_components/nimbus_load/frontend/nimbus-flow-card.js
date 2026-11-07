@@ -358,7 +358,10 @@ class NimbusFlowCard extends HTMLElement {
       pos["inv" + k] = { x: n === 1 ? W / 2 - 160 : 260 + ((W - 520) * k) / Math.max(1, n - 1), y: invY, r: 46 };
     });
     pos.house = { x: W / 2, y: houseY, r: 50 };
-    pos.grid = { x: n === 1 ? W / 2 + 160 : W / 2, y: invY, r: 46 };
+    // With two or more inverters, Grid sits below their row (household,
+    // 7 Nov 2026): a flow from one inverter to another runs along the row, and
+    // drawn through Grid it doubled up on Grid's own lines.
+    pos.grid = { x: n === 1 ? W / 2 + 160 : W / 2, y: n === 1 ? invY : invY + 70, r: 46 };
     // Strings above their inverter.
     m.invs.forEach((inv, k) => {
       const mine = m.site.strings.map((s, j) => ({ s, j })).filter(({ s }) => s.source === inv.id);
@@ -643,9 +646,12 @@ class NimbusFlowCard extends HTMLElement {
       } else if (m.grid > FLOW_MIN_KW) { text = `Buying ${buy.toFixed(1)}c`; colour = C.grid; }
       else { text = `Buy ${buy.toFixed(1)}c · Sell ${sell.toFixed(1)}c`; colour = C.muted; }
       const g = this._el("g", { class: "tag" }, G.tags);
+      // Above the inverter row even where Grid sits below it, clear of the
+      // line between the inverters.
       const w = 18 + text.length * 7.3, p = pos.grid;
-      this._el("rect", { x: p.x - w / 2, y: p.y - p.r - 40, width: w, height: 26, rx: 13, stroke: colour }, g);
-      this._el("text", { x: p.x, y: p.y - p.r - 22, fill: colour }, g).textContent = text;
+      const top = Math.min(p.y, pos.inv0 ? pos.inv0.y : p.y) - p.r;
+      this._el("rect", { x: p.x - w / 2, y: top - 40, width: w, height: 26, rx: 13, stroke: colour }, g);
+      this._el("text", { x: p.x, y: top - 22, fill: colour }, g).textContent = text;
     }
 
     this._renderToday(m.site.switchboard);
