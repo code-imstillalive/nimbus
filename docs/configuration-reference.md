@@ -181,7 +181,7 @@ its own target — same engine as a Load, different intent.
 | Field | Purpose |
 |---|---|
 | Power sensor to forecast | A real, measured whole-system sensor — e.g. total battery power, total DC/solar power, or total grid meter power. Never an optimizer's own plan/forecast entity. |
-| Role (optional) | Battery / Solar / Grid / Other — purely a labelling hint for the topology dashboard card's auto-detection, no effect on forecasting itself. |
+| Role (optional) | Battery / Solar / Grid / Whole house / Other (plus Temperature / Humidity for weather) — a labelling hint for the dashboard cards, no effect on forecasting itself. **Whole house** marks a second meter of the whole house's own total (for example a "Total Load" sensor beside a "Consumed Power" one), so the Power Flow card does not draw House a second time as a circuit. |
 
 ## Topology-only subentries
 
