@@ -279,7 +279,9 @@ def resolve_controllable_load_delivery_history(
         # Per-row unit scaling, scoped to exactly this one fetch (#843) --
         # the same reason the battery-participant reconstruction uses this
         # function rather than the cheaper attribute-stripped read.
-        power_hist = sw.fetch_entity_power_history_kw(power_sensor, day_start, day_end)
+        power_hist = solver_shared.fetch_entity_power_history_kw(
+            power_sensor, day_start, day_end
+        )
         if not power_hist:
             solver_shared._LOGGER.info(
                 "Nimbus quality: controllable load '%s' has no recorded rows "
