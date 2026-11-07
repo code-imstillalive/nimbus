@@ -340,8 +340,13 @@ def read_solcast_points(
     no points."""
     points: list[tuple[datetime, float]] = []
     has_p10 = True
+    # Imported here: solar.py imports this module at load (#2289 item 6).
     try:
-        for eid in sw.known_solcast_entities(cfg):
+        from . import solar as solar_inputs
+    except ImportError:  # pragma: no cover - top-level test import
+        from solver_inputs import solar as solar_inputs  # type: ignore[no-redef]
+    try:
+        for eid in solar_inputs.known_solcast_entities(cfg):
             if not sw.entity_exists(eid):
                 continue
             attrs = sw.ha_get(eid).get("attributes") or {}

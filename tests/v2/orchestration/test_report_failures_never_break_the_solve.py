@@ -11,6 +11,7 @@ import pytest
 import solver_shared
 import solver_writer
 from _isolated_state import isolated_state_paths
+from solver_inputs import solar as solar_inputs
 from test_main_golden_output_guardrail import (
     _HEALTHY_LOAD_STATE,
     _LOAD_SENSOR,
@@ -26,6 +27,10 @@ _REPORT_PUBLISHERS = {
     "publish_efficiency_backtest_report": "efficiency backtest publish failed",
     "update_solar_delivery_ratio": "solar delivery ratio update failed",
 }
+
+# Publishers that moved out of solver_writer (#2289 item 6): main() calls them
+# through their own module, so that is where the failure is planted.
+_OWNERS = {"update_solar_delivery_ratio": solar_inputs}
 
 
 def _make_ha_get():
@@ -58,7 +63,8 @@ class _PatchAll:
 
     def __enter__(self):
         for name in self._names:
-            p = patch.object(solver_writer, name, side_effect=self._side_effect)
+            owner = _OWNERS.get(name, solver_writer)
+            p = patch.object(owner, name, side_effect=self._side_effect)
             p.start()
             self._patches.append(p)
         return self
