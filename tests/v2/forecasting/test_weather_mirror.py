@@ -12,6 +12,7 @@ from __future__ import annotations
 import urllib.error
 
 import pytest
+import solver_shared
 import solver_writer as sw
 
 TEMP = "sensor.nimbus_mirror_temperature_forecast"
@@ -32,7 +33,7 @@ def ha(monkeypatch):
             raise seen["state"]
         return seen["state"]
 
-    monkeypatch.setattr(sw, "ha_call_service_with_response", call)
+    monkeypatch.setattr(solver_shared, "ha_call_service_with_response", call)
     monkeypatch.setattr(sw, "ha_get", get)
     monkeypatch.setattr(
         sw,
