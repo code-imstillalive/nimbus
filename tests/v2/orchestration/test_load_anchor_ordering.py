@@ -43,9 +43,9 @@ def _build(cross_check="sensor.whole_house", live_state=str(_LIVE_NOW)):
         48.0,  # load_forecast_coverage_hours
     )
     with (
-        patch.object(solver_writer, "sum_load_forecasts", return_value=summed),
+        patch.object(load_inputs, "sum_load_forecasts", return_value=summed),
         patch.object(
-            solver_writer, "resolve_load_forecast_source_label", return_value="summed"
+            load_inputs, "resolve_load_forecast_source_label", return_value="summed"
         ),
         patch.object(solver_writer, "entity_exists", return_value=True),
         patch.object(
@@ -54,9 +54,7 @@ def _build(cross_check="sensor.whole_house", live_state=str(_LIVE_NOW)):
             return_value={"state": live_state, "attributes": {}},
         ),
         patch.object(solver_writer, "resample_forecast", return_value=[_LIVE_NOW]),
-        patch.object(
-            solver_writer, "_clear_load_forecast_error_notification_if_needed"
-        ),
+        patch.object(load_inputs, "_clear_load_forecast_error_notification_if_needed"),
     ):
         return load_inputs.build_load_arrays(cfg, _GRID, N, _NOW)
 

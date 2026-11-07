@@ -15,6 +15,7 @@ import solver_shared
 import solver_writer as sw
 from golden.fake_ha import FakeHA
 from native_transport import use_native_fake
+from solver_inputs import load as load_inputs
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)
 
@@ -51,7 +52,7 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
             "junk",
         ],
     }
-    points, bands, error = sw._validate_and_parse_load_forecast_attrs(
+    points, bands, error = load_inputs._validate_and_parse_load_forecast_attrs(
         "sensor.load", attrs
     )
     assert error is None and bands is True
@@ -96,7 +97,7 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
         ),
         ({"unit_of_measurement": "A", "forecast": [_pt(0, 1)]}, "not a power unit"),
     ]:
-        points, bands, error = sw._validate_and_parse_load_forecast_attrs(
+        points, bands, error = load_inputs._validate_and_parse_load_forecast_attrs(
             "sensor.load", attrs
         )
         assert points is None and bands is False
@@ -111,9 +112,9 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
     with monkeypatch.context() as mp:
         marker = tmp_1 / "notified.txt"
         mp.setattr(sw, "LOAD_FORECAST_ERROR_NOTIFIED_PATH", str(marker))
-        sw._notify_load_forecast_error_once("first problem")
-        sw._notify_load_forecast_error_once("first problem")
-        sw._notify_load_forecast_error_once(
+        load_inputs._notify_load_forecast_error_once("first problem")
+        load_inputs._notify_load_forecast_error_once("first problem")
+        load_inputs._notify_load_forecast_error_once(
             "same problem, new words", error_key="first problem"
         )
         assert len(ha.service_calls) == 1
@@ -124,11 +125,11 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
         )
         assert call["data"]["notification_id"] == "nimbus_solver_load_forecast_error"
         assert call["data"]["message"].startswith("first problem\n\n")
-        sw._notify_load_forecast_error_once("second problem")
+        load_inputs._notify_load_forecast_error_once("second problem")
         assert len(ha.service_calls) == 2 and marker.read_text() == "second problem"
-        sw._clear_load_forecast_error_notification_if_needed()
+        load_inputs._clear_load_forecast_error_notification_if_needed()
         assert ha.service_calls[-1]["service"] == "dismiss" and not marker.exists()
-        sw._clear_load_forecast_error_notification_if_needed()
+        load_inputs._clear_load_forecast_error_notification_if_needed()
         assert len(ha.service_calls) == 3  # nothing left to dismiss
 
     # test_a_failing_notification_never_fails_the_solve
@@ -141,10 +142,10 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
             raise OSError("down")
 
         mp.setattr(solver_shared, "ha_call_service", boom)
-        sw._notify_load_forecast_error_once("x")
+        load_inputs._notify_load_forecast_error_once("x")
         (tmp_2 / "no").mkdir()
         (tmp_2 / "no" / "dir").write_text("old")
-        sw._clear_load_forecast_error_notification_if_needed()
+        load_inputs._clear_load_forecast_error_notification_if_needed()
         assert (tmp_2 / "no" / "dir").exists()
 
     # test_a_score_is_reliable_only_when_every_part_is

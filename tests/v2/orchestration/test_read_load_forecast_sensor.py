@@ -8,7 +8,8 @@ import unittest
 from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import patch
 
-import solver_writer
+import solver_shared
+from solver_inputs import load as load_inputs
 
 
 def _grid_times(n=4):
@@ -53,9 +54,9 @@ class TestEmhassShape(unittest.TestCase):
         }
 
     def test_emhass_shape_auto_detected_and_converted(self):
-        with patch.object(solver_writer, "ha_get", return_value=self._emhass_state()):
+        with patch.object(solver_shared, "ha_get", return_value=self._emhass_state()):
             load_kw, lower, upper, error, _coverage = (
-                solver_writer.read_load_forecast_sensor(
+                load_inputs.read_load_forecast_sensor(
                     "sensor.p_load_forecast_custom_model", _grid_times_aest()
                 )
             )

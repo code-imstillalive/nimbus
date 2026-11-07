@@ -18,6 +18,7 @@ import pytest
 import solver_writer as sw
 from golden.fake_ha import FakeHA
 from native_transport import use_native_fake
+from solver_inputs import load as load_inputs
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)
 
@@ -67,8 +68,10 @@ def test_the_discharge_cost_follows_its_first_matching_active_block(
     ha.states["sensor.b"] = _load([500, -200], unit="W")  # negative clipped to 0
     ha.states["sensor.c"] = {"state": "1", "attributes": {"forecast": []}}
     with caplog.at_level(logging.WARNING, logger=sw._LOGGER.name):
-        total, lower, upper, failed, warnings, coverage = sw.sum_load_forecasts(
-            ["sensor.a", "sensor.b", "sensor.c", "sensor.gone"], _grid(3), 0.1
+        total, lower, upper, failed, warnings, coverage = (
+            load_inputs.sum_load_forecasts(
+                ["sensor.a", "sensor.b", "sensor.c", "sensor.gone"], _grid(3), 0.1
+            )
         )
     assert total == pytest.approx([1.6, 2.1, 3.1])
     # b has no bands: its lower and upper read as 0, so the sum's band is
@@ -89,7 +92,7 @@ def test_the_discharge_cost_follows_its_first_matching_active_block(
         ([0.2] * 10, ["sensor.x"], True),  # only self-consumption
         ([], ["sensor.x"], False),
     ]:
-        error = sw.near_zero_summed_load_error(
+        error = load_inputs.near_zero_summed_load_error(
             total, failed, 0.2 if total == [0.2] * 10 else 0.0
         )
         assert (error is not None) is refused

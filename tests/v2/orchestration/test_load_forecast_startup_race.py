@@ -65,8 +65,8 @@ class TestStartupRaceLoadForecastNeverPublishesAZeroLoadPlan:
         ha_get_mock = _make_ha_get(unavailable_state)
 
         with (
-            patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
-            # The settings read lives in solver_shared (#2289 item 6).
+            # Every read this test reaches (the settings and the load forecast)
+            # resolves ha_get in solver_shared (#2289 item 6, steps 3 and 5).
             patch.object(solver_shared, "ha_get", side_effect=ha_get_mock),
             patch.object(solver_writer, "ha_post_state") as mock_post_state,
             patch.object(solver_writer, "acquire_lock", return_value=True),
