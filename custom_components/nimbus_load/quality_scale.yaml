@@ -214,16 +214,22 @@ rules:
       physical device or network service to discover.
   docs-data-update: todo
   docs-examples:
-    status: todo
+    status: done
     comment: >-
-      docs/real-world-integration/files/ has Lovelace card examples and a
-      topology map, but no example automations.
+      docs/going-live.md walks through two importable automation blueprints
+      (blueprints/automation/nimbus/battery_dispatch.yaml and
+      site_import_guard.yaml) with worked inverter actions, and
+      docs/dashboards.md has the Lovelace card examples.
   docs-known-limitations: todo
   docs-supported-devices:
     status: exempt
     comment: Not device-based.
   docs-supported-functions: todo
-  docs-troubleshooting: todo
+  docs-troubleshooting:
+    status: done
+    comment: >-
+      docs/troubleshooting.md, published in the user docs: Repairs first,
+      common problems, a one-step diagnostic check, and how to report one.
   docs-use-cases: todo
   dynamic-devices: done
   entity-category:
