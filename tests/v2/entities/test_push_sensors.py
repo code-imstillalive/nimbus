@@ -179,10 +179,10 @@ def test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes(
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     import _solver_path  # noqa: F401  -- solver/ on the path for solver_writer
 
-    sw = importlib.import_module("custom_components.nimbus_load.solver_writer")
+    publish = importlib.import_module("custom_components.nimbus_load.solver_publish")
     slowest_sweep_s = 90  # the longest whole cycle measured on devhub (#2132)
     assert (
-        sw.OFFER_CURVE_SLOW_REFRESH_S + slowest_sweep_s
+        publish.OFFER_CURVE_SLOW_REFRESH_S + slowest_sweep_s
         < sm.NimbusOfferCurveSensor._STALE_AFTER_SECONDS
     )
 
