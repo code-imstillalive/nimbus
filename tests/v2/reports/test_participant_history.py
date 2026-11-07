@@ -13,13 +13,14 @@ day is still scored. Synthetic data only.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import solver_writer as sw
+from golden.fake_ha import FakeHA, HistoryPoint
+from native_transport import use_native_fake
 from solver_inputs import battery_participants as bp
 
 TZ = sw.LOCAL_TZ
@@ -161,38 +162,30 @@ def test_which_periods_are_unobserved():
 # --- each row in its own unit (#843 option A) -------------------------------------------------
 
 
-class _Resp:
-    def __init__(self, payload):
-        self._payload = json.dumps(payload).encode()
-
-    def read(self):
-        return self._payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_a):
-        return False
-
-
 @pytest.fixture
-def rest(monkeypatch):
-    seen = {}
+def recorder(monkeypatch):
+    """Read `rows` as the recorder's history of sensor.x, in native mode."""
+    opened = []
 
     def run(rows, fn=sw.fetch_entity_power_history_kw, fail=False):
-        def urlopen(req, *_a, **_k):
-            if fail:
-                raise sw.urllib.error.URLError("down")
-            seen["url"] = req.full_url
-            return _Resp([rows])
+        history = {
+            "sensor.x": [
+                HistoryPoint(r["last_changed"], r["state"], r.get("attributes"))
+                for r in rows
+            ]
+        }
+        opened.append(use_native_fake(monkeypatch, sw, FakeHA(history=history)))
+        if fail:
 
-        monkeypatch.setattr(sw.NATIVE, "hass", None)
-        monkeypatch.setattr(sw, "_load_token", lambda: "tok")
-        monkeypatch.setattr(sw.urllib.request, "urlopen", urlopen)
+            def down(*_a, **_k):
+                raise RuntimeError("recorder down")
+
+            monkeypatch.setattr(sw, "native_state_changes", down)
         return [v for _t, v in fn("sensor.x", DAY, END)]
 
-    run.seen = seen
-    return run
+    yield run
+    for hass in opened:
+        hass.close()
 
 
 def _row(hour, state, unit="kW"):
@@ -216,12 +209,12 @@ def _row(hour, state, unit="kW"):
     ],
     ids=["no_unit", "not_power", "not_a_number", "unsorted", "empty"],
 )
-def test_what_each_row_reads_as(rest, rows, expected):
-    assert rest(rows) == expected
+def test_what_each_row_reads_as(recorder, rows, expected):
+    assert recorder(rows) == expected
 
 
-def test_a_failed_read_is_no_history(rest):
-    assert rest([], fail=True) == []
+def test_a_failed_read_is_no_history(recorder):
+    assert recorder([], fail=True) == []
 
 
 # --- a reading no participant could make (#843 option B) --------------------------------------
@@ -293,17 +286,15 @@ def test_the_quality_report_scores_home_and_every_participant(site, monkeypatch)
 
     monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
     monkeypatch.setattr(sw, "fetch_entity_power_history_kw", fetch)
-    monkeypatch.setattr(sw.urllib.request, "urlopen", _refuse)
+    # Every other read finds nothing: an empty Home Assistant.
+    hass = use_native_fake(monkeypatch, sw, FakeHA(states={}))
     now = END + timedelta(hours=10)
     assert sw.compute_daily_quality_report(cfg, now)["scored_participants"] == ["home"]
     site.add()
     report = sw.compute_daily_quality_report(cfg, now)
     assert report["scored_participants"] == ["home", "ev"]
     assert report["j_ach"] == pytest.approx(report["j_ref"], abs=1e-6)  # all idle
-
-
-def _refuse(*_a, **_k):
-    raise sw.urllib.error.URLError("no network in tests")
+    hass.close()
 
 
 def test_a_participant_whose_positive_is_discharge_reads_it_so(site):

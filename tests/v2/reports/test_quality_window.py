@@ -9,10 +9,7 @@ settlement for a whole calendar day. Synthetic histories only.
 
 from __future__ import annotations
 
-import json
 import logging
-import urllib.error
-import urllib.request
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -20,6 +17,8 @@ import numpy as np
 import pytest
 import solver_shared as shared
 import solver_writer as sw
+from golden.fake_ha import FakeHA, HistoryPoint
+from native_transport import use_native_fake
 from solver import elements
 from solver_inputs import battery_participants as participants
 
@@ -87,14 +86,11 @@ def history(monkeypatch):
 
     monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
 
-    def offline(*_a, **_k):
-        raise urllib.error.URLError("no Home Assistant in this test")
-
-    # Every other read is one Home Assistant does not answer: refused at
-    # once, not after a connect timeout per call.
-    monkeypatch.setattr(urllib.request, "urlopen", offline)
+    # Every other read finds nothing: an empty Home Assistant, in process.
+    hass = use_native_fake(monkeypatch, sw, FakeHA(states={}))
     series["_calls"] = calls
-    return series
+    yield series
+    hass.close()
 
 
 def window(c=None, start=DAY, end=END, partial=True):
@@ -283,20 +279,6 @@ def test_a_sensor_that_merely_held_its_value_counts_to_the_end_of_the_day(
     assert eid == "sensor.real_solar" and after <= DUSK + timedelta(minutes=15)
 
 
-class _Response:
-    def __init__(self, payload):
-        self._b = json.dumps(payload).encode()
-
-    def read(self):
-        return self._b
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-
 @pytest.mark.parametrize(
     ("rows", "error", "expected"),
     [
@@ -308,24 +290,25 @@ class _Response:
             None,
             False,
         ),  # before the window
-        (None, urllib.error.URLError("down"), None),  # unknown, not fine
+        (None, RuntimeError("down"), None),  # unknown, not fine
     ],
     ids=["outage", "held", "nothing", "outage_before", "read_failed"],
 )
 def test_the_outage_probe_reads_only_states_after_the_last_row(
     monkeypatch, rows, error, expected
 ):
-    payload = [[{"state": s, "last_changed": w.isoformat()} for s, w in (rows or [])]]
-    monkeypatch.setattr(sw.NATIVE, "hass", None)
-    monkeypatch.setattr(sw, "_load_token", lambda: "t")
+    history = {"sensor.pv": [HistoryPoint(w.isoformat(), s) for s, w in (rows or [])]}
+    hass = use_native_fake(monkeypatch, sw, FakeHA(history=history))
+    if error:
 
-    def urlopen(*_a, **_k):
-        if error:
+        def down(*_a, **_k):
             raise error
-        return _Response(payload)
 
-    monkeypatch.setattr(shared.urllib.request, "urlopen", urlopen)
-    assert shared.fetch_entity_went_unavailable("sensor.pv", DUSK, END) is expected
+        monkeypatch.setattr(shared, "native_state_changes", down)
+    try:
+        assert shared.fetch_entity_went_unavailable("sensor.pv", DUSK, END) is expected
+    finally:
+        hass.close()
 
 
 # --- the coverage gate names the short sensor and escalates (#984, #1054) -----------------------

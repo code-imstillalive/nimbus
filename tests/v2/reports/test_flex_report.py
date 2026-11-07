@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 
 import pytest
 import solver_writer as sw
+from golden.fake_ha import FakeHA
+from native_transport import use_native_fake
 
 TZ = sw.LOCAL_TZ
 DAY = datetime(2026, 9, 13, tzinfo=TZ)
@@ -64,11 +66,10 @@ def day(monkeypatch):
     monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
     monkeypatch.setattr(sw, "fetch_entity_attribute_history_range", fetch_attr)
 
-    def offline(*_a, **_k):
-        raise sw.urllib.error.URLError("no Home Assistant in this test")
-
-    monkeypatch.setattr(sw.urllib.request, "urlopen", offline)
-    return s
+    # Every other read finds nothing: an empty Home Assistant, in process.
+    hass = use_native_fake(monkeypatch, sw, FakeHA(states={}))
+    yield s
+    hass.close()
 
 
 def report(c=None, start=DAY, end=END):
