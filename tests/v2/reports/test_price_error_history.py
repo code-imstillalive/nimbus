@@ -28,6 +28,7 @@ from _isolated_state import isolated_state_paths
 from solver_inputs import price_consolidation as pc
 from solver_inputs import price_error_history as peh
 from solver_inputs import price_offset_replay as por
+from solver_inputs import prices as price_inputs
 
 NOW = datetime(2026, 10, 16, 2, 0, 30, tzinfo=UTC)
 
@@ -188,7 +189,7 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
         assert [p[:2] for p in consolidated] == [p[:2] for p in pairs]
         assert "consolidated" in eh["import"]
         # The #1786 tracker scored the very same intervals.
-        tracker = solver_writer._PRICE_CONSOLIDATION_CACHE["import"]
+        tracker = price_inputs._PRICE_CONSOLIDATION_CACHE["import"]
         assert tracker.samples["primary"]["0-5 min"] >= len(pairs)
         # Persisted in the config dir, and restored after a restart.
         path = os.path.join(tmp, "nimbus_solver_price_error_history.json")
@@ -293,7 +294,7 @@ def _cycle(now, settled_import=0.31, cfg=None):
         datetime.fromtimestamp((pc.interval_key(now) + 1 + i) * 300, UTC)
         for i in range(3)
     ]
-    return solver_writer.apply_price_consolidation(
+    return price_inputs.apply_price_consolidation(
         cfg or {},
         now,
         grid,

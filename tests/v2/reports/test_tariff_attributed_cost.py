@@ -7,9 +7,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import solver_writer
+from solver_inputs import prices as price_inputs
 
-compute_tariff_attributed_cost = solver_writer.compute_tariff_attributed_cost
+compute_tariff_attributed_cost = price_inputs.compute_tariff_attributed_cost
 
 
 def _fake_adequacy_load(subentry_id: str | None, power_kw: list[float]):

@@ -25,6 +25,7 @@ import test_main_golden_output_guardrail as guardrail
 from _isolated_state import isolated_state_paths
 from solver_inputs import loss_factors, price_blend, prices
 from solver_inputs import price_consolidation as pc
+from solver_inputs import prices as price_inputs
 
 NOW = datetime(2026, 10, 16, 2, 0, 30, tzinfo=UTC)
 
@@ -191,12 +192,12 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none(monkeypatch):
             grid[0] + timedelta(seconds=10),
             grid[1] + timedelta(seconds=10),
         ):
-            sw.apply_price_consolidation(
+            price_inputs.apply_price_consolidation(
                 {}, now, grid, [5 / 60] * 3, 0, p, [0.30] * 3, [0.05] * 3,
                 0.31, 0.05, [0.30] * 3, [0.05] * 3, ["primary"] * 3, ["primary"] * 3,
             )  # fmt: skip
-        sw._PRICE_CONSOLIDATION_CACHE = None  # a restart
-        trackers = sw._load_price_trackers()
+        price_inputs._PRICE_CONSOLIDATION_CACHE = None  # a restart
+        trackers = price_inputs._load_price_trackers()
     assert trackers["import"].samples["primary"]["0-5 min"] == 1
     assert trackers["import"].mae["primary"]["0-5 min"] == pytest.approx(0.01)
 
@@ -238,7 +239,7 @@ def _apply(live, aemo=None, n_settled=2, masks=None, imp=None, labels=None):
     raw, exp = list(imp), [0.05] * n
     lab_i, lab_e = list(labels or ["primary"] * n), ["primary"] * n
     with isolated_state_paths(sw):
-        result = sw.apply_price_consolidation(
+        result = price_inputs.apply_price_consolidation(
             {"solver_price_consolidation_live": live},
             NOW,
             grid,
@@ -300,7 +301,7 @@ def _main(cfg_extra, disabled=False, monkeypatch=None):
         mp.setattr(solver_shared, "ha_get", ha_get)
         mp.setattr(sw, "ha_post_state", lambda e, s, a=None: posted.__setitem__(e, a))
         if disabled:
-            mp.setattr(sw, "apply_price_consolidation", lambda *a, **k: None)
+            mp.setattr(price_inputs, "apply_price_consolidation", lambda *a, **k: None)
         stack.enter_context(isolated_state_paths(sw))
         sw.main()
     return posted["sensor.nimbus_solver_battery_forecast"]
