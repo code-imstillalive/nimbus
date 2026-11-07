@@ -734,7 +734,9 @@ def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
             },
         ]
         mp.setattr(
-            sw, "ha_get", lambda eid: {"state": "1", "attributes": {"forecast": rows}}
+            solver_shared,
+            "ha_get",
+            lambda eid: {"state": "1", "attributes": {"forecast": rows}},
         )
         grid = _grid(4, minutes=5)
         assert p2p.resample_real_p2p_rate(grid, "sensor.p2p") == pytest.approx(
