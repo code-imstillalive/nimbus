@@ -85,6 +85,12 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
   the same fake.
 - **Source-reading tests** (`Path(...).read_text()` on `solver_writer.py`)
   must read the file the code moved to.
+- **Relative imports gain a dot** when code moves into a subpackage
+  (`solver_reports/`, `solver_inputs/`): `from .solver.x import` becomes
+  `from ..solver.x import`. Check every `from .` line inside moved function
+  bodies too. Pytest will not catch a missed one: the `except ImportError`
+  fallback finds the module through `pythonpath`, so only the relative-import
+  gate fails (#2361).
 
 ## 4. Lint without collateral damage
 
@@ -113,6 +119,11 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
 - **Import-linter:** removing the last import between two modules makes its
   `ignore_imports` entry unmatched, which fails. Remove the entry and lower
   `_EXPECTED_IGNORED_IMPORT_COUNT` in `tests/test_import_linter_contract.py`.
+  The other way round: a move can create a new crossing between sibling
+  layers (for example `solver_reports` reading `solver_inputs`). Run
+  `lint-imports` before pushing. Either keep the import where it was, or add
+  an `ignore_imports` entry with a comment giving the reason, and raise the
+  expected count (#2361).
 
 ## Merging stacked moves
 
