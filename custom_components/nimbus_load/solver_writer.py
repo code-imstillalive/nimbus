@@ -27,6 +27,7 @@ import os
 import re
 import sys
 import urllib.error
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from time import monotonic
 from zoneinfo import ZoneInfo
@@ -2990,7 +2991,21 @@ def _publish_side_reports(
     return solar_delivery
 
 
-def main() -> None:
+@dataclass(frozen=True)
+class _Settings:
+    """What `_settings_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    cfg: dict
+    cfg_unmoded: dict
+    now: datetime
+    grid_times: list[datetime]
+    period_hours_arr: list[float]
+    n_periods: int
+
+
+def _settings_phase() -> _Settings:
+    """The solve's settings, household mode, start time and time grid: the first
+    phase of `main()`, moved verbatim (#2289 item 6 step 9)."""
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see solver_shared.fetch_solver_config()'s own docstring
     # for the full "installable by anyone" context this closes.
@@ -3036,6 +3051,24 @@ def main() -> None:
     now = datetime.now(UTC).astimezone(LOCAL_TZ).replace(second=0, microsecond=0)
     grid_times, period_hours_arr = solver_shared.build_tiered_grid(now)
     n_periods = len(grid_times)
+    return _Settings(
+        cfg=cfg,
+        cfg_unmoded=cfg_unmoded,
+        now=now,
+        grid_times=grid_times,
+        period_hours_arr=period_hours_arr,
+        n_periods=n_periods,
+    )
+
+
+def main() -> None:
+    _settings = _settings_phase()
+    cfg = _settings.cfg
+    cfg_unmoded = _settings.cfg_unmoded
+    now = _settings.now
+    grid_times = _settings.grid_times
+    period_hours_arr = _settings.period_hours_arr
+    n_periods = _settings.n_periods
 
     # Solar forecast sources -- every configured/auto-detected source
     # fetched, blended, and live-anchored for period 0. Moved out of
