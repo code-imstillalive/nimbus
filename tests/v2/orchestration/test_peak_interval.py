@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
 
+import solver_shared
 import solver_writer
 
 AEST = timezone(timedelta(hours=10))
@@ -34,7 +35,7 @@ def test_a_0520_peak_never_reaches_a_period_that_starts_before_0520():
     for rows_tz in [AEST, UTC]:
         for now_tz in [AEST, UTC]:
             now = datetime(2026, 10, 9, 4, 25, 10, tzinfo=AEST).astimezone(now_tz)
-            times, hours = solver_writer.build_tiered_grid(now)
+            times, hours = solver_shared.build_tiered_grid(now)
             prices, real = solver_writer.resample_price_with_extrapolation(
                 _forecast(rows_tz), "value", times, [], {}
             )

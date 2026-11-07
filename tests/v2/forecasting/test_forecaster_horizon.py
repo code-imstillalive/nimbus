@@ -12,7 +12,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from custom_components.nimbus_load import solver_writer
+from custom_components.nimbus_load import solver_shared
 from custom_components.nimbus_load.const import (
     CONF_FORECAST_HORIZON_HOURS,
     DEFAULT_FORECAST_HORIZON_HOURS,
@@ -22,7 +22,7 @@ from custom_components.nimbus_load.coordinator import NimbusCoordinator
 
 
 def _solver_plan_hours() -> float:
-    return solver_writer.TIER0_MINUTES / 60.0 + solver_writer.TOTAL_HORIZON_HOURS
+    return solver_shared.TIER0_MINUTES / 60.0 + solver_shared.TOTAL_HORIZON_HOURS
 
 
 def test_the_minimum_covers_the_solvers_whole_plan():
