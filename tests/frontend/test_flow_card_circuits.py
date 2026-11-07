@@ -64,3 +64,14 @@ def test_powered_circuits_show_under_the_households_names():
     assert "a.part_of_source_sensor" in body and "c.other = c.kw -" in body
     topo = (FLOW.parent / "nimbus-topology-card.js").read_text(encoding="utf-8")
     assert "attrs.part_of_source_sensor" in topo and "load.sub" in topo
+
+    # test_the_card_says_when_there_is_no_plan (7 Nov 2026): for about a
+    # minute after Nimbus reloads, the plan sensor has no forecast. A tester's
+    # card then showed no Buy/Sell price and kept the last plan's "On plan" and
+    # "Solar xx% of forecast": `.pill` sets `display`, which overrode their
+    # `hidden`. The card hides what it hides, and says it is waiting.
+    assert re.search(r"\[hidden\]\s*\{\s*display:\s*none\s*!important", src)
+    render = src[src.index("  _render() {") :]
+    render = render[: render.index("\n  }\n")]
+    assert '"Waiting for the plan"' in render
+    assert "planPill.hidden = !m.p0" not in render

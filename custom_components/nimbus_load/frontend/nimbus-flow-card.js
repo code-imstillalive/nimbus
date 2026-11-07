@@ -422,6 +422,9 @@ class NimbusFlowCard extends HTMLElement {
         .pill.off { color: ${FLOW_COLORS.amber}; background: rgba(255,179,64,0.14); }
         .pill.sun { color: ${FLOW_COLORS.solar}; background: rgba(245,181,61,0.12); }
         .pill.sun.low { color: ${FLOW_COLORS.amber}; background: rgba(255,179,64,0.14); }
+        .pill.wait { color: ${FLOW_COLORS.muted}; background: rgba(154,160,172,0.14); }
+        /* .pill sets display, which would otherwise override [hidden]. */
+        [hidden] { display: none !important; }
         svg { display: block; width: 100%; height: auto; }
         .flow { fill: none; stroke-linecap: round; }
         .run { animation: run linear infinite; }
@@ -525,9 +528,11 @@ class NimbusFlowCard extends HTMLElement {
 
     // Plan and solar pills.
     const planPill = root.getElementById("plan");
-    planPill.hidden = !m.p0;
-    planPill.className = "pill " + (m.offPlan ? "off" : "ok");
-    planPill.textContent = m.offPlan ? "Off plan" : "On plan";
+    // No plan yet, e.g. for the minute after Nimbus reloads: say so, rather
+    // than leave the last plan's pills up. Prices come from the plan too.
+    planPill.hidden = false;
+    planPill.className = "pill " + (!m.p0 ? "wait" : m.offPlan ? "off" : "ok");
+    planPill.textContent = !m.p0 ? "Waiting for the plan" : m.offPlan ? "Off plan" : "On plan";
     const sun = root.getElementById("sun");
     const fcSolar = m.p0 ? parseFloat(m.p0.solar_kw) || 0 : 0;
     if (fcSolar > 0.5) {
