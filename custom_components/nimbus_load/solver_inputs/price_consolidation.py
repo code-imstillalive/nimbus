@@ -35,7 +35,7 @@ removed. The table still shows each source's own price.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from statistics import median
 from typing import Any
@@ -88,7 +88,7 @@ def lead_bucket(lead_minutes: float) -> str | None:
 
 
 def _available(
-    series_by_source: dict[str, Sequence[float | None]], i: int
+    series_by_source: Mapping[str, Sequence[float | None]], i: int
 ) -> dict[str, float]:
     out: dict[str, float] = {}
     for name, series in series_by_source.items():
@@ -100,7 +100,7 @@ def _available(
 
 
 def consolidate(
-    series_by_source: dict[str, Sequence[float | None]],
+    series_by_source: Mapping[str, Sequence[float | None]],
     weights: Weights | Sequence[Weights | None] | None = None,
     spike_threshold: float | None = None,
 ) -> tuple[list[float | None], list[float | None], str]:
@@ -251,6 +251,7 @@ def retail_from_rrp_series(
         while j + 1 < len(pts) and pts[j + 1][0] <= gt:
             j += 1
         k = scale(gt)
+        rrp: float | None
         if i == 0 and rrp_now is not None:
             rrp = rrp_now
         else:
