@@ -18,8 +18,9 @@ import math
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import solver_shared
 import solver_writer as sw
-from solver_inputs import price_consolidation, prices
+from solver_inputs import p2p, price_consolidation, prices
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)  # 16:00 Brisbane
 N = 3
@@ -46,7 +47,11 @@ def writer(monkeypatch):
         "p2p_recent_avg_volume_kwh": lambda **k: 60.0,
         "_warn_stale_price_source_once": lambda f: seen["warned"].append(f),
     }.items():
-        monkeypatch.setattr(sw, name, value)
+        # nimbus #2289 item 6 step 8: the P2P readers live in solver_inputs/p2p.py
+        # and read through solver_shared, so they are faked there.
+        monkeypatch.setattr(p2p if hasattr(p2p, name) else sw, name, value)
+        if name == "ha_get":
+            monkeypatch.setattr(solver_shared, name, value)
     return seen
 
 

@@ -168,7 +168,7 @@ def test_the_discharge_cost_follows_its_first_matching_active_block(
         attrs = dict(attrs)
         if age_minutes is not None:
             attrs["generated_at"] = (T0 - timedelta(minutes=age_minutes)).isoformat()
-        assert sw._keep_published_quality_score(attrs, T0) is keep
+        assert quality_reports._keep_published_quality_score(attrs, T0) is keep
 
     # test_without_a_recorded_trail_or_baseline_there_is_no_skill
     with monkeypatch.context() as mp:
@@ -213,7 +213,7 @@ def test_the_discharge_cost_follows_its_first_matching_active_block(
         (92.971, 0.0, 100.954, False),  # a day's charge
         (0.0, 0.0, 6.096, False),  # no throughput: nothing to compare
     ]:
-        assert sw._is_closed_soc_loop(in_kwh, out_kwh, soc_delta) is closed
+        assert quality_reports._is_closed_soc_loop(in_kwh, out_kwh, soc_delta) is closed
 
 
 # --- summed circuit loads ------------------------------------------------------------
@@ -246,7 +246,7 @@ def _balance(**kw):
         "charge_efficiency": 0.95,
         "discharge_efficiency": 0.95,
     }
-    return sw.battery_energy_balance(**{**base, **kw})
+    return quality_reports.battery_energy_balance(**{**base, **kw})
 
 
 # --- the load-nowcast skill ---------------------------------------------------------------

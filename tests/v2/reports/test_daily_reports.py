@@ -22,6 +22,7 @@ from golden.fake_ha import FakeHA
 from native_transport import use_native_fake
 from solver_reports import backtest as backtest_reports
 from solver_reports import counterfactual as counterfactual_reports
+from solver_reports import quality as quality_reports
 from solver_reports.quality import QUALITY_REPORT_SCHEMA
 
 quality = sys.modules[sw.publish_daily_quality_report.__module__]
@@ -232,7 +233,7 @@ def test_a_new_day_is_scored_and_published_with_its_date(ha, monkeypatch):
 
 def _report(ha, **kw):
     ha["series"].pop("sensor.real_soc", None)
-    return sw.compute_daily_quality_report(
+    return quality_reports.compute_daily_quality_report(
         cfg(solver_battery_soc_sensor=None, **kw), NOW
     )
 
@@ -524,7 +525,9 @@ def test_the_ordinary_paths_grow_rewrite_and_skip_a_malformed_row_quietly(
 @pytest.fixture
 def held(ha, monkeypatch):
     quality._QUALITY_HOLD_WARNED.clear()
-    monkeypatch.setattr(sw, "compute_daily_quality_report", lambda *_a: None)
+    monkeypatch.setattr(
+        quality_reports, "compute_daily_quality_report", lambda *_a: None
+    )
     yield
     quality._QUALITY_HOLD_WARNED.clear()
 
@@ -547,7 +550,7 @@ def schema(ha, monkeypatch):
     computed = []
     clock = {"t": 1000.0}
     monkeypatch.setattr(
-        sw, "compute_daily_quality_report", lambda *_a: computed.append(1)
+        quality_reports, "compute_daily_quality_report", lambda *_a: computed.append(1)
     )
     monkeypatch.setattr(quality, "time", ModuleTime(lambda: clock["t"]))
 
@@ -634,7 +637,9 @@ def test_the_publisher_falls_through_to_a_rescore_only_when_due(
         "attributes": _prov(status, minutes_ago=minutes_ago),
     }
     monkeypatch.setattr(solver_shared, "resolve_real_entity_id", lambda e: e)
-    monkeypatch.setattr(sw, "compute_daily_quality_report", lambda *_a: calls.append(1))
+    monkeypatch.setattr(
+        quality_reports, "compute_daily_quality_report", lambda *_a: calls.append(1)
+    )
     sw.publish_daily_quality_report({}, PROV_NOW)
     assert bool(calls) is recomputed
     if not recomputed:
