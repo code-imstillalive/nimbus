@@ -15,7 +15,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import solver_shared
-import solver_writer
 from solver_inputs import price_blend
 
 NON_FINITE = ["nan", "NaN", "inf", "-inf", "Infinity"]
@@ -26,10 +25,8 @@ def _states(states):
     def ha_get(entity_id):
         return states[entity_id]
 
-    with (
-        patch.object(solver_shared, "ha_get", ha_get),
-        patch.object(solver_writer, "ha_get", ha_get),
-    ):
+    # nimbus #2289 item 6 step 8: the price readers read through solver_shared.
+    with patch.object(solver_shared, "ha_get", ha_get):
         yield
 
 
@@ -46,10 +43,7 @@ def test_price_now_falls_back_on_a_non_finite_state():
     def gone(entity_id):
         raise solver_shared._native_http_error(entity_id, 404, "not found")
 
-    with (
-        patch.object(solver_shared, "ha_get", gone),
-        patch.object(solver_writer, "ha_get", gone),
-    ):
+    with patch.object(solver_shared, "ha_get", gone):
         assert solver_shared.safe_num("number.gone", 80.0) == pytest.approx(80.0)
         assert price_blend.price_now("sensor.gone", fallback=0.3) == pytest.approx(0.3)
 
