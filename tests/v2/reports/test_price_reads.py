@@ -18,6 +18,7 @@ import pytest
 import solver_shared
 import solver_writer as sw
 from solver_inputs import price_blend
+from solver_inputs import prices as price_inputs
 
 FIX = Path(__file__).resolve().parents[2] / "fixtures" / "pricing"
 
@@ -263,7 +264,7 @@ def test_no_answer_for_this_entity_is_no_forecast(openadr, spot_store, monkeypat
         mp.setattr(sw, "ha_get", lambda e: states[e])
         assert (
             len(
-                sw.collect_amber_spot(
+                price_inputs.collect_amber_spot(
                     ["sensor.lv_buy", None, "sensor.amber_feed_in"], SPOT_NOW
                 )
             )
@@ -297,7 +298,7 @@ def _amber(*rows):
 def spot_store(tmp_path, monkeypatch):
     path = tmp_path / "amber_spot.json"
     monkeypatch.setattr(sw, "AMBER_SPOT_PATH", str(path))
-    monkeypatch.setattr(sw, "_AMBER_SPOT_CACHE", None)
+    monkeypatch.setattr(price_inputs, "_AMBER_SPOT_CACHE", None)
     return path
 
 
@@ -308,7 +309,7 @@ def test_without_amber_or_with_a_failed_read_nothing_is_collected(
         solver_shared, "ha_get", lambda _e: {"state": "0.2", "attributes": {}}
     )
     monkeypatch.setattr(sw, "ha_get", lambda _e: {"state": "0.2", "attributes": {}})
-    assert sw.collect_amber_spot(["sensor.lv_buy"], SPOT_NOW) == {}
+    assert price_inputs.collect_amber_spot(["sensor.lv_buy"], SPOT_NOW) == {}
     assert not spot_store.exists()
 
     def down(_e):
@@ -316,7 +317,7 @@ def test_without_amber_or_with_a_failed_read_nothing_is_collected(
 
     monkeypatch.setattr(solver_shared, "ha_get", down)
     monkeypatch.setattr(sw, "ha_get", down)
-    assert sw.collect_amber_spot(["sensor.amber_general"], SPOT_NOW) == {}
+    assert price_inputs.collect_amber_spot(["sensor.amber_general"], SPOT_NOW) == {}
 
 
 def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
@@ -326,7 +327,7 @@ def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
         spot_store.write_text(json.dumps({str(old): 0.05}))
         mp.setattr(solver_shared, "ha_get", lambda _e: _amber(_spot_row(0.11)))
         mp.setattr(sw, "ha_get", lambda _e: _amber(_spot_row(0.11)))
-        out = sw.collect_amber_spot(["sensor.amber_general"], SPOT_NOW)
+        out = price_inputs.collect_amber_spot(["sensor.amber_general"], SPOT_NOW)
         assert old not in out and len(out) == 1
 
     # test_the_markup_uses_the_same_poll_spot_over_a_late_regional_post

@@ -22,6 +22,7 @@ import solver_writer as sw
 from golden.fake_ha import FakeHA, HistoryPoint
 from native_transport import use_native_fake
 from solver_inputs import p2p, price_blend, prices
+from solver_inputs import prices as price_inputs
 from solver_reports import quality as quality_reports
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)  # 16:00 Brisbane
@@ -882,7 +883,7 @@ def _steps(*pairs):
 def event(monkeypatch):
     def run(state, n=8, cfg=ARMED, minutes=30):
         monkeypatch.setattr(sw, "ha_get", lambda _e: state)
-        return sw.resolve_price_event_delta(
+        return price_inputs.resolve_price_event_delta(
             cfg, _grid(n, minutes=minutes, start=EVENT_DAY)
         )
 
