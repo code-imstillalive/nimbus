@@ -40,7 +40,9 @@ to. No bodies. Dependencies arrive as parameters or protocols, never through
 
 ```python
 class HistoryReader(Protocol):
-    def history(self, entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]: ...
+    def history(
+        self, entity_id: str, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float]]: ...
 ```
 
 ## Façade decision

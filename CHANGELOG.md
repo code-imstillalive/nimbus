@@ -8349,7 +8349,9 @@ Devhub validation: deployed and restarted, `installed_version == available_versi
   `network.py` gates battery charging during a committed P2P export period with
 
   ```python
-  charging_ub_during_fixed_window(t, grid, b.max_charge_kw) if b_idx == 0 else b.max_charge_kw
+  charging_ub_during_fixed_window(
+      t, grid, b.max_charge_kw
+  ) if b_idx == 0 else b.max_charge_kw
   ```
 
   — a hard `ub=0`, *"a hard, mathematically-impossible-to-choose gate"*, reaching **battery 0 only**. Every battery participant ([#467](https://github.com/code-imstillalive/nimbus/issues/467): a second inverter, an EV) keeps its ordinary ceiling and may legitimately charge inside the window; `grid_export` is pinned there, so such a charge draws from solar or import rather than from committed export.

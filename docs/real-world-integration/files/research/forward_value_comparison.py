@@ -42,6 +42,7 @@ settled outcomes) -- the DIRECTION and rough MAGNITUDE of the finding
 (meaningfully better, not pinned to an extreme) is the real result,
 not this exact dollar figure to the cent.
 """
+
 import json
 import os
 import sys
@@ -85,7 +86,10 @@ with open(TOKEN_PATH, encoding="utf-8") as f:
 
 
 def ha_get(entity_id: str) -> dict:
-    req = urllib.request.Request(f"{HA_BASE}/api/states/{entity_id}", headers={"Authorization": f"Bearer {TOKEN}"})
+    req = urllib.request.Request(
+        f"{HA_BASE}/api/states/{entity_id}",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read())
 
@@ -107,10 +111,16 @@ def network_energy_rate(hour: int) -> float:
 
 
 def battery_discharge_cost_rate(hour: int) -> float:
-    return BATTERY_DISCHARGE_COST_NIGHT if (hour >= 17 or hour < 7) else BATTERY_DISCHARGE_COST_DAY
+    return (
+        BATTERY_DISCHARGE_COST_NIGHT
+        if (hour >= 17 or hour < 7)
+        else BATTERY_DISCHARGE_COST_DAY
+    )
 
 
-def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, str]]:
+def fetch_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, str]]:
     url = (
         f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
@@ -166,34 +176,64 @@ def value_at_or_before(pts, t, default):
 
 
 def build_and_solve(target_date, use_concave: bool):
-    day_start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=BRISBANE_TZ)
+    day_start = datetime(
+        target_date.year,
+        target_date.month,
+        target_date.day,
+        0,
+        0,
+        0,
+        tzinfo=BRISBANE_TZ,
+    )
     day_end = day_start + timedelta(days=1)
 
-    grid_times = [day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)]
+    grid_times = [
+        day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)
+    ]
     period_hours_arr = [PERIOD_HOURS] * N_PERIODS
 
-    solar_hist = fetch_history_range("sensor.combined_total_dc_power", day_start, day_end)
-    load_hist = fetch_history_range("sensor.cb_total_combined_power_adjusted_kw", day_start, day_end)
+    solar_hist = fetch_history_range(
+        "sensor.combined_total_dc_power", day_start, day_end
+    )
+    load_hist = fetch_history_range(
+        "sensor.cb_total_combined_power_adjusted_kw", day_start, day_end
+    )
     import_price_hist = fetch_history_range("sensor.costsflexup", day_start, day_end)
     export_price_hist = fetch_history_range("sensor.earningsflexup", day_start, day_end)
-    soc_hist = fetch_history_range("sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end)
+    soc_hist = fetch_history_range(
+        "sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end
+    )
 
     if not solar_hist or not load_hist:
         return None, None
 
-    solar_kw = [max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)]
+    solar_kw = [
+        max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)
+    ]
     load_kw = [max(0.0, v) for v in resample_nearest_float(load_hist, grid_times)]
 
-    spot_import_raw = resample_nearest_float(import_price_hist, grid_times, default=0.20)
+    spot_import_raw = resample_nearest_float(
+        import_price_hist, grid_times, default=0.20
+    )
     spot_export = resample_nearest_float(export_price_hist, grid_times, default=0.05)
-    import_price = [spot_import_raw[i] + network_energy_rate(grid_times[i].hour) + CERTIFICATES_RATE for i in range(N_PERIODS)]
-    bonus_price = [P2P_BONUS_RATE if 17 <= grid_times[i].hour < 24 else 0.0 for i in range(N_PERIODS)]
+    import_price = [
+        spot_import_raw[i] + network_energy_rate(grid_times[i].hour) + CERTIFICATES_RATE
+        for i in range(N_PERIODS)
+    ]
+    bonus_price = [
+        P2P_BONUS_RATE if 17 <= grid_times[i].hour < 24 else 0.0
+        for i in range(N_PERIODS)
+    ]
 
     capacity_kwh = num("input_number.nimbus_solver_battery_capacity_kwh")
     max_charge_kw = num("input_number.nimbus_solver_battery_max_charge_kw")
-    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")["attributes"]["max"]
+    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")[
+        "attributes"
+    ]["max"]
     charge_cost = num("input_number.nimbus_solver_battery_charge_cost")
-    discharge_cost_arr = np.array([battery_discharge_cost_rate(t.hour) for t in grid_times])
+    discharge_cost_arr = np.array(
+        [battery_discharge_cost_rate(t.hour) for t in grid_times]
+    )
     import_limit_kw = num("input_number.nimbus_solver_grid_import_limit_kw")
     export_limit_kw = num("input_number.nimbus_solver_grid_export_limit_kw")
     min_pct = num("input_number.nimbus_solver_battery_min_soc_pct")
@@ -212,32 +252,54 @@ def build_and_solve(target_date, use_concave: bool):
             (above_floor * 0.30, FLAT_SALVAGE_VALUE * 0.35),
         ]
         battery_cfg = elements.BatteryConfig(
-            capacity_kwh=capacity_kwh, initial_soc_kwh=initial_soc_kwh,
-            min_soc_kwh=min_soc_kwh, max_soc_kwh=max_soc_kwh,
-            max_charge_kw=max_charge_kw, max_discharge_kw=max_discharge_kw,
-            charge_efficiency=0.999, discharge_efficiency=0.999,
-            charge_cost=charge_cost, discharge_cost=discharge_cost_arr, salvage_value=0.0,
+            capacity_kwh=capacity_kwh,
+            initial_soc_kwh=initial_soc_kwh,
+            min_soc_kwh=min_soc_kwh,
+            max_soc_kwh=max_soc_kwh,
+            max_charge_kw=max_charge_kw,
+            max_discharge_kw=max_discharge_kw,
+            charge_efficiency=0.999,
+            discharge_efficiency=0.999,
+            charge_cost=charge_cost,
+            discharge_cost=discharge_cost_arr,
+            salvage_value=0.0,
             terminal_value_breakpoints=breakpoints,
         )
     else:
         battery_cfg = elements.BatteryConfig(
-            capacity_kwh=capacity_kwh, initial_soc_kwh=initial_soc_kwh,
-            min_soc_kwh=min_soc_kwh, max_soc_kwh=max_soc_kwh,
-            max_charge_kw=max_charge_kw, max_discharge_kw=max_discharge_kw,
-            charge_efficiency=0.999, discharge_efficiency=0.999,
-            charge_cost=charge_cost, discharge_cost=discharge_cost_arr, salvage_value=FLAT_SALVAGE_VALUE,
+            capacity_kwh=capacity_kwh,
+            initial_soc_kwh=initial_soc_kwh,
+            min_soc_kwh=min_soc_kwh,
+            max_soc_kwh=max_soc_kwh,
+            max_charge_kw=max_charge_kw,
+            max_discharge_kw=max_discharge_kw,
+            charge_efficiency=0.999,
+            discharge_efficiency=0.999,
+            charge_cost=charge_cost,
+            discharge_cost=discharge_cost_arr,
+            salvage_value=FLAT_SALVAGE_VALUE,
         )
 
     grid_cfg = elements.GridConfig(
-        import_price=np.array(import_price), export_price=np.array(spot_export),
-        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
-        export_bonus_price=np.array(bonus_price), export_bonus_volume_kwh=assumed_p2p_volume,
+        import_price=np.array(import_price),
+        export_price=np.array(spot_export),
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+        export_bonus_price=np.array(bonus_price),
+        export_bonus_volume_kwh=assumed_p2p_volume,
     )
     solar_cfg = elements.SolarConfig(forecast_kw=np.array(solar_kw))
     load_cfg = elements.LoadConfig(name="whole_house", forecast_kw=np.array(load_kw))
     periods = elements.PeriodGrid(hours=np.array(period_hours_arr), start=grid_times[0])
 
-    plan = build_plan(periods=periods, grid=grid_cfg, battery=battery_cfg, solar=solar_cfg, loads=[load_cfg], adequacy_loads=[])
+    plan = build_plan(
+        periods=periods,
+        grid=grid_cfg,
+        battery=battery_cfg,
+        solar=solar_cfg,
+        loads=[load_cfg],
+        adequacy_loads=[],
+    )
     return plan, (min_soc_kwh, max_soc_kwh, capacity_kwh)
 
 
@@ -252,19 +314,33 @@ def main() -> None:
             print("  no real history available, skipping")
             continue
         if flat_plan.status != "optimal" or concave_plan.status != "optimal":
-            print(f"  status flat={flat_plan.status} concave={concave_plan.status}, skipping")
+            print(
+                f"  status flat={flat_plan.status} concave={concave_plan.status}, skipping"
+            )
             continue
 
         min_soc_kwh, max_soc_kwh, capacity_kwh = bounds
         flat_final = flat_plan.battery_soc_kwh[-1]
         concave_final = concave_plan.battery_soc_kwh[-1]
         dispatch_l1 = float(
-            np.sum(np.abs(flat_plan.battery_charge_kw - concave_plan.battery_charge_kw)) * PERIOD_HOURS
-            + np.sum(np.abs(flat_plan.battery_discharge_kw - concave_plan.battery_discharge_kw)) * PERIOD_HOURS
+            np.sum(np.abs(flat_plan.battery_charge_kw - concave_plan.battery_charge_kw))
+            * PERIOD_HOURS
+            + np.sum(
+                np.abs(
+                    flat_plan.battery_discharge_kw - concave_plan.battery_discharge_kw
+                )
+            )
+            * PERIOD_HOURS
         )
-        print(f"  battery range: [{min_soc_kwh:.1f}, {max_soc_kwh:.1f}] kWh (capacity {capacity_kwh:.1f})")
-        print(f"  flat    total_cost=${flat_plan.total_cost:.2f}  final_soc={flat_final:.1f} kWh ({100*flat_final/capacity_kwh:.0f}%)")
-        print(f"  concave total_cost=${concave_plan.total_cost:.2f}  final_soc={concave_final:.1f} kWh ({100*concave_final/capacity_kwh:.0f}%)")
+        print(
+            f"  battery range: [{min_soc_kwh:.1f}, {max_soc_kwh:.1f}] kWh (capacity {capacity_kwh:.1f})"
+        )
+        print(
+            f"  flat    total_cost=${flat_plan.total_cost:.2f}  final_soc={flat_final:.1f} kWh ({100 * flat_final / capacity_kwh:.0f}%)"
+        )
+        print(
+            f"  concave total_cost=${concave_plan.total_cost:.2f}  final_soc={concave_final:.1f} kWh ({100 * concave_final / capacity_kwh:.0f}%)"
+        )
         print(f"  dispatch difference (L1 norm): {dispatch_l1:.2f} kWh")
 
 

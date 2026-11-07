@@ -79,6 +79,7 @@ Net answer to Mark's audit item #2: the objective function's own
 documented completeness claim holds up under a real injection test,
 not just self-declared. No silently-inert terms found.
 """
+
 import json
 import os
 import sys
@@ -125,7 +126,10 @@ with open(TOKEN_PATH, encoding="utf-8") as f:
 
 
 def ha_get(entity_id: str) -> dict:
-    req = urllib.request.Request(f"{HA_BASE}/api/states/{entity_id}", headers={"Authorization": f"Bearer {TOKEN}"})
+    req = urllib.request.Request(
+        f"{HA_BASE}/api/states/{entity_id}",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read())
 
@@ -147,10 +151,16 @@ def network_energy_rate(hour: int) -> float:
 
 
 def battery_discharge_cost_rate(hour: int) -> float:
-    return BATTERY_DISCHARGE_COST_NIGHT if (hour >= 17 or hour < 7) else BATTERY_DISCHARGE_COST_DAY
+    return (
+        BATTERY_DISCHARGE_COST_NIGHT
+        if (hour >= 17 or hour < 7)
+        else BATTERY_DISCHARGE_COST_DAY
+    )
 
 
-def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, str]]:
+def fetch_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, str]]:
     url = (
         f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
@@ -215,67 +225,122 @@ class BuiltInputs:
 
 
 def build_real_inputs(target_date) -> BuiltInputs | None:
-    day_start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=BRISBANE_TZ)
+    day_start = datetime(
+        target_date.year,
+        target_date.month,
+        target_date.day,
+        0,
+        0,
+        0,
+        tzinfo=BRISBANE_TZ,
+    )
     day_end = day_start + timedelta(days=1)
 
-    grid_times = [day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)]
+    grid_times = [
+        day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)
+    ]
     period_hours_arr = [PERIOD_HOURS] * N_PERIODS
 
-    solar_hist = fetch_history_range("sensor.combined_total_dc_power", day_start, day_end)
-    load_hist = fetch_history_range("sensor.cb_total_combined_power_adjusted_kw", day_start, day_end)
+    solar_hist = fetch_history_range(
+        "sensor.combined_total_dc_power", day_start, day_end
+    )
+    load_hist = fetch_history_range(
+        "sensor.cb_total_combined_power_adjusted_kw", day_start, day_end
+    )
     import_price_hist = fetch_history_range("sensor.costsflexup", day_start, day_end)
     export_price_hist = fetch_history_range("sensor.earningsflexup", day_start, day_end)
-    soc_hist = fetch_history_range("sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end)
+    soc_hist = fetch_history_range(
+        "sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end
+    )
 
     if not solar_hist or not load_hist:
         return None
 
-    solar_kw = [max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)]
+    solar_kw = [
+        max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)
+    ]
     load_kw = [max(0.0, v) for v in resample_nearest_float(load_hist, grid_times)]
 
-    spot_import_raw = resample_nearest_float(import_price_hist, grid_times, default=0.20)
+    spot_import_raw = resample_nearest_float(
+        import_price_hist, grid_times, default=0.20
+    )
     spot_export = resample_nearest_float(export_price_hist, grid_times, default=0.05)
-    import_price = [spot_import_raw[i] + network_energy_rate(grid_times[i].hour) + CERTIFICATES_RATE for i in range(N_PERIODS)]
-    bonus_price = [P2P_BONUS_RATE if 17 <= grid_times[i].hour < 24 else 0.0 for i in range(N_PERIODS)]
+    import_price = [
+        spot_import_raw[i] + network_energy_rate(grid_times[i].hour) + CERTIFICATES_RATE
+        for i in range(N_PERIODS)
+    ]
+    bonus_price = [
+        P2P_BONUS_RATE if 17 <= grid_times[i].hour < 24 else 0.0
+        for i in range(N_PERIODS)
+    ]
 
     capacity_kwh = num("input_number.nimbus_solver_battery_capacity_kwh")
     max_charge_kw = num("input_number.nimbus_solver_battery_max_charge_kw")
-    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")["attributes"]["max"]
+    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")[
+        "attributes"
+    ]["max"]
     charge_cost = num("input_number.nimbus_solver_battery_charge_cost")
-    discharge_cost_arr = np.array([battery_discharge_cost_rate(t.hour) for t in grid_times])
-    salvage_value = BATTERY_SALVAGE_VALUE_NIGHT if grid_times[-1].hour >= 17 else BATTERY_SALVAGE_VALUE_OTHER
+    discharge_cost_arr = np.array(
+        [battery_discharge_cost_rate(t.hour) for t in grid_times]
+    )
+    salvage_value = (
+        BATTERY_SALVAGE_VALUE_NIGHT
+        if grid_times[-1].hour >= 17
+        else BATTERY_SALVAGE_VALUE_OTHER
+    )
     import_limit_kw = num("input_number.nimbus_solver_grid_import_limit_kw")
     export_limit_kw = num("input_number.nimbus_solver_grid_export_limit_kw")
     min_pct = num("input_number.nimbus_solver_battery_min_soc_pct")
     max_pct = num("input_number.nimbus_solver_battery_max_soc_pct")
     initial_pct = value_at_or_before(soc_hist, day_start, default=50.0)
     initial_soc_kwh = capacity_kwh * initial_pct / 100.0
-    assumed_p2p_volume = 63.0  # representative real recent figure, not the focus of this test
+    assumed_p2p_volume = (
+        63.0  # representative real recent figure, not the focus of this test
+    )
 
     battery_cfg = elements.BatteryConfig(
-        capacity_kwh=capacity_kwh, initial_soc_kwh=initial_soc_kwh,
-        min_soc_kwh=capacity_kwh * min_pct / 100.0, max_soc_kwh=capacity_kwh * max_pct / 100.0,
-        max_charge_kw=max_charge_kw, max_discharge_kw=max_discharge_kw,
-        charge_efficiency=0.999, discharge_efficiency=0.999,
-        charge_cost=charge_cost, discharge_cost=discharge_cost_arr, salvage_value=salvage_value,
+        capacity_kwh=capacity_kwh,
+        initial_soc_kwh=initial_soc_kwh,
+        min_soc_kwh=capacity_kwh * min_pct / 100.0,
+        max_soc_kwh=capacity_kwh * max_pct / 100.0,
+        max_charge_kw=max_charge_kw,
+        max_discharge_kw=max_discharge_kw,
+        charge_efficiency=0.999,
+        discharge_efficiency=0.999,
+        charge_cost=charge_cost,
+        discharge_cost=discharge_cost_arr,
+        salvage_value=salvage_value,
         headroom_value=0.0,
     )
     grid_cfg = elements.GridConfig(
-        import_price=np.array(import_price), export_price=np.array(spot_export),
-        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
-        export_bonus_price=np.array(bonus_price), export_bonus_volume_kwh=assumed_p2p_volume,
+        import_price=np.array(import_price),
+        export_price=np.array(spot_export),
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+        export_bonus_price=np.array(bonus_price),
+        export_bonus_volume_kwh=assumed_p2p_volume,
     )
     solar_cfg = elements.SolarConfig(forecast_kw=np.array(solar_kw))
     load_cfg = elements.LoadConfig(name="whole_house", forecast_kw=np.array(load_kw))
     periods = elements.PeriodGrid(hours=np.array(period_hours_arr), start=grid_times[0])
 
-    return BuiltInputs(periods=periods, grid=grid_cfg, battery=battery_cfg, solar=solar_cfg, load=load_cfg)
+    return BuiltInputs(
+        periods=periods,
+        grid=grid_cfg,
+        battery=battery_cfg,
+        solar=solar_cfg,
+        load=load_cfg,
+    )
 
 
 def solve(inputs: BuiltInputs):
     return build_plan(
-        periods=inputs.periods, grid=inputs.grid, battery=inputs.battery,
-        solar=inputs.solar, loads=[inputs.load], adequacy_loads=[],
+        periods=inputs.periods,
+        grid=inputs.grid,
+        battery=inputs.battery,
+        solar=inputs.solar,
+        loads=[inputs.load],
+        adequacy_loads=[],
     )
 
 
@@ -283,7 +348,8 @@ def dispatch_l1_norm(plan_a, plan_b) -> float:
     hours = PERIOD_HOURS
     return float(
         np.sum(np.abs(plan_a.battery_charge_kw - plan_b.battery_charge_kw)) * hours
-        + np.sum(np.abs(plan_a.battery_discharge_kw - plan_b.battery_discharge_kw)) * hours
+        + np.sum(np.abs(plan_a.battery_discharge_kw - plan_b.battery_discharge_kw))
+        * hours
     )
 
 
@@ -291,11 +357,15 @@ def dispatch_l1_norm(plan_a, plan_b) -> float:
 # NEW BuiltInputs with exactly that one term zeroed, everything else
 # untouched)
 def ablate_import_cost(i: BuiltInputs) -> BuiltInputs:
-    return replace(i, grid=replace(i.grid, import_price=np.zeros_like(i.grid.import_price)))
+    return replace(
+        i, grid=replace(i.grid, import_price=np.zeros_like(i.grid.import_price))
+    )
 
 
 def ablate_export_revenue(i: BuiltInputs) -> BuiltInputs:
-    return replace(i, grid=replace(i.grid, export_price=np.zeros_like(i.grid.export_price)))
+    return replace(
+        i, grid=replace(i.grid, export_price=np.zeros_like(i.grid.export_price))
+    )
 
 
 def ablate_charge_cost(i: BuiltInputs) -> BuiltInputs:
@@ -319,13 +389,27 @@ def ablate_discharge_cost(i: BuiltInputs) -> BuiltInputs:
     # informative finding about the model's real structural limits, not
     # a workaround.
     charge_cost = i.battery.charge_cost
-    charge_cost_scalar = float(charge_cost) if np.isscalar(charge_cost) else float(np.asarray(charge_cost).flat[0])
+    charge_cost_scalar = (
+        float(charge_cost)
+        if np.isscalar(charge_cost)
+        else float(np.asarray(charge_cost).flat[0])
+    )
     min_discharge_cost = max(0.0, 0.01 - charge_cost_scalar) + 1e-6
-    return replace(i, battery=replace(i.battery, discharge_cost=np.full(N_PERIODS, min_discharge_cost)))
+    return replace(
+        i,
+        battery=replace(
+            i.battery, discharge_cost=np.full(N_PERIODS, min_discharge_cost)
+        ),
+    )
 
 
 def ablate_export_bonus(i: BuiltInputs) -> BuiltInputs:
-    return replace(i, grid=replace(i.grid, export_bonus_price=np.zeros_like(i.grid.export_bonus_price)))
+    return replace(
+        i,
+        grid=replace(
+            i.grid, export_bonus_price=np.zeros_like(i.grid.export_bonus_price)
+        ),
+    )
 
 
 def ablate_salvage_value(i: BuiltInputs) -> BuiltInputs:
@@ -363,7 +447,10 @@ ABLATIONS = {
 
 
 def main() -> None:
-    candidate_dates = ["2026-08-16", "2026-08-17"]  # same real-data window contract_risk_injection_test.py found usable
+    candidate_dates = [
+        "2026-08-16",
+        "2026-08-17",
+    ]  # same real-data window contract_risk_injection_test.py found usable
 
     for date_str in candidate_dates:
         target = datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -388,7 +475,11 @@ def main() -> None:
                 continue
             delta_cost = ablated_plan.total_cost - baseline.total_cost
             l1 = dispatch_l1_norm(ablated_plan, baseline)
-            flag = "  <-- ZERO CHANGE, worth a closer look" if abs(delta_cost) < 1e-6 and l1 < 1e-6 else ""
+            flag = (
+                "  <-- ZERO CHANGE, worth a closer look"
+                if abs(delta_cost) < 1e-6 and l1 < 1e-6
+                else ""
+            )
             print(f"  {label:<38} {delta_cost:>18.4f} {l1:>22.4f}{flag}")
 
 

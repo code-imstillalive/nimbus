@@ -141,7 +141,7 @@ computed the rate correctly:
 
 ```python
 bonus_rate = real_p2p_dollars / real_p2p_volume_kwh
-export_bonus_price = np.full(n_periods, bonus_rate)   # flat, all 24 hours
+export_bonus_price = np.full(n_periods, bonus_rate)  # flat, all 24 hours
 ```
 
 A P2P premium is a property of the **block**, not of the day.

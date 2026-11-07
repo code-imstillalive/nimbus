@@ -53,6 +53,7 @@ HA instance isn't reachable at its default mDNS hostname) before running
   # faster than that, and this keeps the snapshot count/disk growth
   # modest over weeks of accumulation.
 """
+
 import json
 import os
 import urllib.request
@@ -76,7 +77,10 @@ with open(TOKEN_PATH, encoding="utf-8") as f:
 
 
 def ha_get(entity_id: str) -> dict:
-    req = urllib.request.Request(f"{HA_BASE}/api/states/{entity_id}", headers={"Authorization": f"Bearer {TOKEN}"})
+    req = urllib.request.Request(
+        f"{HA_BASE}/api/states/{entity_id}",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
     with urllib.request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read())
 
@@ -89,20 +93,28 @@ def capture_solar() -> dict:
     the point estimate.
     """
     out = []
-    for ent in ("sensor.solcast_pv_forecast_forecast_today", "sensor.solcast_pv_forecast_forecast_tomorrow"):
+    for ent in (
+        "sensor.solcast_pv_forecast_forecast_today",
+        "sensor.solcast_pv_forecast_forecast_tomorrow",
+    ):
         d = ha_get(ent)
         for p in d["attributes"]["detailedForecast"]:
-            out.append({
-                "time": p["period_start"],
-                "pv_estimate_kw": p["pv_estimate"],
-                "pv_estimate10_kw": p["pv_estimate10"],
-                "pv_estimate90_kw": p["pv_estimate90"],
-            })
+            out.append(
+                {
+                    "time": p["period_start"],
+                    "pv_estimate_kw": p["pv_estimate"],
+                    "pv_estimate10_kw": p["pv_estimate10"],
+                    "pv_estimate90_kw": p["pv_estimate90"],
+                }
+            )
     # dedupe by time (today/tomorrow endpoints can overlap at the boundary)
     seen = {}
     for p in out:
         seen[p["time"]] = p
-    return {"source": "solcast_pv_forecast", "points": sorted(seen.values(), key=lambda p: p["time"])}
+    return {
+        "source": "solcast_pv_forecast",
+        "points": sorted(seen.values(), key=lambda p: p["time"]),
+    }
 
 
 def capture_price() -> dict:
@@ -113,7 +125,11 @@ def capture_price() -> dict:
     forecast writer's own AEMO-anchoring work)."""
     d = ha_get("sensor.nem_pd7day_qld1_nem_spot_price_forecast")
     points = [
-        {"time": p["time"], "calibrated_price": p["calibrated"], "raw_price": p["raw_value"]}
+        {
+            "time": p["time"],
+            "calibrated_price": p["calibrated"],
+            "raw_price": p["raw_value"],
+        }
         for p in d["attributes"]["forecast"]
     ]
     return {"source": "nem_pd7day_calibrated", "points": points}
@@ -143,7 +159,11 @@ def capture_lv_retail_price() -> dict:
     """
     d = ha_get("sensor.localvolts_price_forecast")
     points = [
-        {"time": p["time"], "costs_flex_up": p.get("costsflexup"), "earnings_flex_up": p.get("earningsflexup")}
+        {
+            "time": p["time"],
+            "costs_flex_up": p.get("costsflexup"),
+            "earnings_flex_up": p.get("earningsflexup"),
+        }
         for p in d["attributes"]["forecast"]
     ]
     return {"source": "localvolts_price_forecast", "points": points}
@@ -154,7 +174,12 @@ def capture_load() -> dict:
     plus its own lower/upper band."""
     d = ha_get("sensor.nimbus_household_load_total_forecast")
     points = [
-        {"time": p["time"], "value_kw": p["value"], "lower_kw": p["lower"], "upper_kw": p["upper"]}
+        {
+            "time": p["time"],
+            "value_kw": p["value"],
+            "lower_kw": p["lower"],
+            "upper_kw": p["upper"],
+        }
         for p in d["attributes"]["forecast"]
     ]
     return {"source": "nimbus_household_load_forecast", "points": points}
@@ -178,18 +203,30 @@ def main() -> None:
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, indent=2)
 
-    print(f"Captured snapshot at {now_bris.strftime('%Y-%m-%d %H:%M')} AEST -> {out_path}")
-    print(f"  solar:           {len(snapshot['solar']['points'])} points, "
-          f"{snapshot['solar']['points'][0]['time']} -> {snapshot['solar']['points'][-1]['time']}")
-    print(f"  price (AEMO):    {len(snapshot['price']['points'])} points, "
-          f"{snapshot['price']['points'][0]['time']} -> {snapshot['price']['points'][-1]['time']}")
+    print(
+        f"Captured snapshot at {now_bris.strftime('%Y-%m-%d %H:%M')} AEST -> {out_path}"
+    )
+    print(
+        f"  solar:           {len(snapshot['solar']['points'])} points, "
+        f"{snapshot['solar']['points'][0]['time']} -> {snapshot['solar']['points'][-1]['time']}"
+    )
+    print(
+        f"  price (AEMO):    {len(snapshot['price']['points'])} points, "
+        f"{snapshot['price']['points'][0]['time']} -> {snapshot['price']['points'][-1]['time']}"
+    )
     if snapshot["lv_retail_price"]["points"]:
-        print(f"  price (LV retail): {len(snapshot['lv_retail_price']['points'])} points, "
-              f"{snapshot['lv_retail_price']['points'][0]['time']} -> {snapshot['lv_retail_price']['points'][-1]['time']}")
+        print(
+            f"  price (LV retail): {len(snapshot['lv_retail_price']['points'])} points, "
+            f"{snapshot['lv_retail_price']['points'][0]['time']} -> {snapshot['lv_retail_price']['points'][-1]['time']}"
+        )
     else:
-        print("  price (LV retail): 0 points -- sensor.localvolts_price_forecast unavailable this run")
-    print(f"  load:            {len(snapshot['load']['points'])} points, "
-          f"{snapshot['load']['points'][0]['time']} -> {snapshot['load']['points'][-1]['time']}")
+        print(
+            "  price (LV retail): 0 points -- sensor.localvolts_price_forecast unavailable this run"
+        )
+    print(
+        f"  load:            {len(snapshot['load']['points'])} points, "
+        f"{snapshot['load']['points'][0]['time']} -> {snapshot['load']['points'][-1]['time']}"
+    )
 
 
 main()

@@ -3529,6 +3529,102 @@ def _limits_phase(
     )
 
 
+@dataclass(frozen=True)
+class _PriceArrays:
+    """What `_price_arrays_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    export_price: Any
+    export_price_lower: Any
+    import_price: Any
+    import_price_upper: Any
+    n_clamped: Any
+
+
+def _price_arrays_phase(
+    cfg,
+    export_price_cross_spread,
+    export_price_lower_band,
+    grid_times,
+    import_price,
+    import_price_cross_spread,
+    import_price_upper_band,
+    n_periods,
+    spot_export,
+) -> _PriceArrays:
+    """The export price, the price event, the bounds and bands, and the cross-source spread. Phase 6 of `main()`, moved verbatim (#2289 item 6 step 9)."""
+    # The unclamped spot rate is the base export_price, and the P2P premium
+    # goes through export_bonus_price. Nothing is clamped: network.py's
+    # same-period wash-trade constraints make the free-money exploit
+    # infeasible at any price (2026-08-16).
+    export_price = list(spot_export)
+    # nimbus issue #1213 (Mark Purcell): the price-event simulation, applied
+    # here -- at the very END of price resolution, after the fallback
+    # branches, after price_blend.blend_price_with_secondary_sources(), and after the
+    # settled-current-block re-assertion above.
+    #
+    # Deliberately last, and deliberately additive. Last, so it never has
+    # to know about or interact with any of the blending/settlement logic
+    # that produced these two series. Additive and symmetric -- the same
+    # delta on both sides -- because a real wholesale price event moves the
+    # whole market rather than one side of it.
+    #
+    # Before the empirical/risk bands below, on purpose: a +$20/kWh cap
+    # event should shift its own uncertainty band with it, not leave the
+    # band sitting around the un-shifted price.
+    #
+    # None (the overwhelmingly common case: switch off, or no sensor) skips
+    # every line of this. See price_inputs.resolve_price_event_delta().
+    _price_event_delta = price_inputs.resolve_price_event_delta(cfg, grid_times)
+    if _price_event_delta is not None:
+        import_price = [p + d for p, d in zip(import_price, _price_event_delta)]
+        export_price = [p + d for p, d in zip(export_price, _price_event_delta)]
+    n_clamped = (
+        0  # kept in the pushed sensor's own attributes for continuity; always 0 now
+    )
+
+    # Real empirical price bands, mapped onto this solve's own real
+    # grid_times (2026-08-21, task #128) -- None (a complete no-op) for
+    # any household without the multi-day history to build one from (the
+    # fallback branch above already sets both to {}).
+    import_price_upper = price_blend.apply_price_band(
+        import_price, grid_times, import_price_upper_band
+    )
+    export_price_lower = price_blend.apply_price_band(
+        export_price, grid_times, export_price_lower_band
+    )
+
+    # Widen the risk_aversion band with the real cross-source disagreement
+    # computed above, on top of (not instead of) any empirical percentile
+    # band a has_price_forecast_array install already built. A generic install with
+    # no percentile band at all (import_price_upper/export_price_lower
+    # still None here) but a genuine second/third price source configured
+    # still gets a real, earned band from the disagreement alone --
+    # exactly the household most likely to want blending in the first
+    # place, and otherwise price_risk_aversion would stay a silent no-op
+    # for them even after configuring a second source.
+    if import_price_cross_spread is not None:
+        base_upper = (
+            import_price_upper if import_price_upper is not None else import_price
+        )
+        import_price_upper = [
+            base_upper[i] + import_price_cross_spread[i] / 2 for i in range(n_periods)
+        ]
+    if export_price_cross_spread is not None:
+        base_lower = (
+            export_price_lower if export_price_lower is not None else export_price
+        )
+        export_price_lower = [
+            base_lower[i] - export_price_cross_spread[i] / 2 for i in range(n_periods)
+        ]
+    return _PriceArrays(
+        export_price=export_price,
+        export_price_lower=export_price_lower,
+        import_price=import_price,
+        import_price_upper=import_price_upper,
+        n_clamped=n_clamped,
+    )
+
+
 def main() -> None:
     _settings = _settings_phase()
     cfg = _settings.cfg
@@ -3626,70 +3722,22 @@ def main() -> None:
     static_export_limit_kw = _limits.static_export_limit_kw
     static_import_limit_kw = _limits.static_import_limit_kw
 
-    # The unclamped spot rate is the base export_price, and the P2P premium
-    # goes through export_bonus_price. Nothing is clamped: network.py's
-    # same-period wash-trade constraints make the free-money exploit
-    # infeasible at any price (2026-08-16).
-    export_price = list(spot_export)
-    # nimbus issue #1213 (Mark Purcell): the price-event simulation, applied
-    # here -- at the very END of price resolution, after the fallback
-    # branches, after price_blend.blend_price_with_secondary_sources(), and after the
-    # settled-current-block re-assertion above.
-    #
-    # Deliberately last, and deliberately additive. Last, so it never has
-    # to know about or interact with any of the blending/settlement logic
-    # that produced these two series. Additive and symmetric -- the same
-    # delta on both sides -- because a real wholesale price event moves the
-    # whole market rather than one side of it.
-    #
-    # Before the empirical/risk bands below, on purpose: a +$20/kWh cap
-    # event should shift its own uncertainty band with it, not leave the
-    # band sitting around the un-shifted price.
-    #
-    # None (the overwhelmingly common case: switch off, or no sensor) skips
-    # every line of this. See price_inputs.resolve_price_event_delta().
-    _price_event_delta = price_inputs.resolve_price_event_delta(cfg, grid_times)
-    if _price_event_delta is not None:
-        import_price = [p + d for p, d in zip(import_price, _price_event_delta)]
-        export_price = [p + d for p, d in zip(export_price, _price_event_delta)]
-    n_clamped = (
-        0  # kept in the pushed sensor's own attributes for continuity; always 0 now
+    _price_arrays = _price_arrays_phase(
+        cfg=cfg,
+        export_price_cross_spread=export_price_cross_spread,
+        export_price_lower_band=export_price_lower_band,
+        grid_times=grid_times,
+        import_price=import_price,
+        import_price_cross_spread=import_price_cross_spread,
+        import_price_upper_band=import_price_upper_band,
+        n_periods=n_periods,
+        spot_export=spot_export,
     )
-
-    # Real empirical price bands, mapped onto this solve's own real
-    # grid_times (2026-08-21, task #128) -- None (a complete no-op) for
-    # any household without the multi-day history to build one from (the
-    # fallback branch above already sets both to {}).
-    import_price_upper = price_blend.apply_price_band(
-        import_price, grid_times, import_price_upper_band
-    )
-    export_price_lower = price_blend.apply_price_band(
-        export_price, grid_times, export_price_lower_band
-    )
-
-    # Widen the risk_aversion band with the real cross-source disagreement
-    # computed above, on top of (not instead of) any empirical percentile
-    # band a has_price_forecast_array install already built. A generic install with
-    # no percentile band at all (import_price_upper/export_price_lower
-    # still None here) but a genuine second/third price source configured
-    # still gets a real, earned band from the disagreement alone --
-    # exactly the household most likely to want blending in the first
-    # place, and otherwise price_risk_aversion would stay a silent no-op
-    # for them even after configuring a second source.
-    if import_price_cross_spread is not None:
-        base_upper = (
-            import_price_upper if import_price_upper is not None else import_price
-        )
-        import_price_upper = [
-            base_upper[i] + import_price_cross_spread[i] / 2 for i in range(n_periods)
-        ]
-    if export_price_cross_spread is not None:
-        base_lower = (
-            export_price_lower if export_price_lower is not None else export_price
-        )
-        export_price_lower = [
-            base_lower[i] - export_price_cross_spread[i] / 2 for i in range(n_periods)
-        ]
+    export_price = _price_arrays.export_price
+    export_price_lower = _price_arrays.export_price_lower
+    import_price = _price_arrays.import_price
+    import_price_upper = _price_arrays.import_price_upper
+    n_clamped = _price_arrays.n_clamped
 
     # nimbus issue #735 stage 5: the SoC-envelope slice (configured
     # percents to kWh, the #328 honest pass-through, the #601 warn-once

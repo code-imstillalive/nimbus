@@ -96,7 +96,7 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    11  # solver_writer.py as of #2289 item 6 step 9 part 5: RAISED by one, deliberately, for _limits_phase() (88 lines), a verbatim phase at Mark's granularity (8 Nov); 10 before. solver_writer.py as of #2289 item 6 step 9 part 4: RAISED by one, deliberately, for _price_blend_phase() (150 lines), a verbatim phase at Mark's granularity (8 Nov); 9 before. solver_writer.py as of #2289 item 6 step 9 part 2: RAISED by one, deliberately, for _input_phase() (73 lines), a verbatim phase of main() at Mark's granularity (8 Nov); 8 before. solver_writer.py alone as of nimbus #2289 item 6 step 8 part 3
+    12  # solver_writer.py as of #2289 item 6 step 9 part 6: RAISED by one, deliberately, for _price_arrays_phase() (83 lines), a verbatim phase at Mark's granularity (8 Nov); 11 before. solver_writer.py as of #2289 item 6 step 9 part 5: RAISED by one, deliberately, for _limits_phase() (88 lines), a verbatim phase at Mark's granularity (8 Nov); 10 before. solver_writer.py as of #2289 item 6 step 9 part 4: RAISED by one, deliberately, for _price_blend_phase() (150 lines), a verbatim phase at Mark's granularity (8 Nov); 9 before. solver_writer.py as of #2289 item 6 step 9 part 2: RAISED by one, deliberately, for _input_phase() (73 lines), a verbatim phase of main() at Mark's granularity (8 Nov); 8 before. solver_writer.py alone as of nimbus #2289 item 6 step 8 part 3
     # (spike override, price event, Amber spot, consolidation, RRP check and
     # tariff attribution to solver_inputs/prices.py); 11 as of step 8 part 2
     # (the price forecast, blend and band helpers to

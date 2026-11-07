@@ -54,6 +54,7 @@ independent, trusted, externally-settled source to within 1% on every
 real day tested -- not just informally close, verified under the real
 stated bar.
 """
+
 import json
 import os
 import urllib.error
@@ -73,7 +74,9 @@ with open(TOKEN_PATH, encoding="utf-8") as f:
     TOKEN = f.read().strip()
 
 
-def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
+def fetch_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, float]]:
     url = (
         f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
@@ -103,7 +106,9 @@ def real_export_kwh(day) -> float:
     full calendar day, from our own independently-polled grid meter."""
     day_start = datetime(day.year, day.month, day.day, 0, 0, 0, tzinfo=BRISBANE_TZ)
     day_end = day_start + timedelta(days=1)
-    pts = fetch_history_range("sensor.logger_meter_total_active_power", day_start, day_end)
+    pts = fetch_history_range(
+        "sensor.logger_meter_total_active_power", day_start, day_end
+    )
     if not pts:
         return None
     total_kwh = 0.0
@@ -111,7 +116,9 @@ def real_export_kwh(day) -> float:
         t0, v0 = pts[i]
         t1, _ = pts[i + 1]
         duration_h = (t1 - t0).total_seconds() / 3600.0
-        export_kw = max(0.0, -v0)  # negative = export, per this project's own established convention
+        export_kw = max(
+            0.0, -v0
+        )  # negative = export, per this project's own established convention
         total_kwh += export_kw * duration_h
     return total_kwh
 
@@ -127,31 +134,49 @@ def fetch_confirmed(day_str: str) -> dict | None:
 
 
 def main() -> None:
-    dates = [datetime(2026, 8, 16).date(), datetime(2026, 8, 17).date(), datetime(2026, 8, 18).date()]
+    dates = [
+        datetime(2026, 8, 16).date(),
+        datetime(2026, 8, 17).date(),
+        datetime(2026, 8, 18).date(),
+    ]
 
-    print("Measurement integrity check -- real export volume vs LocalVolts' own settled meter")
-    print(f"Strict tolerance (Mark Purcell's own stated bar): {STRICT_TOLERANCE_PCT}%\n")
-    print(f"{'Date':<12} {'Our recon (kWh)':>17} {'LV confirmed (kWh)':>20} {'Deviation':>12} {'Within 1%?':>12}")
+    print(
+        "Measurement integrity check -- real export volume vs LocalVolts' own settled meter"
+    )
+    print(
+        f"Strict tolerance (Mark Purcell's own stated bar): {STRICT_TOLERANCE_PCT}%\n"
+    )
+    print(
+        f"{'Date':<12} {'Our recon (kWh)':>17} {'LV confirmed (kWh)':>20} {'Deviation':>12} {'Within 1%?':>12}"
+    )
     print("=" * 78)
 
     all_within = True
     for d in dates:
         confirmed = fetch_confirmed(d.isoformat())
         if confirmed is None:
-            print(f"{d.isoformat():<12}  (no confirmed history for this date, skipping)")
+            print(
+                f"{d.isoformat():<12}  (no confirmed history for this date, skipping)"
+            )
             continue
         lv_total_kwh = confirmed["export_volume"] + confirmed["spot_export_volume"]
         our_total_kwh = real_export_kwh(d)
         if our_total_kwh is None:
-            print(f"{d.isoformat():<12}  (no real grid meter history for this date, skipping)")
+            print(
+                f"{d.isoformat():<12}  (no real grid meter history for this date, skipping)"
+            )
             continue
         dev_pct = (our_total_kwh - lv_total_kwh) / lv_total_kwh * 100.0
         within = abs(dev_pct) <= STRICT_TOLERANCE_PCT
         all_within = all_within and within
-        print(f"{d.isoformat():<12} {our_total_kwh:>17.3f} {lv_total_kwh:>20.3f} {dev_pct:>+11.2f}% {'YES' if within else 'NO':>12}")
+        print(
+            f"{d.isoformat():<12} {our_total_kwh:>17.3f} {lv_total_kwh:>20.3f} {dev_pct:>+11.2f}% {'YES' if within else 'NO':>12}"
+        )
 
     print()
-    print(f"All days within Mark's own {STRICT_TOLERANCE_PCT}% bar: {'YES' if all_within else 'NO'}")
+    print(
+        f"All days within Mark's own {STRICT_TOLERANCE_PCT}% bar: {'YES' if all_within else 'NO'}"
+    )
 
 
 main()

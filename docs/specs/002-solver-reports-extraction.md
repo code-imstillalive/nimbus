@@ -125,7 +125,7 @@ signatures unchanged, plus one private accessor:
 
 ```python
 # solver_reports/{quality,backtest,counterfactual,flex}.py
-def _solver_writer(): ...          # the solver_writer MODULE, imported late
+def _solver_writer(): ...  # the solver_writer MODULE, imported late
 ```
 
 ### Divergence from the template, stated rather than glossed

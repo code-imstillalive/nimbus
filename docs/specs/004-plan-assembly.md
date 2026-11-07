@@ -186,6 +186,7 @@ and, once Phase 3 lands, `solver_inputs.controllable_loads` (until then,
 ```python
 # solver_plan.py — layer 3
 
+
 def assemble_and_solve_plan(
     cfg: dict,
     *,
@@ -193,7 +194,7 @@ def assemble_and_solve_plan(
     grid_times: list[datetime],
     period_hours_arr: list[float],
     n_periods: int,
-    soc_envelope: SocEnvelope,          # was 4 unpacked scalars -- see Measured cost
+    soc_envelope: SocEnvelope,  # was 4 unpacked scalars -- see Measured cost
     capacity_kwh: float,
     max_charge_kw: float,
     max_discharge_kw: float,

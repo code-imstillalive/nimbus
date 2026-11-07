@@ -84,6 +84,7 @@ reassuring context, not a reason to ignore the tail risk, which is
 exactly the kind of two-part honest answer this project's own
 docstring discipline (regret.py/tracking.py/epr.py) calls for.
 """
+
 import json
 import os
 import sys
@@ -134,7 +135,10 @@ with open(TOKEN_PATH, encoding="utf-8") as f:
 
 
 def ha_get(entity_id: str) -> dict:
-    req = urllib.request.Request(f"{HA_BASE}/api/states/{entity_id}", headers={"Authorization": f"Bearer {TOKEN}"})
+    req = urllib.request.Request(
+        f"{HA_BASE}/api/states/{entity_id}",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read())
 
@@ -156,10 +160,16 @@ def network_energy_rate(hour: int) -> float:
 
 
 def battery_discharge_cost_rate(hour: int) -> float:
-    return BATTERY_DISCHARGE_COST_NIGHT if (hour >= 17 or hour < 7) else BATTERY_DISCHARGE_COST_DAY
+    return (
+        BATTERY_DISCHARGE_COST_NIGHT
+        if (hour >= 17 or hour < 7)
+        else BATTERY_DISCHARGE_COST_DAY
+    )
 
 
-def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, str]]:
+def fetch_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, str]]:
     url = (
         f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
@@ -214,7 +224,9 @@ def value_at_or_before(pts, t, default):
     return val
 
 
-def assumed_p2p_volume_at_planning_time(confirmed_hist: dict, target_date_str: str, recent_days: int = 5) -> float:
+def assumed_p2p_volume_at_planning_time(
+    confirmed_hist: dict, target_date_str: str, recent_days: int = 5
+) -> float:
     """Reconstructs exactly what p2p_recent_avg_volume_kwh() would have
     returned on the MORNING of target_date_str (planning time for that
     evening) -- the average of the `recent_days` real settled days
@@ -222,8 +234,14 @@ def assumed_p2p_volume_at_planning_time(confirmed_hist: dict, target_date_str: s
     "sorted(hist.keys())[-recent_days:]" logic but anchored to a
     historical date instead of always "today."
     """
-    prior_dates = sorted(d for d in confirmed_hist if d < target_date_str)[-recent_days:]
-    volumes = [confirmed_hist[d].get("export_volume", 0.0) for d in prior_dates if confirmed_hist[d].get("export_volume", 0.0) > 0]
+    prior_dates = sorted(d for d in confirmed_hist if d < target_date_str)[
+        -recent_days:
+    ]
+    volumes = [
+        confirmed_hist[d].get("export_volume", 0.0)
+        for d in prior_dates
+        if confirmed_hist[d].get("export_volume", 0.0) > 0
+    ]
     if not volumes:
         return 60.0  # same fallback magnitude as the live writer's own constant
     return sum(volumes) / len(volumes)
@@ -238,39 +256,73 @@ class DayResult:
 
 
 def run_for_day(target_date, confirmed_hist: dict) -> DayResult | None:
-    day_start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=BRISBANE_TZ)
+    day_start = datetime(
+        target_date.year,
+        target_date.month,
+        target_date.day,
+        0,
+        0,
+        0,
+        tzinfo=BRISBANE_TZ,
+    )
     day_end = day_start + timedelta(days=1)
     date_str = target_date.isoformat()
 
     assumed_volume = assumed_p2p_volume_at_planning_time(confirmed_hist, date_str)
 
-    grid_times = [day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)]
+    grid_times = [
+        day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)
+    ]
     period_hours_arr = [PERIOD_HOURS] * N_PERIODS
 
-    solar_hist = fetch_history_range("sensor.combined_total_dc_power", day_start, day_end)
-    load_hist = fetch_history_range("sensor.cb_total_combined_power_adjusted_kw", day_start, day_end)
+    solar_hist = fetch_history_range(
+        "sensor.combined_total_dc_power", day_start, day_end
+    )
+    load_hist = fetch_history_range(
+        "sensor.cb_total_combined_power_adjusted_kw", day_start, day_end
+    )
     import_price_hist = fetch_history_range("sensor.costsflexup", day_start, day_end)
     export_price_hist = fetch_history_range("sensor.earningsflexup", day_start, day_end)
-    soc_hist = fetch_history_range("sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end)
+    soc_hist = fetch_history_range(
+        "sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end
+    )
 
     if not solar_hist or not load_hist:
         print(f"  {date_str}: no real history available, skipping")
         return None
 
-    solar_kw = [max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)]
+    solar_kw = [
+        max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)
+    ]
     load_kw = [max(0.0, v) for v in resample_nearest_float(load_hist, grid_times)]
 
-    spot_import_raw = resample_nearest_float(import_price_hist, grid_times, default=0.20)
+    spot_import_raw = resample_nearest_float(
+        import_price_hist, grid_times, default=0.20
+    )
     spot_export = resample_nearest_float(export_price_hist, grid_times, default=0.05)
-    import_price = [spot_import_raw[i] + network_energy_rate(grid_times[i].hour) + CERTIFICATES_RATE for i in range(N_PERIODS)]
-    bonus_price = [P2P_BONUS_RATE if 17 <= grid_times[i].hour < 24 else 0.0 for i in range(N_PERIODS)]
+    import_price = [
+        spot_import_raw[i] + network_energy_rate(grid_times[i].hour) + CERTIFICATES_RATE
+        for i in range(N_PERIODS)
+    ]
+    bonus_price = [
+        P2P_BONUS_RATE if 17 <= grid_times[i].hour < 24 else 0.0
+        for i in range(N_PERIODS)
+    ]
 
     capacity_kwh = num("input_number.nimbus_solver_battery_capacity_kwh")
     max_charge_kw = num("input_number.nimbus_solver_battery_max_charge_kw")
-    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")["attributes"]["max"]
+    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")[
+        "attributes"
+    ]["max"]
     charge_cost = num("input_number.nimbus_solver_battery_charge_cost")
-    discharge_cost_arr = np.array([battery_discharge_cost_rate(t.hour) for t in grid_times])
-    salvage_value = BATTERY_SALVAGE_VALUE_NIGHT if grid_times[-1].hour >= 17 else BATTERY_SALVAGE_VALUE_OTHER
+    discharge_cost_arr = np.array(
+        [battery_discharge_cost_rate(t.hour) for t in grid_times]
+    )
+    salvage_value = (
+        BATTERY_SALVAGE_VALUE_NIGHT
+        if grid_times[-1].hour >= 17
+        else BATTERY_SALVAGE_VALUE_OTHER
+    )
     import_limit_kw = num("input_number.nimbus_solver_grid_import_limit_kw")
     export_limit_kw = num("input_number.nimbus_solver_grid_export_limit_kw")
     min_pct = num("input_number.nimbus_solver_battery_min_soc_pct")
@@ -279,31 +331,53 @@ def run_for_day(target_date, confirmed_hist: dict) -> DayResult | None:
     initial_soc_kwh = capacity_kwh * initial_pct / 100.0
 
     battery_cfg = elements.BatteryConfig(
-        capacity_kwh=capacity_kwh, initial_soc_kwh=initial_soc_kwh,
-        min_soc_kwh=capacity_kwh * min_pct / 100.0, max_soc_kwh=capacity_kwh * max_pct / 100.0,
-        max_charge_kw=max_charge_kw, max_discharge_kw=max_discharge_kw,
-        charge_efficiency=0.999, discharge_efficiency=0.999,
-        charge_cost=charge_cost, discharge_cost=discharge_cost_arr, salvage_value=salvage_value,
+        capacity_kwh=capacity_kwh,
+        initial_soc_kwh=initial_soc_kwh,
+        min_soc_kwh=capacity_kwh * min_pct / 100.0,
+        max_soc_kwh=capacity_kwh * max_pct / 100.0,
+        max_charge_kw=max_charge_kw,
+        max_discharge_kw=max_discharge_kw,
+        charge_efficiency=0.999,
+        discharge_efficiency=0.999,
+        charge_cost=charge_cost,
+        discharge_cost=discharge_cost_arr,
+        salvage_value=salvage_value,
     )
     grid_cfg = elements.GridConfig(
-        import_price=np.array(import_price), export_price=np.array(spot_export),
-        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
-        export_bonus_price=np.array(bonus_price), export_bonus_volume_kwh=assumed_volume,
+        import_price=np.array(import_price),
+        export_price=np.array(spot_export),
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+        export_bonus_price=np.array(bonus_price),
+        export_bonus_volume_kwh=assumed_volume,
     )
     solar_cfg = elements.SolarConfig(forecast_kw=np.array(solar_kw))
     load_cfg = elements.LoadConfig(name="whole_house", forecast_kw=np.array(load_kw))
     periods = elements.PeriodGrid(hours=np.array(period_hours_arr), start=grid_times[0])
 
-    plan = build_plan(periods=periods, grid=grid_cfg, battery=battery_cfg, solar=solar_cfg, loads=[load_cfg], adequacy_loads=[])
+    plan = build_plan(
+        periods=periods,
+        grid=grid_cfg,
+        battery=battery_cfg,
+        solar=solar_cfg,
+        loads=[load_cfg],
+        adequacy_loads=[],
+    )
     if plan.status != "optimal":
         print(f"  {date_str}: plan status={plan.status}, skipping")
         return None
 
     p2p_window_mask = [17 <= t.hour < 24 for t in grid_times]
-    total_p2p_export_kwh = float(sum(
-        plan.grid_export_kw[i] * period_hours_arr[i] for i in range(N_PERIODS) if p2p_window_mask[i]
-    ))
-    avg_spot_export_rate = float(np.mean([spot_export[i] for i in range(N_PERIODS) if p2p_window_mask[i]]))
+    total_p2p_export_kwh = float(
+        sum(
+            plan.grid_export_kw[i] * period_hours_arr[i]
+            for i in range(N_PERIODS)
+            if p2p_window_mask[i]
+        )
+    )
+    avg_spot_export_rate = float(
+        np.mean([spot_export[i] for i in range(N_PERIODS) if p2p_window_mask[i]])
+    )
 
     scenario_revenue = {}
     for f in MATCH_FAILURE_FRACTIONS:
@@ -313,18 +387,24 @@ def run_for_day(target_date, confirmed_hist: dict) -> DayResult | None:
         scenario_revenue[f] = revenue
 
     return DayResult(
-        date_str=date_str, assumed_volume_kwh=assumed_volume,
-        total_p2p_window_export_kwh=total_p2p_export_kwh, scenario_revenue=scenario_revenue,
+        date_str=date_str,
+        assumed_volume_kwh=assumed_volume,
+        total_p2p_window_export_kwh=total_p2p_export_kwh,
+        scenario_revenue=scenario_revenue,
     )
 
 
 def main() -> None:
-    confirmed_hist = ha_get("sensor.lv_v2_p2p_confirmed_history")["attributes"]["history"]
+    confirmed_hist = ha_get("sensor.lv_v2_p2p_confirmed_history")["attributes"][
+        "history"
+    ]
     all_dates = sorted(confirmed_hist.keys())
     # Test the most recent 5 real settled days with enough real prior
     # history (at least 5 earlier days) to compute a genuine assumed
     # volume, not the fallback constant.
-    candidate_dates = [d for d in all_dates if len([x for x in all_dates if x < d]) >= 5][-5:]
+    candidate_dates = [
+        d for d in all_dates if len([x for x in all_dates if x < d]) >= 5
+    ][-5:]
 
     results = []
     for d in candidate_dates:
@@ -336,26 +416,48 @@ def main() -> None:
 
     print()
     print("=" * 100)
-    print(f"{'Date':<12} {'Assumed kWh':>12} {'Real Export kWh':>16} " + "".join(f"{'f='+str(f):>12}" for f in MATCH_FAILURE_FRACTIONS))
+    print(
+        f"{'Date':<12} {'Assumed kWh':>12} {'Real Export kWh':>16} "
+        + "".join(f"{'f=' + str(f):>12}" for f in MATCH_FAILURE_FRACTIONS)
+    )
     print("=" * 100)
     for r in results:
         row = f"{r.date_str:<12} {r.assumed_volume_kwh:>12.1f} {r.total_p2p_window_export_kwh:>16.1f} "
-        row += "".join(f"{r.scenario_revenue[f]:>12.2f}" for f in MATCH_FAILURE_FRACTIONS)
+        row += "".join(
+            f"{r.scenario_revenue[f]:>12.2f}" for f in MATCH_FAILURE_FRACTIONS
+        )
         print(row)
 
     print()
     print("Real $ shortfall vs full-match (f=1.0) baseline:")
     for r in results:
         baseline = r.scenario_revenue[1.0]
-        shortfalls = {f: baseline - r.scenario_revenue[f] for f in MATCH_FAILURE_FRACTIONS}
-        print(f"  {r.date_str}: " + ", ".join(f"f={f}: -${shortfalls[f]:.2f}" for f in MATCH_FAILURE_FRACTIONS if f != 1.0))
+        shortfalls = {
+            f: baseline - r.scenario_revenue[f] for f in MATCH_FAILURE_FRACTIONS
+        }
+        print(
+            f"  {r.date_str}: "
+            + ", ".join(
+                f"f={f}: -${shortfalls[f]:.2f}"
+                for f in MATCH_FAILURE_FRACTIONS
+                if f != 1.0
+            )
+        )
 
     if results:
-        avg_shortfall_50 = sum(r.scenario_revenue[1.0] - r.scenario_revenue[0.5] for r in results) / len(results)
-        avg_shortfall_0 = sum(r.scenario_revenue[1.0] - r.scenario_revenue[0.0] for r in results) / len(results)
+        avg_shortfall_50 = sum(
+            r.scenario_revenue[1.0] - r.scenario_revenue[0.5] for r in results
+        ) / len(results)
+        avg_shortfall_0 = sum(
+            r.scenario_revenue[1.0] - r.scenario_revenue[0.0] for r in results
+        ) / len(results)
         print()
-        print(f"AVERAGE real $ exposure if match comes in at 50% of assumed: ${avg_shortfall_50:.2f}/night")
-        print(f"AVERAGE real $ exposure if match completely fails (0%): ${avg_shortfall_0:.2f}/night")
+        print(
+            f"AVERAGE real $ exposure if match comes in at 50% of assumed: ${avg_shortfall_50:.2f}/night"
+        )
+        print(
+            f"AVERAGE real $ exposure if match completely fails (0%): ${avg_shortfall_0:.2f}/night"
+        )
 
         # Realistic (empirically-grounded) exposure, using the REAL
         # historical minimum/stdev of settled export_volume (all 15 real
@@ -367,6 +469,7 @@ def main() -> None:
         all_vols = confirmed_hist_export_volumes(confirmed_hist)
         if len(all_vols) >= 2:
             import statistics
+
             real_mean = statistics.mean(all_vols)
             real_min = min(all_vols)
             realistic_fraction = real_min / real_mean if real_mean > 0 else 1.0
@@ -380,19 +483,30 @@ def main() -> None:
                 for lo, hi in zip(fs, fs[1:]):
                     if lo <= f <= hi:
                         t = (f - lo) / (hi - lo)
-                        return r.scenario_revenue[lo] + t * (r.scenario_revenue[hi] - r.scenario_revenue[lo])
+                        return r.scenario_revenue[lo] + t * (
+                            r.scenario_revenue[hi] - r.scenario_revenue[lo]
+                        )
                 return r.scenario_revenue[1.0]
 
             avg_shortfall_realistic = sum(
-                r.scenario_revenue[1.0] - interp_revenue(r, realistic_fraction) for r in results
+                r.scenario_revenue[1.0] - interp_revenue(r, realistic_fraction)
+                for r in results
             ) / len(results)
             print()
-            print(f"Real historical export_volume: mean={real_mean:.1f}kWh, min={real_min:.1f}kWh (15 real settled days)")
-            print(f"REALISTIC exposure (assumed=mean, real=historical min, f={realistic_fraction:.3f}): ${avg_shortfall_realistic:.2f}/night")
+            print(
+                f"Real historical export_volume: mean={real_mean:.1f}kWh, min={real_min:.1f}kWh (15 real settled days)"
+            )
+            print(
+                f"REALISTIC exposure (assumed=mean, real=historical min, f={realistic_fraction:.3f}): ${avg_shortfall_realistic:.2f}/night"
+            )
 
 
 def confirmed_hist_export_volumes(confirmed_hist: dict) -> list[float]:
-    return [confirmed_hist[d].get("export_volume", 0.0) for d in confirmed_hist if confirmed_hist[d].get("export_volume", 0.0) > 0]
+    return [
+        confirmed_hist[d].get("export_volume", 0.0)
+        for d in confirmed_hist
+        if confirmed_hist[d].get("export_volume", 0.0) > 0
+    ]
 
 
 main()

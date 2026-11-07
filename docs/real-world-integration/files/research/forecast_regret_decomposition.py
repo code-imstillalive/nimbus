@@ -64,6 +64,7 @@ capture time (Solcast), but load only forecasts forward from "now"
 window happens to fully contain the P2P window (17:00-midnight), the
 most economically significant part of the day.
 """
+
 import json
 import os
 import sys
@@ -97,7 +98,9 @@ HA_BASE = os.environ.get("HA_BASE", "http://homeassistant.local:8123")
 TOKEN_PATH = os.environ["HA_TOKEN_PATH"]
 SNAPSHOT_PATH = Path(__file__).parent / "forecast_snapshots" / "2026-08-19_1420.json"
 
-PERIOD_HOURS = 0.25  # 15-min resolution, matching the household's other Solver research scripts
+PERIOD_HOURS = (
+    0.25  # 15-min resolution, matching the household's other Solver research scripts
+)
 
 NETWORK_ENERGY_PEAK_RATE = 0.214863
 NETWORK_ENERGY_OFFPEAK_RATE = 0.00476
@@ -114,7 +117,11 @@ with open(TOKEN_PATH, encoding="utf-8") as f:
 
 
 def ha_get(url_or_entity: str) -> dict:
-    url = url_or_entity if url_or_entity.startswith("http") else f"{HA_BASE}/api/states/{url_or_entity}"
+    url = (
+        url_or_entity
+        if url_or_entity.startswith("http")
+        else f"{HA_BASE}/api/states/{url_or_entity}"
+    )
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
     with urllib.request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read())
@@ -137,10 +144,16 @@ def network_energy_rate(hour: int) -> float:
 
 
 def battery_discharge_cost_rate(hour: int) -> float:
-    return BATTERY_DISCHARGE_COST_NIGHT if (hour >= 17 or hour < 7) else BATTERY_DISCHARGE_COST_DAY
+    return (
+        BATTERY_DISCHARGE_COST_NIGHT
+        if (hour >= 17 or hour < 7)
+        else BATTERY_DISCHARGE_COST_DAY
+    )
 
 
-def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, str]]:
+def fetch_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, str]]:
     url = (
         f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
@@ -184,11 +197,16 @@ def _is_float(s) -> bool:
         return False
 
 
-def resample_forecast_points(points: list[dict], value_key: str, grid_times: list[datetime], default: float) -> list[float]:
+def resample_forecast_points(
+    points: list[dict], value_key: str, grid_times: list[datetime], default: float
+) -> list[float]:
     """Same nearest-at-or-before resampling as resample_nearest_float, but
     reading from the captured snapshot's own {time, <value_key>} point
     list instead of a live HA history fetch."""
-    parsed = sorted((datetime.fromisoformat(p["time"]).astimezone(BRISBANE_TZ), p[value_key]) for p in points)
+    parsed = sorted(
+        (datetime.fromisoformat(p["time"]).astimezone(BRISBANE_TZ), p[value_key])
+        for p in points
+    )
     out = []
     for gt in grid_times:
         val = parsed[0][1] if parsed else default
@@ -216,52 +234,121 @@ def value_at_or_before(pts, t, default):
 
 def main() -> None:
     snap = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
-    window_start = datetime.fromisoformat(snap["captured_at_brisbane"]).astimezone(BRISBANE_TZ)
+    window_start = datetime.fromisoformat(snap["captured_at_brisbane"]).astimezone(
+        BRISBANE_TZ
+    )
     # Round UP to the next 15-min boundary so the grid aligns cleanly.
     minute = ((window_start.minute // 15) + 1) * 15
     if minute >= 60:
-        window_start = window_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        window_start = window_start.replace(
+            minute=0, second=0, microsecond=0
+        ) + timedelta(hours=1)
     else:
         window_start = window_start.replace(minute=minute, second=0, microsecond=0)
-    window_end = datetime.now(BRISBANE_TZ).replace(minute=0, second=0, microsecond=0)  # round down to the hour, matured data only
+    window_end = datetime.now(BRISBANE_TZ).replace(
+        minute=0, second=0, microsecond=0
+    )  # round down to the hour, matured data only
 
     n_periods = int((window_end - window_start).total_seconds() / 3600 / PERIOD_HOURS)
-    grid_times = [window_start + timedelta(hours=i * PERIOD_HOURS) for i in range(n_periods)]
+    grid_times = [
+        window_start + timedelta(hours=i * PERIOD_HOURS) for i in range(n_periods)
+    ]
     period_hours_arr = [PERIOD_HOURS] * n_periods
-    print(f"Analysis window: {window_start} -> {window_end} AEST  ({n_periods} periods, {n_periods * PERIOD_HOURS:.1f}h)")
-    print(f"  (covers the full P2P window: {'YES' if any(17 <= t.hour < 24 for t in grid_times) else 'NO'})")
+    print(
+        f"Analysis window: {window_start} -> {window_end} AEST  ({n_periods} periods, {n_periods * PERIOD_HOURS:.1f}h)"
+    )
+    print(
+        f"  (covers the full P2P window: {'YES' if any(17 <= t.hour < 24 for t in grid_times) else 'NO'})"
+    )
     print()
 
     # --- REAL ground truth (used for both scenario A's oracle solve AND evaluating every scenario's cost) ---
-    solar_real_hist = fetch_history_range("sensor.combined_total_dc_power", window_start, window_end)
-    load_real_hist = fetch_history_range("sensor.cb_total_combined_power_adjusted_kw", window_start, window_end)
-    import_price_hist = fetch_history_range("sensor.costsflexup", window_start, window_end)
-    export_price_hist = fetch_history_range("sensor.earningsflexup", window_start, window_end)
-    soc_hist = fetch_history_range("sensor.logger_battery_level_soc", window_start - timedelta(hours=6), window_end)
-    batt_power_hist = fetch_history_range("sensor.logger_battery_power", window_start, window_end)
+    solar_real_hist = fetch_history_range(
+        "sensor.combined_total_dc_power", window_start, window_end
+    )
+    load_real_hist = fetch_history_range(
+        "sensor.cb_total_combined_power_adjusted_kw", window_start, window_end
+    )
+    import_price_hist = fetch_history_range(
+        "sensor.costsflexup", window_start, window_end
+    )
+    export_price_hist = fetch_history_range(
+        "sensor.earningsflexup", window_start, window_end
+    )
+    soc_hist = fetch_history_range(
+        "sensor.logger_battery_level_soc", window_start - timedelta(hours=6), window_end
+    )
+    batt_power_hist = fetch_history_range(
+        "sensor.logger_battery_power", window_start, window_end
+    )
 
     if not solar_real_hist or not load_real_hist:
         print("ERROR: no real history available for this window -- aborting")
         return
 
-    solar_real_kw = np.array([max(0.0, v / 1000.0) for v in resample_nearest_float(solar_real_hist, grid_times)])
-    load_real_kw = np.array([max(0.0, v) for v in resample_nearest_float(load_real_hist, grid_times)])
-    spot_import_raw = resample_nearest_float(import_price_hist, grid_times, default=0.20)
-    spot_export = np.array(resample_nearest_float(export_price_hist, grid_times, default=0.05))
-    import_price_real = np.array([spot_import_raw[i] + network_energy_rate(grid_times[i].hour) + CERTIFICATES_RATE for i in range(n_periods)])
-    bonus_price = np.array([P2P_BONUS_RATE if 17 <= grid_times[i].hour < 24 else 0.0 for i in range(n_periods)])
+    solar_real_kw = np.array(
+        [
+            max(0.0, v / 1000.0)
+            for v in resample_nearest_float(solar_real_hist, grid_times)
+        ]
+    )
+    load_real_kw = np.array(
+        [max(0.0, v) for v in resample_nearest_float(load_real_hist, grid_times)]
+    )
+    spot_import_raw = resample_nearest_float(
+        import_price_hist, grid_times, default=0.20
+    )
+    spot_export = np.array(
+        resample_nearest_float(export_price_hist, grid_times, default=0.05)
+    )
+    import_price_real = np.array(
+        [
+            spot_import_raw[i]
+            + network_energy_rate(grid_times[i].hour)
+            + CERTIFICATES_RATE
+            for i in range(n_periods)
+        ]
+    )
+    bonus_price = np.array(
+        [
+            P2P_BONUS_RATE if 17 <= grid_times[i].hour < 24 else 0.0
+            for i in range(n_periods)
+        ]
+    )
 
     # --- FORECASTED solar/load, from the real captured snapshot (used ONLY for scenario B's own plan) ---
-    solar_fc_kw = np.array([max(0.0, v) for v in resample_forecast_points(snap["solar"]["points"], "pv_estimate_kw", grid_times, default=0.0)])
-    load_fc_kw = np.array([max(0.0, v) for v in resample_forecast_points(snap["load"]["points"], "value_kw", grid_times, default=0.0)])
+    solar_fc_kw = np.array(
+        [
+            max(0.0, v)
+            for v in resample_forecast_points(
+                snap["solar"]["points"], "pv_estimate_kw", grid_times, default=0.0
+            )
+        ]
+    )
+    load_fc_kw = np.array(
+        [
+            max(0.0, v)
+            for v in resample_forecast_points(
+                snap["load"]["points"], "value_kw", grid_times, default=0.0
+            )
+        ]
+    )
 
     # --- shared config (same for all 3 scenarios -- only solar/load differ between A and B; battery/grid params are real either way) ---
     capacity_kwh = num("input_number.nimbus_solver_battery_capacity_kwh")
     max_charge_kw = num("input_number.nimbus_solver_battery_max_charge_kw")
-    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")["attributes"]["max"]
+    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")[
+        "attributes"
+    ]["max"]
     charge_cost = num("input_number.nimbus_solver_battery_charge_cost")
-    discharge_cost_arr = np.array([battery_discharge_cost_rate(t.hour) for t in grid_times])
-    salvage_value = BATTERY_SALVAGE_VALUE_NIGHT if grid_times[-1].hour >= 17 or grid_times[-1].hour < 7 else BATTERY_SALVAGE_VALUE_OTHER
+    discharge_cost_arr = np.array(
+        [battery_discharge_cost_rate(t.hour) for t in grid_times]
+    )
+    salvage_value = (
+        BATTERY_SALVAGE_VALUE_NIGHT
+        if grid_times[-1].hour >= 17 or grid_times[-1].hour < 7
+        else BATTERY_SALVAGE_VALUE_OTHER
+    )
     import_limit_kw = num("input_number.nimbus_solver_grid_import_limit_kw")
     export_limit_kw = num("input_number.nimbus_solver_grid_export_limit_kw")
     min_pct = num("input_number.nimbus_solver_battery_min_soc_pct")
@@ -272,61 +359,106 @@ def main() -> None:
     max_soc_kwh = capacity_kwh * max_pct / 100.0
 
     grid_cfg = elements.GridConfig(
-        import_price=import_price_real, export_price=spot_export,
-        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
-        export_bonus_price=bonus_price, export_bonus_volume_kwh=63.0,  # real recent trailing average, not the focus of this test
+        import_price=import_price_real,
+        export_price=spot_export,
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+        export_bonus_price=bonus_price,
+        export_bonus_volume_kwh=63.0,  # real recent trailing average, not the focus of this test
     )
     battery_cfg = elements.BatteryConfig(
-        capacity_kwh=capacity_kwh, initial_soc_kwh=initial_soc_kwh,
-        min_soc_kwh=min_soc_kwh, max_soc_kwh=max_soc_kwh,
-        max_charge_kw=max_charge_kw, max_discharge_kw=max_discharge_kw,
-        charge_efficiency=0.999, discharge_efficiency=0.999,
-        charge_cost=charge_cost, discharge_cost=discharge_cost_arr, salvage_value=salvage_value,
+        capacity_kwh=capacity_kwh,
+        initial_soc_kwh=initial_soc_kwh,
+        min_soc_kwh=min_soc_kwh,
+        max_soc_kwh=max_soc_kwh,
+        max_charge_kw=max_charge_kw,
+        max_discharge_kw=max_discharge_kw,
+        charge_efficiency=0.999,
+        discharge_efficiency=0.999,
+        charge_cost=charge_cost,
+        discharge_cost=discharge_cost_arr,
+        salvage_value=salvage_value,
     )
     periods = elements.PeriodGrid(hours=np.array(period_hours_arr), start=grid_times[0])
 
     # === Scenario A: perfect foresight (J*) ===
     solar_cfg_real = elements.SolarConfig(forecast_kw=solar_real_kw)
     load_cfg_real = elements.LoadConfig(name="whole_house", forecast_kw=load_real_kw)
-    a_charge_kw, a_discharge_kw, a_final_soc = oracle_dispatch(periods=periods, grid=grid_cfg, battery=battery_cfg, solar=solar_cfg_real, load=load_cfg_real)
+    a_charge_kw, a_discharge_kw, a_final_soc = oracle_dispatch(
+        periods=periods,
+        grid=grid_cfg,
+        battery=battery_cfg,
+        solar=solar_cfg_real,
+        load=load_cfg_real,
+    )
     a_result = evaluate_realized_cost(
-        hours=np.array(period_hours_arr), load_real_kw=load_real_kw, solar_real_kw=solar_real_kw,
-        import_price_real=import_price_real, export_price_real=spot_export,
-        charge_committed_kw=a_charge_kw, discharge_committed_kw=a_discharge_kw,
-        charge_cost=charge_cost, discharge_cost=discharge_cost_arr,
-        final_soc_kwh=a_final_soc, salvage_value=salvage_value,
-        grid_import_limit_kw=import_limit_kw, grid_export_limit_kw=export_limit_kw,
+        hours=np.array(period_hours_arr),
+        load_real_kw=load_real_kw,
+        solar_real_kw=solar_real_kw,
+        import_price_real=import_price_real,
+        export_price_real=spot_export,
+        charge_committed_kw=a_charge_kw,
+        discharge_committed_kw=a_discharge_kw,
+        charge_cost=charge_cost,
+        discharge_cost=discharge_cost_arr,
+        final_soc_kwh=a_final_soc,
+        salvage_value=salvage_value,
+        grid_import_limit_kw=import_limit_kw,
+        grid_export_limit_kw=export_limit_kw,
     )
 
     # === Scenario B: perfect optimizer, imperfect (real, captured) forecast ===
     solar_cfg_fc = elements.SolarConfig(forecast_kw=solar_fc_kw)
     load_cfg_fc = elements.LoadConfig(name="whole_house", forecast_kw=load_fc_kw)
-    plan_b = build_plan(periods=periods, grid=grid_cfg, battery=battery_cfg, solar=solar_cfg_fc, loads=[load_cfg_fc], adequacy_loads=[])
+    plan_b = build_plan(
+        periods=periods,
+        grid=grid_cfg,
+        battery=battery_cfg,
+        solar=solar_cfg_fc,
+        loads=[load_cfg_fc],
+        adequacy_loads=[],
+    )
     if plan_b.status != "optimal":
         print(f"ERROR: scenario B plan status={plan_b.status} -- aborting")
         return
     b_result = evaluate_realized_cost(
-        hours=np.array(period_hours_arr), load_real_kw=load_real_kw, solar_real_kw=solar_real_kw,
-        import_price_real=import_price_real, export_price_real=spot_export,
-        charge_committed_kw=plan_b.battery_charge_kw, discharge_committed_kw=plan_b.battery_discharge_kw,
-        charge_cost=charge_cost, discharge_cost=discharge_cost_arr,
-        final_soc_kwh=float(plan_b.battery_soc_kwh[-1]), salvage_value=salvage_value,
-        grid_import_limit_kw=import_limit_kw, grid_export_limit_kw=export_limit_kw,
+        hours=np.array(period_hours_arr),
+        load_real_kw=load_real_kw,
+        solar_real_kw=solar_real_kw,
+        import_price_real=import_price_real,
+        export_price_real=spot_export,
+        charge_committed_kw=plan_b.battery_charge_kw,
+        discharge_committed_kw=plan_b.battery_discharge_kw,
+        charge_cost=charge_cost,
+        discharge_cost=discharge_cost_arr,
+        final_soc_kwh=float(plan_b.battery_soc_kwh[-1]),
+        salvage_value=salvage_value,
+        grid_import_limit_kw=import_limit_kw,
+        grid_export_limit_kw=export_limit_kw,
     )
 
     # === Scenario C: actual/realized (what really happened) ===
-    batt_power_kw = np.array(resample_nearest_float(batt_power_hist, grid_times, default=0.0))
+    batt_power_kw = np.array(
+        resample_nearest_float(batt_power_hist, grid_times, default=0.0)
+    )
     c_charge_kw = np.maximum(0.0, -batt_power_kw)
     c_discharge_kw = np.maximum(0.0, batt_power_kw)
     c_final_pct = value_at_or_before(soc_hist, window_end, default=initial_pct)
     c_final_soc = capacity_kwh * c_final_pct / 100.0
     c_result = evaluate_realized_cost(
-        hours=np.array(period_hours_arr), load_real_kw=load_real_kw, solar_real_kw=solar_real_kw,
-        import_price_real=import_price_real, export_price_real=spot_export,
-        charge_committed_kw=c_charge_kw, discharge_committed_kw=c_discharge_kw,
-        charge_cost=charge_cost, discharge_cost=discharge_cost_arr,
-        final_soc_kwh=c_final_soc, salvage_value=salvage_value,
-        grid_import_limit_kw=import_limit_kw, grid_export_limit_kw=export_limit_kw,
+        hours=np.array(period_hours_arr),
+        load_real_kw=load_real_kw,
+        solar_real_kw=solar_real_kw,
+        import_price_real=import_price_real,
+        export_price_real=spot_export,
+        charge_committed_kw=c_charge_kw,
+        discharge_committed_kw=c_discharge_kw,
+        charge_cost=charge_cost,
+        discharge_cost=discharge_cost_arr,
+        final_soc_kwh=c_final_soc,
+        salvage_value=salvage_value,
+        grid_import_limit_kw=import_limit_kw,
+        grid_export_limit_kw=export_limit_kw,
     )
 
     print("=== Results (all in $, negative = profit) ===")
@@ -338,24 +470,44 @@ def main() -> None:
     forecasting_share = b_result.total_cost - a_result.total_cost
     control_share = c_result.total_cost - b_result.total_cost
     print(f"Total regret (C - A):              ${total_regret:>8.2f}")
-    print(f"  Forecasting's share (B - A):     ${forecasting_share:>8.2f}  ({100*forecasting_share/total_regret if total_regret else 0:.0f}% of total)")
-    print(f"  Optimisation's share (C - B):    ${control_share:>8.2f}  ({100*control_share/total_regret if total_regret else 0:.0f}% of total)")
+    print(
+        f"  Forecasting's share (B - A):     ${forecasting_share:>8.2f}  ({100 * forecasting_share / total_regret if total_regret else 0:.0f}% of total)"
+    )
+    print(
+        f"  Optimisation's share (C - B):    ${control_share:>8.2f}  ({100 * control_share / total_regret if total_regret else 0:.0f}% of total)"
+    )
     print()
-    print("Real solar/load forecast MAE this window (for reference, price MAE deliberately excluded -- see module docstring):")
+    print(
+        "Real solar/load forecast MAE this window (for reference, price MAE deliberately excluded -- see module docstring):"
+    )
     solar_mae = float(np.mean(np.abs(solar_fc_kw - solar_real_kw)))
     load_mae = float(np.mean(np.abs(load_fc_kw - load_real_kw)))
     print(f"  solar MAE: {solar_mae:.3f} kW   load MAE: {load_mae:.3f} kW")
 
     print()
-    print("=== Hourly breakdown: WHERE does each regret component actually accumulate? ===")
-    print("(positive = rust, that hour lost money vs the comparison; negative = teal, that hour did BETTER)")
+    print(
+        "=== Hourly breakdown: WHERE does each regret component actually accumulate? ==="
+    )
+    print(
+        "(positive = rust, that hour lost money vs the comparison; negative = teal, that hour did BETTER)"
+    )
     print()
-    control_hourly = hourly_regret_breakdown(timestamps=grid_times, actual_cost_per_period=c_result.cost_per_period, oracle_cost_per_period=b_result.cost_per_period)
-    forecast_hourly = hourly_regret_breakdown(timestamps=grid_times, actual_cost_per_period=b_result.cost_per_period, oracle_cost_per_period=a_result.cost_per_period)
+    control_hourly = hourly_regret_breakdown(
+        timestamps=grid_times,
+        actual_cost_per_period=c_result.cost_per_period,
+        oracle_cost_per_period=b_result.cost_per_period,
+    )
+    forecast_hourly = hourly_regret_breakdown(
+        timestamps=grid_times,
+        actual_cost_per_period=b_result.cost_per_period,
+        oracle_cost_per_period=a_result.cost_per_period,
+    )
     all_hours = sorted(set(control_hourly) | set(forecast_hourly))
     print(f"{'Hour':>6}  {'Control (C-B)':>14}  {'Forecast (B-A)':>15}")
     for h in all_hours:
-        print(f"{h:>6}  {control_hourly.get(h,0.0):>14.3f}  {forecast_hourly.get(h,0.0):>15.3f}")
+        print(
+            f"{h:>6}  {control_hourly.get(h, 0.0):>14.3f}  {forecast_hourly.get(h, 0.0):>15.3f}"
+        )
 
 
 main()

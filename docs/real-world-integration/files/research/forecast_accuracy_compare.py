@@ -34,6 +34,7 @@ decomposition is a real, separate follow-up once there's enough matured
 data to make it meaningful (a single day's worth of solar/price points
 is a reasonable first read, but not yet a statistically solid one).
 """
+
 import json
 import os
 import urllib.error
@@ -59,7 +60,9 @@ with open(TOKEN_PATH, encoding="utf-8") as f:
     TOKEN = f.read().strip()
 
 
-def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
+def fetch_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, float]]:
     url = (
         f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
@@ -84,7 +87,9 @@ def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[
     return sorted(out, key=lambda x: x[0])
 
 
-def nearest_actual(pts: list[tuple[datetime, float]], target: datetime, max_gap_minutes: float = 30.0) -> float | None:
+def nearest_actual(
+    pts: list[tuple[datetime, float]], target: datetime, max_gap_minutes: float = 30.0
+) -> float | None:
     best = None
     best_gap = None
     for t, v in pts:
@@ -104,7 +109,14 @@ def load_all_snapshots() -> list[dict]:
     return snapshots
 
 
-def compare_source(source_key: str, value_field: str, actual_entity: str, actual_unit_scale: float, snapshots: list[dict], hourly_breakdown: bool = False) -> None:
+def compare_source(
+    source_key: str,
+    value_field: str,
+    actual_entity: str,
+    actual_unit_scale: float,
+    snapshots: list[dict],
+    hourly_breakdown: bool = False,
+) -> None:
     """MAE alone (the original metric here) cannot tell a systematic BIAS
     (forecast consistently too high/low) apart from genuine random
     VARIANCE (sometimes high, sometimes low, cancelling out on average) --
@@ -134,15 +146,21 @@ def compare_source(source_key: str, value_field: str, actual_entity: str, actual
                     all_points.append((t, val))
 
     if not all_points:
-        print(f"  {source_key}: 0 matured points yet (nothing forecasted has happened yet -- check back later)")
+        print(
+            f"  {source_key}: 0 matured points yet (nothing forecasted has happened yet -- check back later)"
+        )
         return
 
     earliest_t = min(t for t, _ in all_points)
-    actual_pts_raw = fetch_history_range(actual_entity, earliest_t - timedelta(minutes=30), now)
+    actual_pts_raw = fetch_history_range(
+        actual_entity, earliest_t - timedelta(minutes=30), now
+    )
     actual_pts = [(t, v * actual_unit_scale) for t, v in actual_pts_raw]
 
     if not actual_pts:
-        print(f"  {source_key}: {len(all_points)} matured forecast points, but no real actual history found for {actual_entity} -- check entity name")
+        print(
+            f"  {source_key}: {len(all_points)} matured forecast points, but no real actual history found for {actual_entity} -- check entity name"
+        )
         return
 
     signed_errors = []  # (local_hour, forecast - actual)
@@ -154,16 +172,22 @@ def compare_source(source_key: str, value_field: str, actual_entity: str, actual
         signed_errors.append((local_hour, forecast_v - actual_v))
 
     if not signed_errors:
-        print(f"  {source_key}: {len(all_points)} matured forecast points, but no matching real actual sample within 30min of any of them")
+        print(
+            f"  {source_key}: {len(all_points)} matured forecast points, but no matching real actual sample within 30min of any of them"
+        )
         return
 
     errs = [e for _, e in signed_errors]
     mae = sum(abs(e) for e in errs) / len(errs)
     mean_error = sum(errs) / len(errs)
     bias_share = abs(mean_error) / mae if mae > 1e-9 else 0.0
-    print(f"  {source_key}: {len(errs)}/{len(all_points)} points matched to real actuals")
-    print(f"    MAE = {mae:.4f}, mean error (signed, forecast-actual) = {mean_error:+.4f} "
-          f"({bias_share*100:.0f}% of MAE is bias, not variance)")
+    print(
+        f"  {source_key}: {len(errs)}/{len(all_points)} points matched to real actuals"
+    )
+    print(
+        f"    MAE = {mae:.4f}, mean error (signed, forecast-actual) = {mean_error:+.4f} "
+        f"({bias_share * 100:.0f}% of MAE is bias, not variance)"
+    )
 
     if hourly_breakdown:
         by_hour: dict[int, list[float]] = {}
@@ -174,7 +198,9 @@ def compare_source(source_key: str, value_field: str, actual_entity: str, actual
             h_mean = sum(vals) / len(vals)
             h_mae = sum(abs(v) for v in vals) / len(vals)
             flag = " <-- afternoon window" if 14 <= h <= 18 else ""
-            print(f"      {h:02d}:00 AEST  n={len(vals):3d}  mean_error={h_mean:+.4f}  MAE={h_mae:.4f}{flag}")
+            print(
+                f"      {h:02d}:00 AEST  n={len(vals):3d}  mean_error={h_mean:+.4f}  MAE={h_mae:.4f}{flag}"
+            )
 
 
 def main() -> None:
@@ -183,18 +209,52 @@ def main() -> None:
         print("No snapshots captured yet -- run forecast_capture.py first.")
         return
 
-    print(f"Loaded {len(snapshots)} snapshot(s): {[Path(s['captured_at_brisbane']).name if False else s['captured_at_brisbane'] for s in snapshots]}")
+    print(
+        f"Loaded {len(snapshots)} snapshot(s): {[Path(s['captured_at_brisbane']).name if False else s['captured_at_brisbane'] for s in snapshots]}"
+    )
     print()
-    print("=== Forecast accuracy, matured points only (forecasted time already passed) ===")
-    compare_source("solar", "pv_estimate_kw", "sensor.combined_total_dc_power", 1.0 / 1000.0, snapshots)
-    compare_source("price", "calibrated_price", "sensor.aemo_nem_qld1_current_5min_period_price", 1.0, snapshots)
-    compare_source("load", "value_kw", "sensor.cb_total_combined_power_adjusted_kw", 1.0, snapshots)
+    print(
+        "=== Forecast accuracy, matured points only (forecasted time already passed) ==="
+    )
+    compare_source(
+        "solar",
+        "pv_estimate_kw",
+        "sensor.combined_total_dc_power",
+        1.0 / 1000.0,
+        snapshots,
+    )
+    compare_source(
+        "price",
+        "calibrated_price",
+        "sensor.aemo_nem_qld1_current_5min_period_price",
+        1.0,
+        snapshots,
+    )
+    compare_source(
+        "load", "value_kw", "sensor.cb_total_combined_power_adjusted_kw", 1.0, snapshots
+    )
     print()
-    print("=== LV retail price (the forecast the Solver actually dispatches against) ===")
+    print(
+        "=== LV retail price (the forecast the Solver actually dispatches against) ==="
+    )
     print("--- import (costs_flex_up) ---")
-    compare_source("lv_retail_price", "costs_flex_up", "sensor.localvolts_costs_flex_up", 1.0, snapshots, hourly_breakdown=True)
+    compare_source(
+        "lv_retail_price",
+        "costs_flex_up",
+        "sensor.localvolts_costs_flex_up",
+        1.0,
+        snapshots,
+        hourly_breakdown=True,
+    )
     print("--- export (earnings_flex_up) ---")
-    compare_source("lv_retail_price", "earnings_flex_up", "sensor.localvolts_earnings_flex_up", 1.0, snapshots, hourly_breakdown=True)
+    compare_source(
+        "lv_retail_price",
+        "earnings_flex_up",
+        "sensor.localvolts_earnings_flex_up",
+        1.0,
+        snapshots,
+        hourly_breakdown=True,
+    )
     print()
     print("Note: this is raw forecast-vs-actual error only. The full Mark Purcell")
     print("regret decomposition (forecasting layer's share vs optimisation/control's")
