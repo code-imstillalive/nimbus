@@ -15,7 +15,9 @@ import json
 from datetime import datetime, timedelta
 
 import pytest
+import solver_shared
 import solver_writer as sw
+from solver_inputs import solar as solar_inputs
 
 BRISBANE = sw.LOCAL_TZ
 NOON = datetime(2026, 9, 27, 12, 30, tzinfo=BRISBANE)
@@ -39,8 +41,11 @@ def state(monkeypatch, tmp_path):
         rows = readings["rows"]
         return rows(start) if callable(rows) else (rows or [])
 
-    monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
-    monkeypatch.setattr(sw, "_kw_scale_factor", lambda e: 1.0)
+    # The delivery ratio (moved to solver_inputs/solar.py, #2289 item 6)
+    # reads through solver_shared; the nowcast check still through sw.
+    for module in (sw, solver_shared):
+        monkeypatch.setattr(module, "fetch_entity_history_range", fetch)
+        monkeypatch.setattr(module, "_kw_scale_factor", lambda e: 1.0)
 
     class State:
         def read(self):
@@ -144,7 +149,7 @@ RATIO = {"solver_solar_power_sensor": SENSOR}
 
 
 def _ratio(now, forecast_kw=10.0):
-    return sw.update_solar_delivery_ratio(
+    return solar_inputs.update_solar_delivery_ratio(
         RATIO, now, _grid(now, minutes=15), [forecast_kw] * 48
     )
 
@@ -167,7 +172,7 @@ def test_an_hour_ahead_prediction_is_graded_into_a_ratio(
     )  # an hour ahead
     assert state.readings["calls"] == 0
     monkeypatch.setattr(
-        sw, "_kw_scale_factor", lambda e: scale
+        solver_shared, "_kw_scale_factor", lambda e: scale
     )  # W: a ratio, never 1,121
     state.readings["rows"] = lambda start: [(start + timedelta(minutes=5), actual)]
     graded = _ratio(NOON + timedelta(minutes=65))
@@ -196,7 +201,8 @@ def test_a_small_forecast_is_dropped_not_graded(state):
     ]:
         when = {
             "now": NOON,
-            "stale": NOON - timedelta(hours=sw.SOLAR_DELIVERY_ROLLING_WINDOW_HOURS + 1),
+            "stale": NOON
+            - timedelta(hours=solar_inputs.SOLAR_DELIVERY_ROLLING_WINDOW_HOURS + 1),
             "fresh": NOON - timedelta(minutes=10),
         }
         state.write(

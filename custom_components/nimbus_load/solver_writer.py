@@ -346,7 +346,7 @@ except ImportError:
         parse_iso,
         power_scale_or_none,
         resample_history_mean,
-        resample_history_nearest,
+        resample_history_nearest,  # noqa: F401 -- re-export: reached as sw.<name> from solver_inputs/, solver_reports/ and solver_dispatch/
         resolve_effective_capacity_kwh,
         safe_num,
     )
@@ -2753,64 +2753,6 @@ def resample_forecast(
     return out
 
 
-# nimbus #1994: Solcast's and Open-Meteo Solar Forecast's own entities, as
-# the entity registry finds them (integration + unique_id), published by
-# sensor.nimbus_solver_config as `known_sources` (known_sources.py). Never an
-# entity_id literal: a renamed or localised entity is still found. One
-# accessor each, so the auto-include fetch, the #546 dedup and the #1784
-# running-low gate can never read two different lists.
-def known_solcast_entities(cfg: dict) -> list[str]:
-    """Solcast's today and tomorrow forecast entities, today first."""
-    known = (cfg or {}).get("known_sources") or {}
-    return [e for e in (known.get("solcast") or []) if isinstance(e, str)]
-
-
-def known_open_meteo_entities(cfg: dict) -> list[str]:
-    """Open-Meteo Solar Forecast's today .. d7 production entities."""
-    known = (cfg or {}).get("known_sources") or {}
-    return [e for e in (known.get("open_meteo") or []) if isinstance(e, str)]
-
-
-def _is_known_solar_integration_entity(entity_id: str, cfg: dict) -> bool:
-    """True when `entity_id` is one of Open-Meteo Solar Forecast's or
-    Solcast's own native entities -- i.e. one the auto-include path
-    (fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw()) already
-    reads together with the REST of that integration's own entities.
-
-    nimbus issue #546 (Mark Purcell, real regression, same day #542
-    shipped): #542's own first fix taught a *configured*
-    solver_solar_forecast_sensor_1/2/3 to read Solcast's/Open-Meteo's
-    real shapes -- but its own dedup (an entity-level skip_entities set
-    threaded into the auto-include fetchers) turned one coverage gap
-    into three. Solcast's native detailedForecast entity only ever
-    covers ONE day (today, or tomorrow) -- skipping just the ONE
-    entity that's also configured left the auto-include fetch reading
-    only the OTHER day, and resample_forecast() holds the nearest real
-    point for every grid time outside a series' own native coverage
-    (its own first point for times before it, its own last point for
-    times after) -- so BOTH the standalone configured member (covering
-    only its one native day) and the now-fragmented auto-include member
-    (covering only the OTHER day) held a near-zero value (a series'
-    own dawn/dusk edge point) across most of the 96h grid, and the
-    unweighted blend mean dragged every day's own solar down by a
-    third on Mark's real 8 Sep plan (252.8 kWh -> 172.4 kWh, same real
-    forecasts). The real fix is dedup at the INTEGRATION level, not the
-    entity level: when a configured source is one of a KNOWN
-    integration's own entities and that integration's auto-include
-    path is going to run anyway, skip the configured source as a
-    standalone member entirely -- the auto-include fetch already reads
-    ALL of that integration's own entities together (Solcast's real
-    2-day coverage, Open-Meteo's real 8-day coverage), so it's the
-    sole, correctly-covered representative for that integration,
-    exactly restoring the same two-member blend structure v0.94.168
-    already had (Solcast 2-day + Open-Meteo 8-day), just with Solcast's
-    own shape now correctly read instead of silently dropped.
-    """
-    return entity_id in known_open_meteo_entities(
-        cfg
-    ) or entity_id in known_solcast_entities(cfg)
-
-
 # One reshape for every solar-source reader (nimbus #542): a configured
 # Solcast (detailedForecast) or Open-Meteo (watts) entity is read the same
 # way as the auto-included ones, instead of being dropped when it isn't
@@ -2913,47 +2855,6 @@ def resample_instants(
                 out.append(v0 + (v1 - v0) * frac)
                 break
     return out
-
-
-# A solar source dropped from the blend is warned about once per
-# (entity_id, reason), not every solve (nimbus #543), and its recovery is
-# logged once at INFO: entries clear when that entity next succeeds.
-_SOLAR_SOURCE_WARNED: set[tuple[str, str]] = set()
-
-
-def _warn_solar_source_dropped_once(entity_id: str, reason: str, detail: str) -> None:
-    key = (entity_id, reason)
-    if key in _SOLAR_SOURCE_WARNED:
-        _LOGGER.debug(
-            "Nimbus: solar source %s still %s (%s) -- dropped from this "
-            "solve's blend (logged once per condition, not every solve)",
-            entity_id,
-            reason,
-            detail,
-        )
-        return
-    _SOLAR_SOURCE_WARNED.add(key)
-    _LOGGER.warning(
-        "Nimbus: solar source %s %s (%s) -- dropped from this solve's "
-        "blend (logged once per condition, not every solve)",
-        entity_id,
-        reason,
-        detail,
-    )
-
-
-def _note_solar_source_recovered(entity_id: str) -> None:
-    had_any = any(eid == entity_id for eid, _reason in _SOLAR_SOURCE_WARNED)
-    if not had_any:
-        return
-    _SOLAR_SOURCE_WARNED.difference_update(
-        {key for key in _SOLAR_SOURCE_WARNED if key[0] == entity_id}
-    )
-    _LOGGER.info(
-        "Nimbus: solar source %s is contributing to the blend again "
-        "(previously dropped)",
-        entity_id,
-    )
 
 
 def _validate_and_parse_load_forecast_attrs(
@@ -7672,204 +7573,6 @@ SOLAR_DELIVERY_RATIO_PATH = os.environ.get(
     "NIMBUS_SOLVER_SOLAR_DELIVERY_RATIO_PATH",
     "/opt/nimbus_solver_solar_delivery_ratio.json",
 )
-# Mark's own spec, verbatim -- avoids near-zero-solar noise (a forecast
-# of 0.3kW vs an actual of 0.1kW is a real 3x "miss" that means nothing
-# at dawn/dusk).
-SOLAR_DELIVERY_MIN_FORECAST_KW = 5.0
-# How far ahead each solve's own forecast[] value is queued for later
-# resolution against reality -- long enough that solar genuinely could
-# have moved (cloud cover, curtailment), short enough that the forecast
-# being tested is still today's, not a much-later horizon point.
-SOLAR_DELIVERY_LOOKAHEAD_MINUTES = 60
-SOLAR_DELIVERY_ROLLING_WINDOW_HOURS = 6.0
-# Mark's own suggested reading: "if this ratio persistently sits below
-# (e.g.) 0.80 during high-PV hours, that's implicit AC-side clipping."
-SOLAR_DELIVERY_UNDERPERFORMING_THRESHOLD = 0.80
-
-# nimbus issue #1259. How far apart solar_kw[0] (the live-measured
-# anchor) and solar_kw[1] (the first genuine forecast period) have to sit
-# before this cycle counts as a real DISAGREEMENT worth grading against
-# reality. 3.0 kW is derived from the one event on record, not picked: it
-# stepped 1.78 -> 15.89 kW, so any threshold below ~14 kW captures it,
-# and the reason to sit well below that is to capture the ORDINARY cases
-# too -- the open question is how often a sharp disagreement happens at
-# all, which a threshold tuned to the single known event could never
-# answer. Above the measurement noise of a real PV sensor, below any
-# step a household would notice on a chart.
-SOLAR_NOWCAST_DISAGREEMENT_KW = 3.0
-# Rolling window the published counts cover. Wider than the delivery
-# ratio's own 6 h because these events are RARE by construction (only
-# disagreements above the threshold are recorded), so a 6 h window would
-# usually publish zero and answer nothing. A full day also spans both a
-# morning and an afternoon cloud regime.
-SOLAR_NOWCAST_ROLLING_WINDOW_HOURS = 24.0
-
-
-def _load_solar_delivery_state() -> dict:
-    # nimbus issue #1259: two independent measurements now share this one
-    # state file (the #128 delivery ratio and the index-0-vs-index-1
-    # nowcast disagreement check). The nowcast keys are defaulted rather
-    # than required, so a state file written by any earlier version loads
-    # cleanly and simply starts with an empty nowcast buffer -- and both
-    # writers preserve keys they do not own (see each function's own save
-    # call), so neither can silently wipe the other's buffer.
-    state: dict = {
-        "pending": [],
-        "ratios": [],
-        "nowcast_pending": [],
-        "nowcast_events": [],
-        "nowcast_considered": [],
-        "nowcast_disagreements": [],
-    }
-    try:
-        with open(SOLAR_DELIVERY_RATIO_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict) and "pending" in data and "ratios" in data:
-            state.update(data)
-            return state
-    except (OSError, ValueError):
-        pass
-    return state
-
-
-def _save_solar_delivery_state(state: dict) -> None:
-    try:
-        with open(SOLAR_DELIVERY_RATIO_PATH, "w", encoding="utf-8") as f:
-            json.dump(state, f)
-    except OSError:
-        pass
-
-
-# A ratio above this is a unit mix-up, not a plant (12 Oct 2026).
-SOLAR_DELIVERY_MAX_PLAUSIBLE_RATIO = 20.0
-
-
-def update_solar_delivery_ratio(
-    cfg: dict,
-    now: datetime,
-    grid_times: list[datetime],
-    solar_kw: list[float],
-) -> dict | None:
-    """Real forecast-vs-actual solar tracking (nimbus issue #128): each
-    call queues one NEW prediction (~SOLAR_DELIVERY_LOOKAHEAD_MINUTES
-    ahead, from THIS solve's own forecast -- the exact value the LP is
-    using right now, before any live-measurement override touches only
-    index 0), and resolves any previously-queued predictions whose
-    target time has now arrived by fetching the real measured reading at
-    that moment. Same "record a prediction now, grade it once reality
-    catches up" shape already proven in coordinator.py's own
-    `_last_step_prediction` residual tracking -- this is the Solver's
-    own equivalent, since solver_writer.py has no persistent Python
-    object across solves to hold that state in memory (a fresh process
-    on the standalone-script path; a stateless helper function on the
-    native path) -- hence the small on-disk JSON buffer, same pattern as
-    PLAN_STATE_PATH.
-
-    Returns None (a complete no-op) if solver_solar_power_sensor isn't
-    configured. Never raises -- every failure mode (missing history,
-    corrupt state file, disk write failure) degrades to "this cycle
-    contributes nothing new," never crashes the real solve.
-    """
-    solar_sensor = cfg.get("solver_solar_power_sensor")
-    if not solar_sensor:
-        return None
-
-    state = _load_solar_delivery_state()
-    pending = state.get("pending", [])
-    # Household, 12 Oct 2026: the measured reading is in the sensor's own
-    # unit (the reference household's is W) and the forecast is kW, so the
-    # ratio read 1121 instead of ~1.12 and "underperforming" could never
-    # fire. Measured readings are now converted to kW, and ratios a W/kW
-    # mix-up left in the rolling window (no real plant delivers 20x its
-    # forecast) are dropped.
-    kw_scale = _kw_scale_factor(solar_sensor)
-    ratios = [
-        r
-        for r in state.get("ratios", [])
-        if isinstance(r, dict)
-        and isinstance(r.get("ratio"), (int, float))
-        and 0.0 <= float(r["ratio"]) <= SOLAR_DELIVERY_MAX_PLAUSIBLE_RATIO
-    ]
-
-    still_pending = []
-    for entry in pending:
-        try:
-            target_time = datetime.fromisoformat(entry["target_time"])
-            forecast_kw = float(entry["forecast_kw"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if target_time > now:
-            still_pending.append(entry)
-            continue
-        if forecast_kw >= SOLAR_DELIVERY_MIN_FORECAST_KW:
-            hist = fetch_entity_history_range(
-                solar_sensor,
-                target_time - timedelta(minutes=10),
-                target_time + timedelta(minutes=10),
-            )
-            if hist:
-                # nimbus issue #843: deliberately keeps the pre-#843
-                # backfill here. `hist` is a tight +/-10min window
-                # fetched around this exact instant, so its first sample
-                # is genuinely representative; falling through to 0.0
-                # would record a misleading "solar delivered nothing"
-                # ratio whenever the only rows land just after the mark.
-                actual_kw = (
-                    resample_history_nearest(hist, [target_time], backfill_first=True)[
-                        0
-                    ]
-                    * kw_scale
-                )
-                ratios.append(
-                    {"time": now.isoformat(), "ratio": actual_kw / forecast_kw}
-                )
-        # Resolved (or genuinely unresolvable -- no history, or the
-        # forecast was too small to be meaningful) either way -- never
-        # re-queued.
-
-    cutoff = now - timedelta(hours=SOLAR_DELIVERY_ROLLING_WINDOW_HOURS)
-    ratios = [
-        r
-        for r in ratios
-        if "time" in r
-        and _safe_fromisoformat(r["time"]) is not None
-        and _safe_fromisoformat(r["time"]) >= cutoff
-    ]
-
-    if grid_times:
-        target = now + timedelta(minutes=SOLAR_DELIVERY_LOOKAHEAD_MINUTES)
-        closest_idx = min(
-            range(len(grid_times)),
-            key=lambda i: abs((grid_times[i] - target).total_seconds()),
-        )
-        still_pending.append(
-            {
-                "target_time": grid_times[closest_idx].isoformat(),
-                "forecast_kw": float(solar_kw[closest_idx]),
-            }
-        )
-
-    # nimbus issue #1259: write back the state dict this function LOADED,
-    # with only the two keys it owns replaced -- not a freshly-built
-    # two-key dict, which would silently drop the nowcast buffer the
-    # sibling measurement keeps in this same file.
-    state["pending"] = still_pending
-    state["ratios"] = ratios
-    _save_solar_delivery_state(state)
-
-    if not ratios:
-        return {
-            "solar_delivery_ratio": None,
-            "solar_delivery_sample_count": 0,
-            "solar_delivery_underperforming": False,
-        }
-    avg_ratio = sum(r["ratio"] for r in ratios) / len(ratios)
-    return {
-        "solar_delivery_ratio": round(avg_ratio, 3),
-        "solar_delivery_sample_count": len(ratios),
-        "solar_delivery_underperforming": avg_ratio
-        < SOLAR_DELIVERY_UNDERPERFORMING_THRESHOLD,
-    }
 
 
 def _safe_fromisoformat(value: str) -> datetime | None:
@@ -8544,7 +8247,9 @@ def _publish_side_reports(
     # Same "never break the real solve" wrapping -- see
     # update_solar_delivery_ratio()'s own docstring (nimbus issue #128).
     try:
-        solar_delivery = update_solar_delivery_ratio(cfg, now, grid_times, solar_kw)
+        solar_delivery = solar_inputs_solar.update_solar_delivery_ratio(
+            cfg, now, grid_times, solar_kw
+        )
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         # nimbus issue #363 (Mark Purcell, codebase review): same "bare
         # pass hid a real, diagnosable bug for days" lesson as the

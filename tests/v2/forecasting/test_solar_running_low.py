@@ -84,7 +84,7 @@ class Site:
 @pytest.fixture
 def install(monkeypatch):
     srl.reset_gate_state()
-    monkeypatch.setattr(sw, "_SOLAR_SOURCE_WARNED", set())
+    monkeypatch.setattr(solar, "_SOLAR_SOURCE_WARNED", set())
 
     def use(site):
         monkeypatch.setattr(sw, "ha_get", site.ha_get)
