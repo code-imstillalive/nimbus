@@ -119,11 +119,13 @@ def isolated_state_paths(solver_writer: ModuleType) -> Iterator[str]:
         solver_writer.reset_flex_ranging_cadence()
         stack.callback(solver_writer.reset_flex_ranging_cadence)
         # nimbus #1698: AMBER_SPOT_PATH's contents are cached in-process, so
-        # a fresh path also needs a fresh cache.
-        stack.enter_context(patch.object(solver_writer, "_AMBER_SPOT_CACHE", None))
+        # a fresh path also needs a fresh cache. The caches live with their
+        # readers in solver_inputs/prices.py (#2289 item 6 step 8 part 3).
+        price_inputs = solver_writer.price_inputs
+        stack.enter_context(patch.object(price_inputs, "_AMBER_SPOT_CACHE", None))
         # nimbus #1786: the price-consolidation trackers are cached likewise.
         stack.enter_context(
-            patch.object(solver_writer, "_PRICE_CONSOLIDATION_CACHE", None)
+            patch.object(price_inputs, "_PRICE_CONSOLIDATION_CACHE", None)
         )
         # nimbus #1807: the solar quantile history is cached likewise.
         stack.enter_context(patch.object(solver_writer, "_SOLAR_QUANTILES_CACHE", None))

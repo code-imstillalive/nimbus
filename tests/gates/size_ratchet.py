@@ -96,7 +96,9 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    11  # solver_writer.py alone as of nimbus #2289 item 6 step 8 part 2
+    8  # solver_writer.py alone as of nimbus #2289 item 6 step 8 part 3
+    # (spike override, price event, Amber spot, consolidation, RRP check and
+    # tariff attribution to solver_inputs/prices.py); 11 as of step 8 part 2
     # (the price forecast, blend and band helpers to
     # solver_inputs/price_blend.py); 14 as of step 7b part 3 (the flex,
     # backtest and counterfactual publishers); 15 as of step 7b part 2; 17 as

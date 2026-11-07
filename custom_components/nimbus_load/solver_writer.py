@@ -66,10 +66,6 @@ except ImportError:
 # call time from the other side (see solver_inputs/__init__.py for the
 # full note on that import direction).
 try:
-    from . import price_intervals
-except ImportError:  # pragma: no cover - standalone/cron path
-    import price_intervals  # type: ignore[no-redef]
-try:
     from . import p5min_guard
 except ImportError:  # pragma: no cover - standalone/cron path
     import p5min_guard  # type: ignore[no-redef]
@@ -99,14 +95,6 @@ try:
 except ImportError:
     from solver_inputs import price_blend, price_freshness  # type: ignore[no-redef]
     from solver_inputs import prices as price_inputs  # type: ignore[no-redef]
-try:
-    from .solver_inputs import price_consolidation
-except ImportError:
-    from solver_inputs import price_consolidation  # type: ignore[no-redef]
-try:
-    from .solver_inputs import rrp_crosscheck
-except ImportError:
-    from solver_inputs import rrp_crosscheck  # type: ignore[no-redef]
 try:
     from .solver_inputs import solar_quantiles
 except ImportError:
@@ -372,7 +360,6 @@ except ImportError:
 
 
 import numpy as np
-from numpy.typing import NDArray
 
 # nimbus issue #349 (Mark Purcell, codebase review): this used to run an
 # UNCONDITIONAL sys.path.insert(0, <package dir>) here, every single
@@ -1564,272 +1551,6 @@ def resample_instants(
 # price that is still positive (2026-08-22).
 
 
-def resolve_price_spike_override(
-    cfg: dict, import_price_now: float
-) -> tuple[float | None, bool]:
-    """nimbus issue #567: a real-time "sell into a price spike,
-    deliberately, right now" household decision. Returns
-    `(effective_override_kw, spike_detected)`:
-
-    - `spike_detected` is True whenever EITHER trigger condition holds
-      (a price >= the configured threshold, OR the optional alert
-      entity reads "on") -- this is the real-time visibility signal for
-      the dashboard's own "$$$" indicator, published REGARDLESS of
-      whether the household has armed the override. A household should
-      be able to see a spike is happening before deciding to act on it.
-    - `effective_override_kw` is the value that actually gets passed
-      into BatteryConfig.spike_override_discharge_kw -- None unless
-      EVERY one of these holds: the household has explicitly armed the
-      override (switch.nimbus_solver_price_spike_override_armed), a
-      spike is genuinely detected, and a real rate > 0 is configured
-      (number.nimbus_solver_price_spike_discharge_kw). Human stays in
-      the loop for the actual discharge decision -- arming is a
-      deliberate, explicit action, not inferred from the threshold/
-      alert alone.
-
-    nimbus issue #694 (household, 10 Sep, reversing #567's own original
-    design): this override now WINS over an active P2P fixed-export
-    commitment rather than being exempted from it -- #567 originally
-    skipped the override during P2P on the household's own "consistency
-    of delivery is itself part of what earns the rate" reasoning, but
-    the household's own later, explicit instruction reverses that: "i
-    want it to win over p2p cos p2p will be lower... by default....
-    otherwise it makes no sense" (a genuine spike is very likely to
-    exceed whatever a P2P block pre-committed at, so exempting the
-    override during exactly a P2P window meant it could never fire in
-    the scenario it's most valuable for). P2P itself still "remains" --
-    its committed rate becomes a FLOOR rather than being dropped, so it
-    keeps being honestly delivered while export rises above it -- see
-    network.py's own build_plan() docstring for that floor mechanism on
-    grid_export[0]'s own bounds. This function no longer checks P2P
-    state at all; the floor/ceiling interaction lives entirely in
-    network.py now.
-
-    threshold<=0 (the default) means "no threshold configured" -- never
-    fires on its own, matching every other "0/blank means off" field in
-    this project. The alert entity is optional and read defensively
-    (unavailable/missing/fetch-failure all fail open to "no alert"),
-    same posture as every other optional external entity read in this
-    file -- a spike-alert integration having a bad moment must never
-    crash a regular solve cycle.
-    """
-    threshold = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)
-    spike_by_threshold = threshold > 0 and import_price_now >= threshold
-
-    spike_by_alert = False
-    alert_entity = cfg.get("solver_price_spike_alert_entity")
-    if alert_entity:
-        try:
-            state = ha_get(alert_entity)
-            spike_by_alert = state.get("state") == "on"
-        except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
-            spike_by_alert = False
-
-    spike_detected = spike_by_threshold or spike_by_alert
-
-    armed = bool(cfg.get("solver_price_spike_override_armed"))
-    discharge_kw = _cfg_num(cfg, "solver_price_spike_discharge_kw", 0.0)
-    if not (armed and spike_detected and discharge_kw > 0):
-        return None, spike_detected
-
-    return discharge_kw, spike_detected
-
-
-# nimbus #2026: whether the clamp below has already warned during the current
-# episode. Cleared as soon as the override fits again, so the next episode
-# warns once more.
-_SPIKE_OVERRIDE_CLAMP_WARNED = False
-
-
-def clamp_spike_override_to_live_ceiling(
-    cfg: dict, spike_override_kw: float | None, max_discharge_kw: float
-) -> float | None:
-    """nimbus #2026 (Mark Purcell's decision on the issue): an armed spike
-    rate within the static `solver_max_discharge_kw` but above the live
-    ceiling (`solver_max_discharge_live_entity`'s `max`, which can sit
-    below the static setting through derating, no configuration error)
-    is clamped to that live ceiling, with one warning per episode.
-    Rejecting it made every solve fail during the very spike the
-    override exists for.
-
-    A rate above the static setting as well is a real misconfiguration,
-    so it is passed through unchanged and BatteryConfig still rejects it
-    loudly (#567).
-    """
-    global _SPIKE_OVERRIDE_CLAMP_WARNED
-    static_kw = _cfg_num(cfg, "solver_max_discharge_kw", max_discharge_kw)
-    if (
-        spike_override_kw is None
-        or spike_override_kw <= max_discharge_kw
-        or spike_override_kw > static_kw
-    ):
-        _SPIKE_OVERRIDE_CLAMP_WARNED = False
-        return spike_override_kw
-    if not _SPIKE_OVERRIDE_CLAMP_WARNED:
-        _SPIKE_OVERRIDE_CLAMP_WARNED = True
-        _LOGGER.warning(
-            "Nimbus Solver: the price spike discharge rate (%.2f kW) is above "
-            "the live max-discharge ceiling (%.2f kW from %s) -- discharging "
-            "at the live ceiling instead. Logged once until the rate fits "
-            "again.",
-            spike_override_kw,
-            max_discharge_kw,
-            cfg.get("solver_max_discharge_live_entity"),
-        )
-    return max_discharge_kw
-
-
-def resolve_price_event_delta(
-    cfg: dict, grid_times: list[datetime]
-) -> list[float] | None:
-    """The per-period $/kWh delta from an armed price-event test sensor
-    (nimbus issue #1213, Mark Purcell), or None when the feature is off.
-
-    Simulates a real NEM Market Price Cap (LOR2/LOR3, $23.20/kWh) or a
-    Minimum System Load negative-price floor against the ACTUAL live
-    forecast, so dispatch behaviour around such an event can be watched
-    BEFORE one happens -- does the battery pre-charge ahead of the window,
-    does it recognise the extreme period is coming and revise earlier
-    commitments -- rather than only being explained afterwards.
-
-    Returns None (not a list of zeros) when the feature contributes
-    nothing, so the caller can skip the arithmetic entirely and a reader
-    of the log can tell "off" from "armed but flat".
-
-    Off means any of: the arm switch is off, no sensor configured, the
-    sensor missing or carrying no usable `forecast`, or every resolved
-    period landing at exactly 0.0.
-
-    **Step semantics, and the one place this deliberately differs from
-    every other price path here.** The `forecast` shape and the
-    hold-the-most-recent-point lookup are exactly
-    `resample_generic_price_forecast()`'s, which is the convention this
-    repo already proved and which #1213 asks for by name. But that
-    function resolves a PRICE, where holding the last value forward is
-    correct. This resolves a DELTA, where holding forward means **an event
-    that never ends**:
-
-    * Before the first point -> **0.0**, never backfilled. A price series
-      backfills because a price always exists; a delta before its own
-      first step-point is simply absent.
-    * After the last point -> held forward, same as any step function --
-      which is why the household must emit an explicit `0` point at the
-      end of each window to close it. That is the single real footgun in
-      this feature, so a non-zero final point gets a **WARNING naming it**
-      rather than being silently obeyed forever. Obeying it is still the
-      correct reading of a step function; being quiet about it is not.
-
-    Applied SYMMETRICALLY by the caller -- the same delta added to both
-    import and export -- because a real wholesale price event moves the
-    whole market, not one side of it.
-    """
-    if not bool(cfg.get("solver_price_event_enabled")):
-        return None
-    entity_id = cfg.get("solver_price_event_sensor")
-    if not entity_id or not grid_times:
-        return None
-
-    state = ha_get(entity_id)
-    if not isinstance(state, dict):
-        _LOGGER.warning(
-            "Nimbus #1213: price-event simulation is ARMED but its sensor "
-            "%r could not be read -- no delta applied this cycle. Either "
-            "point solver_price_event_sensor at a real sensor or turn "
-            "switch.nimbus_solver_price_event_enabled off.",
-            entity_id,
-        )
-        return None
-    forecast = (state.get("attributes") or {}).get("forecast")
-    if not isinstance(forecast, list) or not forecast:
-        _LOGGER.warning(
-            "Nimbus #1213: price-event simulation is ARMED but %s carries "
-            "no usable `forecast` attribute (expected a list of "
-            '{"time": <iso>, "value": <$/kWh>} step points) -- no delta '
-            "applied this cycle.",
-            entity_id,
-        )
-        return None
-
-    points: list[tuple[datetime, float]] = []
-    for row in forecast:
-        if not isinstance(row, dict):
-            continue
-        raw_time = row.get("time")
-        raw_value = row.get("value")
-        if raw_time is None or raw_value is None:
-            continue
-        try:
-            when = parse_iso(raw_time)
-            value = float(raw_value)
-        except (TypeError, ValueError, AttributeError):
-            # One unparseable row must not discard a whole armed window.
-            continue
-        points.append((when, value))
-    if not points:
-        _LOGGER.warning(
-            "Nimbus #1213: price-event simulation is ARMED but none of "
-            "%s's %d forecast rows parsed into a (time, value) step point "
-            "-- no delta applied this cycle.",
-            entity_id,
-            len(forecast),
-        )
-        return None
-    points.sort(key=lambda p: p[0])
-
-    # The footgun, named rather than obeyed silently. A step function's
-    # last value holds forever, so a window that does not end with an
-    # explicit 0 point distorts every future solve, not just the test.
-    if abs(points[-1][1]) > 0.0:
-        _LOGGER.warning(
-            "Nimbus #1213: %s's LAST step point is %+.4f $/kWh at %s, not "
-            "0. A step value holds forward indefinitely, so this event "
-            "never closes and will keep shifting BOTH import and export "
-            'prices on every future solve. Add a trailing {"time": '
-            '<window end>, "value": 0} point to close the window.',
-            entity_id,
-            points[-1][1],
-            points[-1][0].isoformat(),
-        )
-
-    deltas: list[float] = []
-    idx = 0
-    for when in grid_times:
-        # Advance to the last point at or before this period.
-        while idx + 1 < len(points) and points[idx + 1][0] <= when:
-            idx += 1
-        if points[idx][0] > when:
-            # Before the first step point -- absent, not backfilled.
-            deltas.append(0.0)
-        else:
-            deltas.append(points[idx][1])
-
-    if not any(abs(d) > 0.0 for d in deltas):
-        _LOGGER.debug(
-            "Nimbus #1213: price-event simulation armed, but %s's own "
-            "windows do not overlap this solve's horizon -- no delta "
-            "applied (a clean no-op, not a fault).",
-            entity_id,
-        )
-        return None
-
-    affected = sum(1 for d in deltas if abs(d) > 0.0)
-    _LOGGER.warning(
-        "Nimbus #1213: price-event simulation ACTIVE from %s -- %+.4f to "
-        "%+.4f $/kWh applied to BOTH import and export across %d of %d "
-        "periods. This is a what-if test, not a real market price: the "
-        "plan, the offer curve and every published cost this cycle reflect "
-        "the simulated event. Turn "
-        "switch.nimbus_solver_price_event_enabled off to return to real "
-        "prices.",
-        entity_id,
-        min(deltas),
-        max(deltas),
-        affected,
-        len(deltas),
-    )
-    return deltas
-
-
 def provider_forecast_until(
     real_mask: object, grid_times: list[datetime]
 ) -> str | None:
@@ -1856,64 +1577,6 @@ def provider_forecast_until(
 AMBER_SPOT_PATH = os.environ.get(
     "NIMBUS_SOLVER_AMBER_SPOT_PATH", "/opt/nimbus_solver_amber_spot.json"
 )
-# compute_5min_offset() reads 5 days of retail history; keep as many.
-_AMBER_SPOT_KEEP_INTERVALS = 5 * 288
-_AMBER_SPOT_CACHE: dict[str, float] | None = None
-
-
-def _load_amber_spot() -> dict[str, float]:
-    global _AMBER_SPOT_CACHE
-    if _AMBER_SPOT_CACHE is None:
-        try:
-            with open(AMBER_SPOT_PATH, encoding="utf-8") as f:
-                data = json.load(f)
-            _AMBER_SPOT_CACHE = {
-                str(k): float(v)
-                for k, v in (data.items() if isinstance(data, dict) else [])
-            }
-        except (OSError, ValueError, TypeError):
-            _AMBER_SPOT_CACHE = {}
-    return _AMBER_SPOT_CACHE
-
-
-def collect_amber_spot(entity_ids, now: datetime) -> dict[int, tuple[datetime, float]]:
-    """nimbus #1698: record the in-progress interval's Amber Express wholesale
-    (`spot_per_kwh` / 1.10) from the first of `entity_ids` that carries one,
-    and return every interval collected, as compute_5min_offset()'s
-    `same_poll_wholesale`. Empty for an install without Amber Express. Never
-    raises: a failed read or write only means fewer pairs."""
-    store = _load_amber_spot()
-    for entity_id in entity_ids:
-        if not entity_id:
-            continue
-        try:
-            detailed = (ha_get(entity_id).get("attributes") or {}).get(
-                price_intervals.AMBER_EXPRESS_DETAILED_KEY
-            )
-        except Exception as e:  # noqa: BLE001 - a missing sensor is not an error here
-            _LOGGER.debug("Nimbus #1698: no Amber spot from %s: %s", entity_id, e)
-            continue
-        found = price_intervals.amber_spot_in_progress(detailed, now)
-        if found is None:
-            continue
-        start, spot = found
-        key = str(int(start.timestamp()) // 300)
-        if store.get(key) != spot:
-            store[key] = spot
-            newest = int(key)
-            for old in [
-                k for k in store if int(k) <= newest - _AMBER_SPOT_KEEP_INTERVALS
-            ]:
-                del store[old]
-            try:
-                with open(AMBER_SPOT_PATH, "w", encoding="utf-8") as f:
-                    json.dump(store, f)
-            except OSError:
-                pass
-        break
-    return {
-        int(k): (datetime.fromtimestamp(int(k) * 300, UTC), v) for k, v in store.items()
-    }
 
 
 # nimbus #1786 (Mark Purcell): a consolidated price forecast and each source's
@@ -1923,10 +1586,6 @@ PRICE_CONSOLIDATION_PATH = os.environ.get(
     "NIMBUS_SOLVER_PRICE_CONSOLIDATION_PATH",
     "/opt/nimbus_solver_price_consolidation.json",
 )
-_PRICE_CONSOLIDATION_CACHE: dict[str, price_consolidation.SourceErrorTracker] | None = (
-    None
-)
-_PRICE_CONSOLIDATION_FAILED_LOGGED = False
 
 # nimbus issue #1807: the solar forecast's actual/p50 history by lead, from
 # which the calibrated p10/p90 are built (solver_inputs/solar_quantiles.py).
@@ -1948,237 +1607,6 @@ PRICE_ERROR_HISTORY_PATH = os.environ.get(
 )
 _PRICE_ERROR_HISTORY_CACHE: price_error_history.PriceErrorHistory | None = None
 _PRICE_ERROR_HISTORY_SAVED_AT: datetime | None = None
-
-
-def _load_price_trackers() -> dict[str, price_consolidation.SourceErrorTracker]:
-    global _PRICE_CONSOLIDATION_CACHE
-    if _PRICE_CONSOLIDATION_CACHE is None:
-        data: dict = {}
-        try:
-            with open(PRICE_CONSOLIDATION_PATH, encoding="utf-8") as f:
-                loaded = json.load(f)
-            if isinstance(loaded, dict):
-                data = loaded
-        except (OSError, ValueError, TypeError):
-            data = {}
-        _PRICE_CONSOLIDATION_CACHE = {
-            side: price_consolidation.SourceErrorTracker.from_dict(data.get(side))
-            for side in ("import", "export")
-        }
-    return _PRICE_CONSOLIDATION_CACHE
-
-
-def _save_price_trackers(
-    trackers: dict[str, price_consolidation.SourceErrorTracker],
-) -> None:
-    try:
-        with open(PRICE_CONSOLIDATION_PATH, "w", encoding="utf-8") as f:
-            json.dump({side: t.to_dict() for side, t in trackers.items()}, f)
-    except OSError:
-        pass
-
-
-def _follow_price_sources(trackers: dict, cfg: dict) -> bool:
-    """Each side's tracker forgets a slot whose sensor has changed, so the new
-    sensor starts with no score or offset. True when any slot was forgotten."""
-    forgotten = False
-    for side, tracker in trackers.items():
-        current = {
-            "primary": cfg.get(f"solver_{side}_price_sensor"),
-            "secondary_2": cfg.get(f"solver_{side}_price_sensor_2"),
-            "secondary_3": cfg.get(f"solver_{side}_price_sensor_3"),
-        }
-        forgotten = bool(tracker.follow_sources(current)) or forgotten
-    return forgotten
-
-
-def _consolidation_sources(
-    cfg: dict,
-    grid_times: list[datetime],
-    side: str,
-    primary: list[float],
-    prices: object,
-) -> dict[str, list[float | None]]:
-    """Each price source's own $/kWh series on the plan grid for `side`
-    ("import"/"export"), None where that source has no real coverage. The
-    primary is its pre-blend series."""
-    primary_mask = getattr(prices, f"{side}_real_mask", None)
-    secondary_keys = (f"solver_{side}_price_sensor_2", f"solver_{side}_price_sensor_3")
-    aemo_series = getattr(prices, f"aemo_{side}_series", None)
-    mask = primary_mask if primary_mask is not None else [True] * len(primary)
-    out: dict[str, list[float | None]] = {
-        "primary": [
-            float(v) if (i < len(mask) and mask[i]) else None
-            for i, v in enumerate(primary)
-        ]
-    }
-    for n, key in enumerate(secondary_keys, start=2):
-        entity_id = cfg.get(key)
-        if not entity_id:
-            continue
-        r = price_blend.resample_generic_price_forecast_with_coverage(
-            entity_id, grid_times
-        )
-        if r is not None:
-            fc, m = r
-            out[f"secondary_{n}"] = [
-                float(v) if m[i] else None for i, v in enumerate(fc)
-            ]
-    if aemo_series is not None and any(v is not None for v in aemo_series):
-        out[getattr(prices, "aemo_source", "aemo_markup")] = list(aemo_series)
-    return out
-
-
-def _loss_factor(prices: object) -> dict:
-    """nimbus #1786: the site's loss factors for the plan's attribute, when its
-    codes are configured; empty otherwise."""
-    lf = getattr(prices, "loss_factor", None)
-    return {"loss_factor": lf} if lf else {}
-
-
-# nimbus #2190: kept across cycles, so a source that stays put while two
-# others move is seen.
-_RRP_STALE_WATCH = rrp_crosscheck.StaleWatch()
-
-
-def rrp_crosscheck_report(cfg: dict, now: datetime) -> dict | None:
-    """nimbus #2190 (Mark Purcell's design): every price source the
-    household lists for comparison, plus the regional AEMO sensors, brought
-    back to the RRP and compared per interval, current and future. A report
-    only: no price, plan or dispatch reads it. None when fewer than two
-    sources are configured."""
-    entity_ids = [
-        e
-        for e in (
-            cfg.get("solver_regional_spot_current_price_sensor"),
-            cfg.get("solver_regional_spot_forecast_sensor"),
-            *(cfg.get("solver_price_comparison_sensors") or []),
-        )
-        if e
-    ]
-    entity_ids = list(dict.fromkeys(entity_ids))
-    if len(entity_ids) < 2:
-        return None
-    tni, dlf_code = price_inputs._loss_factor_codes(sys.modules[__name__], cfg)
-    site_factor = price_inputs.loss_factors.site_factor(tni, dlf_code, now).value
-    reads = []
-    ages: dict[str, str | None] = {}
-    for entity_id in entity_ids:
-        try:
-            st = ha_get(entity_id)
-        except Exception as e:  # noqa: BLE001 - an unreadable source is reported, not fatal
-            _LOGGER.debug("Nimbus #2190: %s unreadable: %s", entity_id, e)
-            st = {}
-        ages[entity_id] = rrp_crosscheck.as_of(st)
-        reads.append(
-            rrp_crosscheck.read_source(
-                entity_id, st.get("state"), st.get("attributes"), site_factor, now
-            )
-        )
-    return rrp_crosscheck.report(
-        reads, _RRP_STALE_WATCH.update(reads), site_factor, ages
-    )
-
-
-def apply_price_consolidation(
-    cfg: dict,
-    now: datetime,
-    grid_times: list[datetime],
-    period_hours: list[float],
-    n_settled_periods: int,
-    prices: object,
-    spot_import_source: list[float],
-    spot_export_source: list[float],
-    settled_import: float | None,
-    settled_export: float | None,
-    spot_import_raw: list[float],
-    spot_export: list[float],
-    import_price_source: list[str],
-    export_price_source: list[str],
-) -> dict | None:
-    """nimbus #1786: both sides' consolidated series and running error; live, the
-    future scheduling prices are replaced (never the settled block). Never raises."""
-    global _PRICE_CONSOLIDATION_FAILED_LOGGED
-    try:
-        pc = price_consolidation
-        ctx = (now, grid_times, period_hours, n_settled_periods)
-        live = bool(cfg.get("solver_price_consolidation_live", False))
-        trackers = _load_price_trackers()
-        spike = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)  # #1786: keep spikes
-        result: dict = {"mode": "live" if live else "shadow", **_loss_factor(prices)}
-        scored = _follow_price_sources(trackers, cfg)  # True: save below
-        series_by_side: dict[str, dict[str, list[float | None]]] = {}
-        for side, primary, settled in (
-            ("import", spot_import_source, settled_import),
-            ("export", spot_export_source, settled_export),
-        ):
-            series = _consolidation_sources(cfg, grid_times, side, primary, prices)
-            series_by_side[side] = series
-            out = pc.consolidate_side(trackers[side], series, *ctx, settled, spike)
-            values, result[side], side_scored = out
-            result[f"consolidated_{side}_price"] = values
-            scored = scored or side_scored
-        result["error_history"] = _record_price_errors(
-            cfg, ctx, series_by_side, result, settled_import, settled_export
-        )
-        if live:
-            for side, target, labels in (
-                ("import", spot_import_raw, import_price_source),
-                ("export", spot_export, export_price_source),
-            ):
-                pc.replace_future(
-                    result[f"consolidated_{side}_price"],
-                    target,
-                    labels,
-                    n_settled_periods,
-                )
-        if scored:
-            _save_price_trackers(trackers)
-        return result
-    except Exception as e:  # noqa: BLE001 -- a shadow measurement must never break a solve
-        if not _PRICE_CONSOLIDATION_FAILED_LOGGED:
-            _PRICE_CONSOLIDATION_FAILED_LOGGED = True
-            _LOGGER.warning("Nimbus #1786: price consolidation failed: %s", e)
-        return None
-
-
-def _with_consolidated(
-    series_by_side: dict[str, dict[str, list[float | None]]], result: dict
-) -> dict[str, dict[str, list[float | None]]]:
-    """#1786: each side's sources plus the consolidated forecast, so the
-    shadow history scores it beside them and answers "consolidated or the
-    primary alone?" directly, by lead, before anyone turns it on."""
-    return {
-        side: {
-            **series,
-            **(
-                {"consolidated": result[f"consolidated_{side}_price"]}
-                if result.get(f"consolidated_{side}_price") is not None
-                else {}
-            ),
-        }
-        for side, series in series_by_side.items()
-    }
-
-
-def _record_price_errors(
-    cfg: dict,
-    ctx: tuple,
-    series_by_side: dict[str, dict[str, list[float | None]]],
-    result: dict,
-    settled_import: float | None,
-    settled_export: float | None,
-) -> dict:
-    """nimbus #1797: the consolidation's own series and settled prices,
-    kept as signed pairs for price scenarios (price_error_history.py).
-    Recorded only; nothing reads it yet. Never raises."""
-    return price_error_history.update(
-        sys.modules[__name__],
-        cfg,
-        *ctx,
-        _with_consolidated(series_by_side, result),
-        {"import": settled_import, "export": settled_export},
-    )
 
 
 def load_previous_plan() -> network.Plan | None:
@@ -3045,80 +2473,6 @@ def _safe_fromisoformat(value: str) -> datetime | None:
         return None
 
 
-def compute_tariff_attributed_cost(
-    adequacy_loads: list,
-    grid_to_load_kw: NDArray[np.float64],
-    whole_house_load_kw: NDArray[np.float64] | list[float],
-    import_price: NDArray[np.float64] | list[float],
-    period_hours: NDArray[np.float64] | list[float],
-) -> dict[str, float]:
-    """Nimbus issue #483 (sub-issue 7 of #476), item 2 -- "the device's
-    share of the plan's actual grid flow, pro-rata by the device's power
-    in each period." Item 1 (marginal_cost, the LP's own shadow-price-
-    based figure) shipped in #483's first pass (v0.94.271) inside
-    network.py itself, since it's a genuine LP-native quantity (reads
-    the solve's own duals). This one is deliberately NOT computed
-    there -- it's a pure post-processing ATTRIBUTION over the already-
-    solved flow decomposition (_flow_decomposition(), a solver_writer.py-
-    level function with no LP/dual concept at all), not a property the
-    LP solve itself produces.
-
-    Same "Grid -> Load = -import_price (pure cost)" pricing convention
-    _compute_flow_economics()'s own shadow-price table already
-    documents -- this attributes exactly that flow's real dollar cost,
-    split pro-rata across every configured adequacy (deferrable) load
-    by its own share of the whole house's real per-period load. A
-    period with zero whole-house load has nothing to attribute (0.0
-    contribution, not a division-by-zero crash).
-
-    Honest scope, stated directly rather than left implicit: this
-    covers every ADEQUACY (deferrable) load, matching marginal_cost's
-    own existing scope -- sheddable/thermal loads don't get this
-    figure in this pass, same "kept consistent with what's already
-    shipped, not silently expanded" reasoning #774 itself used for
-    kind=thermal's own reset of plan_marginal_cost/plan_profit_horizon
-    to None.
-
-    Real-world reconciliation caveat, spelled out per #483's own
-    acceptance criterion ("sums to the plan's grid cost within
-    rounding"): this holds EXACTLY only when grid_to_load accounts for
-    the entire grid_net cost -- i.e. no grid-sourced battery charging,
-    no export, and every real watt of whole-house load belongs to a
-    configured adequacy load (the clean synthetic-day shape the issue's
-    own Acceptance section describes). On a real household with
-    uncontrolled background circuits (lighting, fridge, etc. -- not
-    configured as a Controllable Load at all) or any grid export/
-    charging in the same window, the sum of every device's own
-    attributed cost is a real, honest PARTIAL answer (exactly what the
-    tracked devices cost), not a claim that it reconciles to the full
-    grid_net figure -- the untracked remainder is real cost this
-    function has no device to attribute it to.
-    """
-    result: dict[str, float] = {}
-    n = min(
-        len(grid_to_load_kw),
-        len(whole_house_load_kw),
-        len(import_price),
-        len(period_hours),
-    )
-    for al in adequacy_loads:
-        if al.subentry_id is None:
-            continue
-        power = np.asarray(al.power_kw, dtype=np.float64)
-        cost = 0.0
-        for t in range(min(n, len(power))):
-            house_load = float(whole_house_load_kw[t])
-            if house_load <= 1e-9:
-                continue
-            share = float(power[t]) / house_load
-            device_grid_to_load_kw = share * float(grid_to_load_kw[t])
-            cost += (
-                device_grid_to_load_kw * float(import_price[t]) * float(period_hours[t])
-            )
-        result[al.subentry_id] = cost
-    return result
-
-
 #: nimbus issue #937 item 4. Stable key set, same reason `_FORECAST_REGRET_KEYS`
 #: and `_NOWCAST_SKILL_KEYS` are stable: a consumer must never see a key appear
 #: and vanish between cycles (#589).
@@ -3879,7 +3233,7 @@ def main() -> None:
     # switch.nimbus_solver_price_consolidation_live is on, which replaces the
     # future periods' scheduling prices; the settled block is never touched,
     # and the P5MIN guard below still runs after it.
-    price_consolidation_result = apply_price_consolidation(
+    price_consolidation_result = price_inputs.apply_price_consolidation(
         cfg,
         now,
         grid_times,
@@ -3897,7 +3251,7 @@ def main() -> None:
         export_price_source,
     )
 
-    rrp_crosscheck_result = rrp_crosscheck_report(cfg, now)
+    rrp_crosscheck_result = price_inputs.rrp_crosscheck_report(cfg, now)
 
     # nimbus #1778 (Mark Purcell): while the P5MIN false-spike flag holds,
     # forward spikes in the SCHEDULING prices -- whatever the source, after
@@ -4004,8 +3358,8 @@ def main() -> None:
     # band sitting around the un-shifted price.
     #
     # None (the overwhelmingly common case: switch off, or no sensor) skips
-    # every line of this. See resolve_price_event_delta().
-    _price_event_delta = resolve_price_event_delta(cfg, grid_times)
+    # every line of this. See price_inputs.resolve_price_event_delta().
+    _price_event_delta = price_inputs.resolve_price_event_delta(cfg, grid_times)
     if _price_event_delta is not None:
         import_price = [p + d for p, d in zip(import_price, _price_event_delta)]
         export_price = [p + d for p, d in zip(export_price, _price_event_delta)]
@@ -4067,15 +3421,15 @@ def main() -> None:
     initial_soc_kwh = _soc_envelope.initial_soc_kwh
     charge_discharge_efficiency = _soc_envelope.charge_discharge_efficiency
     # nimbus issue #567 (issue #694: now wins over P2P, see
-    # resolve_price_spike_override()'s own docstring): real-time "sell
+    # price_inputs.resolve_price_spike_override()'s own docstring): real-time "sell
     # into a price spike, right now" override. spike_detected is
     # published below regardless of whether spike_override_kw ends up
     # armed/active, so the dashboard's own "$$$" visibility signal fires
     # purely on detection.
-    spike_override_kw, price_spike_active = resolve_price_spike_override(
+    spike_override_kw, price_spike_active = price_inputs.resolve_price_spike_override(
         cfg, import_price[0]
     )
-    spike_override_kw = clamp_spike_override_to_live_ceiling(
+    spike_override_kw = price_inputs.clamp_spike_override_to_live_ceiling(
         cfg, spike_override_kw, max_discharge_kw
     )
     # nimbus issue #1303 (spec 004, Phase 4 of #1298): the 244-line plan-
@@ -4157,7 +3511,7 @@ def main() -> None:
         )
         for i in range(n_periods)
     ]
-    tariff_attributed_cost_by_subentry = compute_tariff_attributed_cost(
+    tariff_attributed_cost_by_subentry = price_inputs.compute_tariff_attributed_cost(
         plan.adequacy_loads,
         np.array([f["grid_to_load"] for f in _flow_decomp_for_tariff]),
         load_kw,
