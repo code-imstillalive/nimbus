@@ -176,7 +176,7 @@ def test_the_discharge_cost_follows_its_first_matching_active_block(
         assert out["load_nowcast_skill_reason"] == "no_forecast_trail"
         assert all(
             out[k] is None
-            for k in sw._NOWCAST_SKILL_KEYS
+            for k in quality_reports._NOWCAST_SKILL_KEYS
             if k != "load_nowcast_skill_reason"
         )
         trail = [(t, 1.0) for t in _grid(4)]
@@ -257,7 +257,11 @@ def _nowcast(monkeypatch, *, trail, prev, result, n=4, solar=None):
 
     def history(entity_id, start, end):
         reads.append((entity_id, start, end))
-        return trail if entity_id == sw._LOAD_NOWCAST_TRAIL_ENTITY_ID else prev
+        return (
+            trail
+            if entity_id == quality_reports._LOAD_NOWCAST_TRAIL_ENTITY_ID
+            else prev
+        )
 
     monkeypatch.setattr(sw, "fetch_entity_history_range", history)
     got = {}
@@ -268,7 +272,7 @@ def _nowcast(monkeypatch, *, trail, prev, result, n=4, solar=None):
 
     monkeypatch.setattr(sw.nowcast_skill, "compute_load_nowcast_skill", compute)
     grid = _grid(n)
-    out = sw._load_nowcast_skill_attributes(
+    out = quality_reports._load_nowcast_skill_attributes(
         load_sensor="sensor.house",
         load_scale=0.001,
         grid_times=grid,
