@@ -197,6 +197,9 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # Home Assistant Repair. A cron process has no Repairs to raise.
         "failed_streak",
         "_note_plan_outcome",
+        # #2289 item 5, B.2b: the one native recorder read; the cron copy
+        # reads history over REST.
+        "native_state_changes",
         # nimbus #1797: these serve Home Assistant readers only -- the
         # response-only nimbus_load.get_stochastic_summary service, and the
         # decision-input capture / diagnostics download reading this
