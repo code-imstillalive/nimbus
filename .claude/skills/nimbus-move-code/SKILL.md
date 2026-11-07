@@ -102,6 +102,21 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
   `ignore_imports` entry unmatched, which fails. Remove the entry and lower
   `_EXPECTED_IGNORED_IMPORT_COUNT` in `tests/test_import_linter_contract.py`.
 
+## Merging stacked moves
+
+- **Resolve each hunk by intent.** For a function this step moved, keep the
+  deletion. For a nit fixed on `main`, keep `main`'s side. Then confirm with
+  `ast` that no moved function still exists in the old module.
+- **The size ratchet:** when `tests/gates/size_ratchet.py` is itself in
+  conflict, its script cannot run. Resolve every other file first, take the
+  baseline from a live count
+  (`python tests/gates/size_ratchet.py --baseline-count 99 <file>`), and only
+  then write the number into both ratchet files. Check the result with
+  `git diff origin/main -- tests/test_gates_size_ratchet.py`: only the two
+  lines with the number should change.
+- **Afterwards:** grep for `<<<<<<<`/`>>>>>>>` in every touched file before
+  committing.
+
 ## 6. The PR
 
 - **One group per PR.** State what moved, what stayed and why, the callers
