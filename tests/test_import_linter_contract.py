@@ -93,7 +93,7 @@ _REPO_ROOT = os.path.dirname(_HERE)
 # which is Phase 7b's job (`ha_bridge`) and not any earlier phase's. When a
 # future phase fixes one for real, lower this along with the pyproject.toml
 # entry it counts.
-_EXPECTED_IGNORED_IMPORT_COUNT = 15
+_EXPECTED_IGNORED_IMPORT_COUNT = 17
 
 
 def _run_lint_imports() -> subprocess.CompletedProcess[str]:

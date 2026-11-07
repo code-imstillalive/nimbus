@@ -1329,7 +1329,7 @@ def _compute_report_for_window(
     # stop the battery responding to a load-forecast difference at all and
     # so mask the very thing being measured. Costs two extra LP solves,
     # paid once per day behind this function's own latest_date fast path.
-    nowcast_skill_attrs = sw._load_nowcast_skill_attributes(
+    nowcast_skill_attrs = _load_nowcast_skill_attributes(
         load_sensor=load_sensor,
         load_scale=load_scale,
         grid_times=grid_times,
@@ -1349,7 +1349,7 @@ def _compute_report_for_window(
     # Same fast path protects it: two extra LP solves, paid once per day
     # behind this function's own latest_date check, and only when a snapshot
     # for the scored day actually exists.
-    forecast_regret_attrs = sw._day_ahead_forecast_regret_attributes(
+    forecast_regret_attrs = _day_ahead_forecast_regret_attributes(
         solar_sensor=solar_sensor,
         solar_scale=solar_scale,
         load_sensor=load_sensor,
@@ -3025,6 +3025,436 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             **day_entry,
         },
     )
+
+
+# --- moved from solver_writer.py (#2289 item 6, step 7b part 2): the nowcast and regret attributes ---
+
+
+_LOAD_NOWCAST_TRAIL_ENTITY_ID = (
+    "sensor.nimbus_solver_load_whole_house_cross_check_now_kw"
+)
+"""The recorded forecast trail #919 reads back -- deliberately NOT
+`sensor.nimbus_household_load_total_forecast`.
+
+That sensor's state is `round(load_kw[0], 3)`, and `solver_inputs/
+load.py` overwrites `load_kw[0]` with the live cross-check reading right
+before the publish (#429's anchor). The cross-check sensor is the same
+one this function uses as its real-load ground truth, so that trail is
+the ground truth echoed back -- confirmed live, agreeing to the cent on
+every row of three hours of history. It would have published
+near-perfect skill on every install, forever.
+
+This entity carries `whole_house_now_kw`, snapshotted BEFORE the anchor
+precisely so #429's cross-check compares two genuine forecasts. It is
+the forecast OF the ground-truth sensor, which is exactly the pairing a
+skill measurement wants. See solver/nowcast_skill.py's own docstring.
+"""
+
+
+_NOWCAST_SKILL_KEYS = (
+    "load_nowcast_skill_j_star",
+    "load_nowcast_skill_j_forecast",
+    "load_nowcast_skill_j_persistence",
+    "load_nowcast_skill_value_add_dollars",
+    "load_nowcast_skill_coverage",
+    "load_nowcast_skill_periods_measured",
+    # nimbus issue #1176: WHY every other key is None, when they are.
+    #
+    # Same shape as #1162's `epr_reason`, and the same defect it fixes: a
+    # diagnostic that goes silent without saying which gate closed. Every
+    # one of the three blank paths below was DEBUG-only, and the third
+    # line covered two genuinely different causes at once ("Only %d of %d
+    # periods ... or a scenario solve failed"), so even with DEBUG on a
+    # reader could not separate them.
+    #
+    # null when the skill computed.
+    "load_nowcast_skill_reason",
+)
+
+
+# nimbus issue #937. The DAY-AHEAD decomposition, as distinct from #919's
+# one-step-ahead nowcast skill above -- that issue is explicit that the two
+# are not comparable ("a nowcast is a much easier problem").
+#
+# Stable key set for the same reason the nowcast one is: a consumer must never
+# see a key appear and vanish between windows (#589).
+_FORECAST_REGRET_KEYS = (
+    "forecast_regret_j_star",
+    "forecast_regret_j_forecast",
+    "forecast_regret_j_persistence",
+    "forecast_regret_dollars",
+    "forecast_regret_persistence_dollars",
+    "forecast_regret_nimbus_value_add_dollars",
+    # The three-way ATTRIBUTION. #937's own text assumes the load
+    # forecaster is the dominant error term; forecast_regret.py's own
+    # docstring answers that assumption directly -- "Published
+    # deliberately, because #937 assumes the load forecaster is the
+    # dominant term and nobody has checked. If this dominates, the issue
+    # is chasing the wrong forecaster." Publishing the headline dollars
+    # without these would ship the metric and leave the question it exists
+    # to settle unanswered.
+    #
+    # All three are None together when the level split is undefined (a
+    # forecast summing to under 1% of the real day has no usable shape to
+    # rescale -- #1072). None, not 0.0: a fabricated zero reads as "no
+    # level error", which is the confident-wrong-number failure that
+    # function's own comments say it exists to prevent.
+    "forecast_regret_load_level_error_dollars",
+    "forecast_regret_load_shape_error_dollars",
+    "forecast_regret_solar_error_dollars",
+    "forecast_regret_snapshot_captured_at",
+    "forecast_regret_reason",
+)
+
+
+def _day_ahead_forecast_regret_attributes(
+    *,
+    solar_sensor: str,
+    solar_scale: float,
+    load_sensor: str,
+    load_scale: float,
+    grid_times: list[datetime],
+    period_hours: float,
+    periods,
+    grid,
+    battery,
+    solar_real_kw,
+    load_real_kw,
+    day_start: datetime,
+    day_end: datetime,
+) -> dict:
+    """Score what the DAY-AHEAD forecast was worth (nimbus issue #937).
+
+    Three scenarios over one identical LP: perfect foresight (`j_star`), a
+    plan built from what the forecast actually SAID the night before
+    (`j_forecast`), and one built from naive persistence (`j_persistence`).
+    `nimbus_value_add_dollars = j_persistence - j_forecast`, so a positive
+    number means the forecast produced a genuinely cheaper real outcome than
+    assuming today looks like yesterday.
+
+    #937 measured **-$0.71/day** over 14 days on the reference household --
+    persistence winning on 11 of 14 -- and then the series stopped, because
+    the decomposition is assembled only in the standalone cron writer. This
+    is the native equivalent, and the first time any HACS install can
+    produce the number at all.
+
+    **A missing snapshot returns None values and a reason, never zeros.** A
+    zero-filled forecast scores as one that confidently predicted darkness
+    and no load -- the worst forecast possible -- when the truth is that
+    there is nothing to judge. Same contract `resample_snapshot_to_grid()`
+    and the standalone `load_forecast_snapshot()` both state, and the reason
+    this function has six distinct `reason` strings rather than one.
+
+    Persistence is the PREVIOUS calendar day's real solar and load, read on
+    that day's own grid and shifted forward 24 h -- identical in shape to
+    `_load_nowcast_skill_attributes()`'s own baseline, so the two numbers
+    differ only in the forecast they judge, not in what they judge it
+    against.
+
+    Takes the sensors and their scale factors already resolved by the
+    caller rather than re-reading `cfg`: which entity counts as "the real
+    load" is a decision `_compute_report_for_window()` has already made,
+    and making it twice is how the two halves of one report drift apart.
+    Uses `fetch_entity_history_range()` + `_kw_scale_factor`, not
+    `fetch_entity_power_history_kw()`, whose own docstring states it is
+    deliberately scoped to a single caller because preserving per-row
+    attributes makes a full-day recorder read materially heavier.
+    """
+    blank = dict.fromkeys(_FORECAST_REGRET_KEYS)
+
+    try:
+        from ..forecast_snapshot_store import get_cached_snapshot
+        from ..solver_inputs.forecast_snapshot import (
+            day_key_for,
+            resample_snapshot_to_grid,
+        )
+    except ImportError:
+        # Standalone/cron path: no Store and no cache to prime one. Not an
+        # error -- that copy assembles its own decomposition from its own
+        # on-disk snapshot, which is the very asymmetry #937 is about.
+        return {**blank, "forecast_regret_reason": "native_only"}
+
+    snapshot = get_cached_snapshot(day_key_for(day_start))
+    if not snapshot:
+        # The ordinary state of every install for its first day, and of any
+        # install that restarted before its first solve of a day. Named
+        # distinctly so it is not read as a failure.
+        return {**blank, "forecast_regret_reason": "no_forecast_snapshot_for_this_day"}
+
+    resampled = resample_snapshot_to_grid(snapshot, grid_times)
+    if resampled is None:
+        return {**blank, "forecast_regret_reason": "snapshot_unusable_for_this_grid"}
+    solar_forecast_kw, load_forecast_kw = resampled
+
+    shift = timedelta(hours=24)
+    solar_prev_hist = _solver_writer().fetch_entity_history_range(
+        solar_sensor, day_start - shift, day_end - shift
+    )
+    load_prev_hist = _solver_writer().fetch_entity_history_range(
+        load_sensor, day_start - shift, day_end - shift
+    )
+    if not solar_prev_hist or not load_prev_hist:
+        return {**blank, "forecast_regret_reason": "previous_day_history_unavailable"}
+
+    solar_persistence_kw = _solver_writer().resample_history_mean(
+        [(t + shift, v * solar_scale) for t, v in solar_prev_hist],
+        grid_times,
+        period_hours,
+    )
+    load_persistence_kw = _solver_writer().resample_history_mean(
+        [(t + shift, v * load_scale) for t, v in load_prev_hist],
+        grid_times,
+        period_hours,
+    )
+    if not any(load_persistence_kw):
+        # An all-zero persistence baseline is not a baseline. It would make
+        # the forecast look arbitrarily good by comparison, which is the
+        # exact direction of error this metric exists to detect -- so it is
+        # refused rather than published as a flattering number.
+        return {**blank, "forecast_regret_reason": "no_persistence_baseline"}
+
+    try:
+        from ..solver.forecast_regret import compute_forecast_regret
+
+        fr = compute_forecast_regret(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar_real_kw=np.array(solar_real_kw),
+            load_real_kw=np.array(load_real_kw),
+            solar_forecast_kw=np.array(solar_forecast_kw),
+            load_forecast_kw=np.array(load_forecast_kw),
+            solar_persistence_kw=np.array(solar_persistence_kw),
+            load_persistence_kw=np.array(load_persistence_kw),
+        )
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+        # Four extra LP solves. A diagnostic must never take the EPR path
+        # down with it -- #366/#373's "degrade, never wedge", the same
+        # posture the nowcast helper above takes.
+        solver_shared._LOGGER.debug(
+            "Nimbus quality: day-ahead forecast-regret decomposition failed",
+            exc_info=True,
+        )
+        return {**blank, "forecast_regret_reason": "decomposition_solve_failed"}
+
+    def _maybe(value: float | None) -> float | None:
+        """Round a dollar figure, or keep None as None.
+
+        `round(None, 4)` raises, and an attribution term is legitimately
+        absent whenever the level split is undefined -- so this is the
+        difference between publishing "we could not attribute this" and
+        crashing the whole quality report on an install whose forecast
+        read as near-zero for a day.
+        """
+        return None if value is None else round(value, 4)
+
+    return {
+        "forecast_regret_j_star": round(fr.j_star, 4),
+        "forecast_regret_j_forecast": round(fr.j_forecast, 4),
+        "forecast_regret_j_persistence": round(fr.j_persistence, 4),
+        "forecast_regret_dollars": round(fr.forecast_regret_dollars, 4),
+        "forecast_regret_persistence_dollars": round(fr.persistence_regret_dollars, 4),
+        "forecast_regret_nimbus_value_add_dollars": round(
+            fr.nimbus_value_add_dollars, 4
+        ),
+        # Path-dependent by construction, and worth stating rather than
+        # hiding: corrections apply level -> shape -> solar, so where two
+        # errors interact the interaction lands in the later term. A
+        # symmetric Shapley attribution would need 2^3 solves for a
+        # diagnostic. The ordering matches the question -- level first,
+        # because a biased forecaster is biased at every horizon and is the
+        # cheaper thing to rule out.
+        "forecast_regret_load_level_error_dollars": _maybe(fr.load_level_error_dollars),
+        "forecast_regret_load_shape_error_dollars": _maybe(fr.load_shape_error_dollars),
+        "forecast_regret_solar_error_dollars": _maybe(fr.solar_error_dollars),
+        # Published so a consumer can tell a true post-midnight capture from
+        # a post-restart one that had already seen part of the day it
+        # forecasts, and so flatters itself. Without this the number looks
+        # equally trustworthy either way.
+        "forecast_regret_snapshot_captured_at": snapshot.get("captured_at"),
+        "forecast_regret_reason": None,
+    }
+
+
+def _load_nowcast_skill_attributes(
+    *,
+    load_sensor: str,
+    load_scale: float,
+    grid_times: list[datetime],
+    period_hours: float,
+    periods,
+    grid,
+    battery,
+    solar_real_kw,
+    load_real_kw,
+    day_start: datetime,
+    day_end: datetime,
+) -> dict:
+    """Recover the forecast trail from recorder history and score this
+    window's one-step-ahead load-forecast skill (nimbus issue #919).
+
+    Always returns every key in `_NOWCAST_SKILL_KEYS`, with None values
+    when the skill could not be computed -- a stable attribute set, so a
+    consumer never sees a key appear and vanish between windows (#589's
+    own "empty attributes for one cycle" lesson).
+
+    Persistence is same-time-yesterday from the REAL load sensor's own
+    history, shifted forward 24 h onto this window's grid. That needs no
+    new storage either, and it is the baseline forecast_regret.py's own
+    docstring already recommends for a real writer.
+    """
+    blank = dict.fromkeys(_NOWCAST_SKILL_KEYS)
+
+    trail_hist = _solver_writer().fetch_entity_history_range(
+        _LOAD_NOWCAST_TRAIL_ENTITY_ID, day_start, day_end
+    )
+    if not trail_hist:
+        solver_shared._LOGGER.debug(
+            "Nimbus quality: no load-nowcast skill. No recorded history for "
+            "%s over [%s, %s] -- expected on an install that has not run "
+            "this version for a full window yet",
+            _LOAD_NOWCAST_TRAIL_ENTITY_ID,
+            day_start.isoformat(),
+            day_end.isoformat(),
+        )
+        return {**blank, "load_nowcast_skill_reason": "no_forecast_trail"}
+
+    # No _kw_scale_factor() on the trail: it is Nimbus's own published
+    # sensor and always declares kW. The REAL load sensor is a household
+    # entity that may report W, so its own scale is passed in and applied
+    # to the persistence series below -- the same factor already applied
+    # to load_real_kw by the caller.
+    shift = timedelta(hours=24)
+    prev_hist = _solver_writer().fetch_entity_history_range(
+        load_sensor, day_start - shift, day_end - shift
+    )
+    if not prev_hist:
+        solver_shared._LOGGER.debug(
+            "Nimbus quality: no load-nowcast skill. No real load history for "
+            "the preceding 24 h, so there is no persistence baseline to "
+            "compare against"
+        )
+        return {**blank, "load_nowcast_skill_reason": "no_persistence_baseline"}
+
+    measured, _total = _solver_writer().nowcast_skill.period_sample_coverage(
+        [t for t, _v in trail_hist], grid_times, period_hours
+    )
+    load_nowcast_kw = np.array(
+        _solver_writer().resample_history_mean(trail_hist, grid_times, period_hours)
+    )
+    load_persistence_kw = np.array(
+        _solver_writer().resample_history_mean(
+            [(t + shift, v * load_scale) for t, v in prev_hist],
+            grid_times,
+            period_hours,
+        )
+    )
+
+    result = _solver_writer().nowcast_skill.compute_load_nowcast_skill(
+        periods=periods,
+        grid=grid,
+        battery=battery,
+        solar_real_kw=solar_real_kw,
+        load_real_kw=load_real_kw,
+        load_nowcast_kw=load_nowcast_kw,
+        load_persistence_kw=load_persistence_kw,
+        n_periods_measured=measured,
+    )
+    if result is None:
+        # nimbus issue #1176: separate the two causes this branch used to
+        # conflate, and publish the coverage that failed rather than
+        # nulling a number already in hand.
+        #
+        # No solver-package change is needed for the split. `measured`
+        # and `len(grid_times)` are the two figures the old debug line
+        # already printed, and `DEFAULT_MIN_COVERAGE` is exported, so
+        # "coverage below the bar" is decidable right here. Anything else
+        # returning None is the scenario solve, which
+        # compute_load_nowcast_skill() swallows on purpose (#366/#373's
+        # "degrade, never wedge").
+        n_periods = len(grid_times)
+        coverage = (measured / n_periods) if n_periods else 0.0
+        below = coverage < _solver_writer().nowcast_skill.DEFAULT_MIN_COVERAGE
+
+        # nimbus issue #1188 (Mark Purcell): the split above was binary --
+        # coverage, or else the solve -- and compute_load_nowcast_skill()
+        # has THREE None returns, not two. It refuses an input whose
+        # arrays disagree in length with the period grid, BEFORE the
+        # coverage gate and before any solve is attempted. Folding that
+        # into "scenario_solve_failed" points a household at a solver
+        # problem that was never reached.
+        #
+        # Decided here the same way coverage is, and in the function's own
+        # order -- length, then coverage, then the solve -- so the label
+        # names the gate that actually closed.
+        #
+        # Compared against `len(grid_times)` rather than
+        # `len(periods.hours)`: the two are constructed together at the
+        # real call site, and grid_times is already in hand here, so this
+        # needs nothing from `periods` that the blank-path callers may not
+        # supply.
+        #
+        # Dormant today, and worth saying so: the one production call site
+        # builds all four arrays to the same length, so this branch is not
+        # currently reachable. It stops being dormant the moment this
+        # function gains a second caller with independently sized arrays,
+        # which its own docstring does not forbid.
+        mismatched = [
+            name
+            for name, arr in (
+                ("solar_real_kw", solar_real_kw),
+                ("load_real_kw", load_real_kw),
+                ("load_nowcast_kw", load_nowcast_kw),
+                ("load_persistence_kw", load_persistence_kw),
+            )
+            if arr is not None and len(arr) != n_periods
+        ]
+        if mismatched:
+            reason = "input_length_mismatch"
+        elif below:
+            reason = "coverage_below_threshold"
+        else:
+            reason = "scenario_solve_failed"
+        solver_shared._LOGGER.debug(
+            "Nimbus quality: no load-nowcast skill (%s). %d of %d periods "
+            "carried a real recorded sample (coverage %.3f against a %.2f "
+            "minimum)%s",
+            {
+                "input_length_mismatch": "input arrays disagree with the grid",
+                "coverage_below_threshold": "coverage below threshold",
+                "scenario_solve_failed": "a scenario solve failed",
+            }[reason],
+            measured,
+            n_periods,
+            coverage,
+            _solver_writer().nowcast_skill.DEFAULT_MIN_COVERAGE,
+            f" -- mismatched: {', '.join(mismatched)}" if mismatched else "",
+        )
+        return {
+            **blank,
+            "load_nowcast_skill_reason": reason,
+            # Known in this branch and previously discarded. Telling a
+            # household the check did not run, without telling them it
+            # missed the bar by 0.31, is the absence-as-the-only-signal
+            # shape this repo keeps recording.
+            "load_nowcast_skill_coverage": round(coverage, 3),
+            "load_nowcast_skill_periods_measured": measured,
+        }
+
+    return {
+        "load_nowcast_skill_j_star": round(result.j_star, 4),
+        "load_nowcast_skill_j_forecast": round(result.j_forecast, 4),
+        "load_nowcast_skill_j_persistence": round(result.j_persistence, 4),
+        "load_nowcast_skill_value_add_dollars": round(result.value_add_dollars, 4),
+        "load_nowcast_skill_coverage": round(result.coverage, 3),
+        "load_nowcast_skill_periods_measured": result.n_periods_measured,
+        # Explicitly None rather than omitted: this function's contract
+        # is that every key in _NOWCAST_SKILL_KEYS is always present, so
+        # a consumer never sees one appear and vanish between windows
+        # (#589). Leaving it out here was caught by this change's own
+        # test rather than in review.
+        "load_nowcast_skill_reason": None,
+    }
 
 
 # --- moved from solver_writer.py (#2289 item 6, step 7a): the quality report's helpers ---

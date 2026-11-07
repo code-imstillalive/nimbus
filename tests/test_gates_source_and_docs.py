@@ -1776,8 +1776,9 @@ class TestTheBenchmarkDocsClaimStaysTrue(unittest.TestCase):
             # decomposition, alongside nowcast_skill.py's one-step-ahead
             # measurement. The doc's caller table now records the horizon of
             # each, because that is what decides whether a field number is
-            # comparable to this benchmark's.
-            {"nowcast_skill.py", "reference_benchmark.py", "solver_writer.py"},
+            # comparable to this benchmark's. The function moved to
+            # solver_reports/quality.py in #2289 item 6.
+            {"nowcast_skill.py", "reference_benchmark.py", "quality.py"},
             "the set of modules referencing forecast_regret changed. "
             "docs/reference-benchmark.md documents exactly who calls it, at "
             "which horizon, and why a field number may or may not be "

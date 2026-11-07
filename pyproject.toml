@@ -635,6 +635,13 @@ ignore_imports = [
     "custom_components.nimbus_load.solver_reports.counterfactual -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_reports.flex -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_reports.quality -> custom_components.nimbus_load.solver_writer",
+    # nimbus #2289 item 6 step 7b part 2: the day-ahead forecast-regret
+    # attributes score the forecast the solve actually used, so they read the
+    # cached forecast snapshot back. Same deferred, try/except import the code
+    # had in solver_writer.py; a report reading an input's stored snapshot,
+    # not a report feeding an input.
+    "custom_components.nimbus_load.solver_reports.quality -> custom_components.nimbus_load.solver_inputs.forecast_snapshot",
+    "custom_components.nimbus_load.solver_reports.quality -> custom_components.nimbus_load.forecast_snapshot_store",
     # nimbus #2289 item 6 step 8 part 2: the quality report replays the
     # retail-minus-wholesale offset the solve priced with, so it calls the
     # same compute_5min_offset()/fetch_price_history() the price inputs use

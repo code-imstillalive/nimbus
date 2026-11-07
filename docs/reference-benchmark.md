@@ -29,8 +29,9 @@ run Nimbus now.
 once per scored day.
 
 **Updated 2026-09-26 (#937 stage 3): a native install now calls it a
-second time, directly**, from `solver_writer.py`'s own
-`_day_ahead_forecast_regret_attributes()`, also driven once per scored day
+second time, directly**, from `solver_reports/quality.py`'s
+`_day_ahead_forecast_regret_attributes()` (moved there from
+`solver_writer.py` in #2289), also driven once per scored day
 by `_compute_report_for_window()`. So `compute_forecast_regret()` has four
 non-test callers:
 
