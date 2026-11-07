@@ -247,6 +247,7 @@ jobs:
             custom_components/nimbus_load/nem_region.py \
             custom_components/nimbus_load/p5min.py \
             custom_components/nimbus_load/p5min_guard.py \
+            custom_components/nimbus_load/power_input_check.py \
             custom_components/nimbus_load/power_units.py \
             custom_components/nimbus_load/price_intervals.py \
             custom_components/nimbus_load/sensor_stochastic.py \
@@ -254,6 +255,7 @@ jobs:
             custom_components/nimbus_load/solver_inputs/calendar_trips.py \
             custom_components/nimbus_load/solver_inputs/forecast_snapshot.py \
             custom_components/nimbus_load/solver_inputs/loss_factors.py \
+            custom_components/nimbus_load/solver_inputs/price_offset_replay.py \
             custom_components/nimbus_load/solver_inputs/price_freshness.py \
             custom_components/nimbus_load/solver_inputs/sign_convention.py \
             custom_components/nimbus_load/thermal_forecast.py \
