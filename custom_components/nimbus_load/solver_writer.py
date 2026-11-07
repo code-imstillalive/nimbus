@@ -3183,6 +3183,74 @@ def _input_phase(
     )
 
 
+@dataclass(frozen=True)
+class _PriceSources:
+    """What `_price_sources_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    _prices: Any
+    export_bonus_price: Any
+    export_price_lower_band: Any
+    export_real_mask: Any
+    has_price_forecast_array: Any
+    import_price_upper_band: Any
+    import_real_mask: Any
+    match_fraction: Any
+    p2p_recent_volume_kwh: Any
+    price_source_freshness: Any
+    price_source_on_aemo: Any
+    spot_export: Any
+    spot_import_raw: Any
+
+
+def _price_sources_phase(cfg, grid_times, n_periods, now) -> _PriceSources:
+    """The price sources: the price forecast array check, the price arrays, and whether the source is AEMO. Phase 3 of `main()`, moved verbatim (#2289 item 6 step 9)."""
+    # Two price paths, gated on whether a forecast-array price sensor is
+    # configured (CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR), never on a
+    # retailer's literal entity existing (2026-09-02). An install without
+    # one runs the plain path.
+    price_forecast_sensor = cfg.get("solver_price_forecast_array_sensor")
+    has_price_forecast_array = bool(price_forecast_sensor) and entity_exists(
+        price_forecast_sensor
+    )
+    # nimbus issue #735 stage 4. Nine outputs against solar's three and
+    # load's twelve, hence a result object rather than a tuple -- same
+    # reasoning as solver_inputs/load.py. `has_price_forecast_array` is
+    # passed in rather than recomputed there because main() reads it again
+    # below, and two sources of truth for one question is how the
+    # percentile-band reuse at the second call site would drift.
+    _prices = price_inputs.build_price_arrays(
+        cfg, grid_times, n_periods, now, has_price_forecast_array, price_forecast_sensor
+    )
+    spot_import_raw = _prices.spot_import_raw
+    spot_export = _prices.spot_export
+    import_real_mask = _prices.import_real_mask
+    export_real_mask = _prices.export_real_mask
+    import_price_upper_band = _prices.import_price_upper_band
+    export_price_lower_band = _prices.export_price_lower_band
+    export_bonus_price = _prices.export_bonus_price
+    match_fraction = _prices.match_fraction
+    p2p_recent_volume_kwh = _prices.p2p_recent_volume_kwh
+    price_source_freshness = _prices.price_source_freshness
+    price_source_on_aemo = bool(
+        price_source_freshness and price_source_freshness.get("fallback") == "aemo"
+    )
+    return _PriceSources(
+        _prices=_prices,
+        export_bonus_price=export_bonus_price,
+        export_price_lower_band=export_price_lower_band,
+        export_real_mask=export_real_mask,
+        has_price_forecast_array=has_price_forecast_array,
+        import_price_upper_band=import_price_upper_band,
+        import_real_mask=import_real_mask,
+        match_fraction=match_fraction,
+        p2p_recent_volume_kwh=p2p_recent_volume_kwh,
+        price_source_freshness=price_source_freshness,
+        price_source_on_aemo=price_source_on_aemo,
+        spot_export=spot_export,
+        spot_import_raw=spot_import_raw,
+    )
+
+
 def main() -> None:
     _settings = _settings_phase()
     cfg = _settings.cfg
@@ -3218,36 +3286,22 @@ def main() -> None:
     summed_18_now_kw = _input.summed_18_now_kw
     whole_house_now_kw = _input.whole_house_now_kw
 
-    # Two price paths, gated on whether a forecast-array price sensor is
-    # configured (CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR), never on a
-    # retailer's literal entity existing (2026-09-02). An install without
-    # one runs the plain path.
-    price_forecast_sensor = cfg.get("solver_price_forecast_array_sensor")
-    has_price_forecast_array = bool(price_forecast_sensor) and entity_exists(
-        price_forecast_sensor
+    _price_sources = _price_sources_phase(
+        cfg=cfg, grid_times=grid_times, n_periods=n_periods, now=now
     )
-    # nimbus issue #735 stage 4. Nine outputs against solar's three and
-    # load's twelve, hence a result object rather than a tuple -- same
-    # reasoning as solver_inputs/load.py. `has_price_forecast_array` is
-    # passed in rather than recomputed there because main() reads it again
-    # below, and two sources of truth for one question is how the
-    # percentile-band reuse at the second call site would drift.
-    _prices = price_inputs.build_price_arrays(
-        cfg, grid_times, n_periods, now, has_price_forecast_array, price_forecast_sensor
-    )
-    spot_import_raw = _prices.spot_import_raw
-    spot_export = _prices.spot_export
-    import_real_mask = _prices.import_real_mask
-    export_real_mask = _prices.export_real_mask
-    import_price_upper_band = _prices.import_price_upper_band
-    export_price_lower_band = _prices.export_price_lower_band
-    export_bonus_price = _prices.export_bonus_price
-    match_fraction = _prices.match_fraction
-    p2p_recent_volume_kwh = _prices.p2p_recent_volume_kwh
-    price_source_freshness = _prices.price_source_freshness
-    price_source_on_aemo = bool(
-        price_source_freshness and price_source_freshness.get("fallback") == "aemo"
-    )
+    _prices = _price_sources._prices
+    export_bonus_price = _price_sources.export_bonus_price
+    export_price_lower_band = _price_sources.export_price_lower_band
+    export_real_mask = _price_sources.export_real_mask
+    has_price_forecast_array = _price_sources.has_price_forecast_array
+    import_price_upper_band = _price_sources.import_price_upper_band
+    import_real_mask = _price_sources.import_real_mask
+    match_fraction = _price_sources.match_fraction
+    p2p_recent_volume_kwh = _price_sources.p2p_recent_volume_kwh
+    price_source_freshness = _price_sources.price_source_freshness
+    price_source_on_aemo = _price_sources.price_source_on_aemo
+    spot_export = _price_sources.spot_export
+    spot_import_raw = _price_sources.spot_import_raw
 
     # Every period inside the current settlement block takes the source's
     # live settled `state`, not a forecast or blended value (nimbus #220).
