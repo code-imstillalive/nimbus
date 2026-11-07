@@ -18,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load.solver import network as network_mod
 
 _NETWORK_SRC = Path(network_mod.__file__).read_text(encoding="utf-8")
-_WRITER_SRC = (Path(network_mod.__file__).parents[1] / "solver_writer.py").read_text(
+# publish_flex_signals() publishes the flags; it moved to solver_publish.py
+# (#2289 item 6, step 6).
+_WRITER_SRC = (Path(network_mod.__file__).parents[1] / "solver_publish.py").read_text(
     encoding="utf-8"
 )
 
