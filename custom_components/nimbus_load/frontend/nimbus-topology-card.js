@@ -1390,18 +1390,30 @@ class TopologyCard extends HTMLElement {
     // import ("grid is evil" -- deliberate design choice, not a health/
     // warning indicator here). dominantColor itself is computed above
     // (before the switchboard bus outline is drawn), reused here as-is.
+    // A sub-device hangs off its circuit's tile, not the bus (#2293): one
+    // spine per circuit, down to its last sub-device, and a stub into each.
+    // The indent leaves each stub's arrow room to show, and one spine means
+    // no arrow lands on another.
+    const subIndent = 40;
+    const spineX = loadX0 + 12;
     let parentY = null;
+    let spine = null;
+    const flushSpine = () => {
+      if (spine) lines.push(this._line(spineX, spine.top, spineX, spine.bottom, spine.active, dominantColor));
+      spine = null;
+    };
     loads.forEach((load, i) => {
       const ly = loadsTop + i * (tileH + tileGap);
       if (load.sub && parentY !== null) {
-        // A sub-device hangs off its circuit's tile, not the bus (#2293).
-        const indent = 16;
-        const tile = this._loadTile(loadX0 + indent + (tileW - indent) / 2, ly, tileW - indent, tileH, { ...load, name: "↳ " + load.name }, failedForecasts);
-        lines.push(this._line(loadX0 + 6, parentY + tileH / 2, loadX0 + 6, ly, tile.active, dominantColor));
-        lines.push(this._line(loadX0 + 6, ly, loadX0 + indent, ly, tile.active, dominantColor));
+        const tile = this._loadTile(loadX0 + subIndent + (tileW - subIndent) / 2, ly, tileW - subIndent, tileH, { ...load, name: "↳ " + load.name }, failedForecasts);
+        if (!spine) spine = { top: parentY + tileH / 2, bottom: ly, active: false };
+        spine.bottom = ly;
+        spine.active = spine.active || tile.active;
+        lines.push(this._line(spineX, ly, loadX0 + subIndent, ly, tile.active, dominantColor));
         nodes.push(tile.group);
         return;
       }
+      flushSpine();
       parentY = ly;
       const tile = this._loadTile(loadX0 + tileW / 2, ly, tileW, tileH, load, failedForecasts);
       lines.push(this._line(busX + invBarW / 2, ly, loadX0, ly, tile.active, dominantColor));
