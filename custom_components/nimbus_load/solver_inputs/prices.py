@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import math
 import urllib.error
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -277,6 +278,8 @@ def build_price_arrays(
         )
         # nimbus #1786: AEMO plus markup as a source of its own. Never allowed
         # to break the solve; None simply leaves it out of the consolidation.
+        aemo_import_series: list[float | None] | None
+        aemo_export_series: list[float | None] | None
         try:
             aemo_import_series = price_consolidation.aemo_markup_series(
                 grid_times, aemo_forecast, import_offset_by_5min, _bucket_5min
@@ -1332,7 +1335,7 @@ def _with_consolidated(
 
 def _record_price_errors(
     cfg: dict,
-    ctx: tuple,
+    ctx: tuple[datetime, Sequence[datetime], Sequence[float], int],
     series_by_side: dict[str, dict[str, list[float | None]]],
     result: dict,
     settled_import: float | None,

@@ -353,6 +353,11 @@ def _add_contract_members(
                 )
         if member.state != "ok":
             continue
+        assert (
+            member.value is not None
+            and member.lower is not None
+            and member.upper is not None
+        ), "an ok member carries value, lower and upper"
         _add_member(
             (list(member.value), list(member.lower), list(member.upper)),
             any(e in known_solcast for e in ids),
@@ -486,7 +491,7 @@ def build_solar_arrays(
         solar_is_solcast.append(is_solcast)
 
     binding = cfg.get("device_contract_solar_forecast")
-    if device_forecasts.readable(binding):
+    if binding is not None and device_forecasts.readable(binding):
         # DC-006 slice 3 (#1574): the device setup is `active`, so every
         # member is read through the committed document's binding. A member
         # that does not resolve is dropped, never zero-filled (above).

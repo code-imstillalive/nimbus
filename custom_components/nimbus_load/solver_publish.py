@@ -46,6 +46,7 @@ import time
 # through the deferred `sw` accessor for the reason this module's own
 # docstring and solver_inputs/__init__.py both set out.
 from datetime import UTC, datetime
+from typing import cast
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -486,7 +487,7 @@ def _note_plan_outcome(plan, now) -> None:
             count=0, since=None, status=None, raw_status=None, causes=None
         )
         return
-    count = int(_FAILED_STREAK["count"] or 0) + 1
+    count = int(cast(int | None, _FAILED_STREAK["count"]) or 0) + 1
     _FAILED_STREAK.update(
         count=count,
         since=_FAILED_STREAK["since"] or now.isoformat(),

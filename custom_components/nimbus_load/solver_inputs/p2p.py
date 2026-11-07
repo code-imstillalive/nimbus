@@ -249,7 +249,11 @@ def _resample_p2p_points(
         # Blocks configured: the rate counts inside them only. No block
         # configured: a flexible rate, every interval LocalVolts' own
         # forecast shows matched (#1559 -- no hardcoded hours).
-        in_window = p2p_window_kw[i] > 0 if use_blocks else True  # NaN is False
+        in_window = (
+            p2p_window_kw[i] > 0
+            if use_blocks and p2p_window_kw is not None
+            else True  # NaN is False
+        )
         if not in_window:
             out.append(0.0)
         elif gt <= last_real_time:
@@ -521,7 +525,11 @@ def _resolve_p2p_observations(
     block_rate = float(statistics.median(rates)) if rates else 0.0
     out = []
     for i, gt in enumerate(grid_times):
-        in_window = p2p_window_kw[i] > 0 if use_blocks else True  # NaN is False
+        in_window = (
+            p2p_window_kw[i] > 0
+            if use_blocks and p2p_window_kw is not None
+            else True  # NaN is False
+        )
         if not in_window:
             out.append(0.0)
             continue
