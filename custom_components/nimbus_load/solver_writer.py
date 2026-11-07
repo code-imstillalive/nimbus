@@ -30,6 +30,7 @@ import urllib.error
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from time import monotonic
+from typing import Any
 from zoneinfo import ZoneInfo
 
 # nimbus issue #590: same dual-mode try/except shape as every other
@@ -3061,15 +3062,33 @@ def _settings_phase() -> _Settings:
     )
 
 
-def main() -> None:
-    _settings = _settings_phase()
-    cfg = _settings.cfg
-    cfg_unmoded = _settings.cfg_unmoded
-    now = _settings.now
-    grid_times = _settings.grid_times
-    period_hours_arr = _settings.period_hours_arr
-    n_periods = _settings.n_periods
+@dataclass(frozen=True)
+class _Inputs:
+    """What `_input_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
 
+    failed_load_entities: Any
+    live_load_kw: Any
+    load_forecast_coverage_hours: Any
+    load_forecast_error: Any
+    load_forecast_source_decision: Any
+    load_forecast_source_used: Any
+    load_forecast_warnings: Any
+    load_kw: Any
+    load_lower_kw: Any
+    load_upper_kw: Any
+    solar_delivery: Any
+    solar_kw: Any
+    solar_lower_kw: Any
+    solar_quantile_result: Any
+    solar_upper_kw: Any
+    summed_18_now_kw: Any
+    whole_house_now_kw: Any
+
+
+def _input_phase(
+    cfg, cfg_unmoded, grid_times, n_periods, now, period_hours_arr
+) -> _Inputs:
+    """The solar and load inputs, the household load-total publish and the side reports: phase 2 of `main()`, moved verbatim (#2289 item 6 step 9)."""
     # Solar forecast sources -- every configured/auto-detected source
     # fetched, blended, and live-anchored for period 0. Moved out of
     # this function wholesale by nimbus issue #735 stage 1 (pure code
@@ -3143,6 +3162,61 @@ def main() -> None:
     # The non-essential publishes (nimbus #735 stage 6). See
     # _publish_side_reports(): none of them may break the real solve.
     solar_delivery = _publish_side_reports(cfg, cfg_unmoded, now, grid_times, solar_kw)
+    return _Inputs(
+        failed_load_entities=failed_load_entities,
+        live_load_kw=live_load_kw,
+        load_forecast_coverage_hours=load_forecast_coverage_hours,
+        load_forecast_error=load_forecast_error,
+        load_forecast_source_decision=load_forecast_source_decision,
+        load_forecast_source_used=load_forecast_source_used,
+        load_forecast_warnings=load_forecast_warnings,
+        load_kw=load_kw,
+        load_lower_kw=load_lower_kw,
+        load_upper_kw=load_upper_kw,
+        solar_delivery=solar_delivery,
+        solar_kw=solar_kw,
+        solar_lower_kw=solar_lower_kw,
+        solar_quantile_result=solar_quantile_result,
+        solar_upper_kw=solar_upper_kw,
+        summed_18_now_kw=summed_18_now_kw,
+        whole_house_now_kw=whole_house_now_kw,
+    )
+
+
+def main() -> None:
+    _settings = _settings_phase()
+    cfg = _settings.cfg
+    cfg_unmoded = _settings.cfg_unmoded
+    now = _settings.now
+    grid_times = _settings.grid_times
+    period_hours_arr = _settings.period_hours_arr
+    n_periods = _settings.n_periods
+
+    _input = _input_phase(
+        cfg=cfg,
+        cfg_unmoded=cfg_unmoded,
+        grid_times=grid_times,
+        n_periods=n_periods,
+        now=now,
+        period_hours_arr=period_hours_arr,
+    )
+    failed_load_entities = _input.failed_load_entities
+    live_load_kw = _input.live_load_kw
+    load_forecast_coverage_hours = _input.load_forecast_coverage_hours
+    load_forecast_error = _input.load_forecast_error
+    load_forecast_source_decision = _input.load_forecast_source_decision
+    load_forecast_source_used = _input.load_forecast_source_used
+    load_forecast_warnings = _input.load_forecast_warnings
+    load_kw = _input.load_kw
+    load_lower_kw = _input.load_lower_kw
+    load_upper_kw = _input.load_upper_kw
+    solar_delivery = _input.solar_delivery
+    solar_kw = _input.solar_kw
+    solar_lower_kw = _input.solar_lower_kw
+    solar_quantile_result = _input.solar_quantile_result
+    solar_upper_kw = _input.solar_upper_kw
+    summed_18_now_kw = _input.summed_18_now_kw
+    whole_house_now_kw = _input.whole_house_now_kw
 
     # Two price paths, gated on whether a forecast-array price sensor is
     # configured (CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR), never on a
