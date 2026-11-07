@@ -1394,7 +1394,7 @@ class TopologyCard extends HTMLElement {
     // spine per circuit, down to its last sub-device, and a stub into each.
     // The indent leaves each stub's arrow room to show, and one spine means
     // no arrow lands on another.
-    const subIndent = 40;
+    const subIndent = 64;
     const spineX = loadX0 + 12;
     let parentY = null;
     let spine = null;
