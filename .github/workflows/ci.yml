@@ -249,7 +249,13 @@ jobs:
             custom_components/nimbus_load/p5min_guard.py \
             custom_components/nimbus_load/power_units.py \
             custom_components/nimbus_load/price_intervals.py \
+            custom_components/nimbus_load/sensor_stochastic.py \
             custom_components/nimbus_load/site_limit.py \
+            custom_components/nimbus_load/solver_inputs/calendar_trips.py \
+            custom_components/nimbus_load/solver_inputs/forecast_snapshot.py \
+            custom_components/nimbus_load/solver_inputs/loss_factors.py \
+            custom_components/nimbus_load/solver_inputs/price_freshness.py \
+            custom_components/nimbus_load/solver_inputs/sign_convention.py \
             custom_components/nimbus_load/thermal_forecast.py \
             --ignore-missing-imports --follow-imports=silent
 
