@@ -221,9 +221,9 @@ def test_ratchet_mode_passes_comparing_a_ref_to_itself(toy_repo: Path) -> None:
 def test_real_solver_writer_matches_the_tech_debt_plans_own_count():
     # test_real_solver_writer_matches_the_tech_debt_plans_own_count: docs/architecture/tech-debt-plan.md's own table, measured at `d5b044b`:
     target = REPO / "custom_components" / "nimbus_load" / "solver_writer.py"
-    proc = _run(["--baseline-count", "12", str(target)])
+    proc = _run(["--baseline-count", "11", str(target)])
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "12 function(s) over 60 lines" in proc.stdout, proc.stdout
+    assert "11 function(s) over 60 lines" in proc.stdout, proc.stdout
 
     # test_real_whole_package_is_a_materially_different_larger_number: Documents the discrepancy this tool's own docstring calls out: the
     proc = _run(

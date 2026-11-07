@@ -18,6 +18,8 @@ publish, no dispatch, no module state.
 
 from __future__ import annotations
 
+import json
+import urllib.error
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -26,6 +28,12 @@ try:
     from ..solver import elements
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver import elements  # type: ignore[no-redef]
+
+
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
 
 
 def _solver_writer():
@@ -288,3 +296,60 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
         # construction (best <= worst).
         "spread_dollars": round(worst.total_cost - best.total_cost, 4),
     }
+
+
+# --- moved from solver_writer.py (#2289 item 6, step 7b part 3): the publisher ---
+
+
+BACKTEST_ENTITY_ID = "sensor.nimbus_efficiency_backtest"
+
+
+def publish_efficiency_backtest_report(cfg: dict, now: datetime) -> None:
+    """Publishes sensor.nimbus_efficiency_backtest. Same cheap
+    idempotency-first pattern as publish_daily_quality_report() -- see
+    that function's own docstring for why (a solver cycle running every
+    minute must not re-solve an already-scored day's whole sweep 1440
+    times), and for the real 2026-08-30 fix (issues #289/#292): the
+    fast path re-pushes the same already-read state/attributes instead
+    of returning with nothing published, so this entity's own freshness
+    stamp keeps refreshing and it never goes stale/unavailable between
+    real recomputes.
+    """
+    sw = _solver_writer()
+    yesterday_key = (now - timedelta(days=1)).date().isoformat()
+    try:
+        # solver_shared.resolve_real_entity_id() -- see publish_daily_quality_report()'s
+        # matching comment / that function's own docstring for the full
+        # entity-id-collision incident this guards against.
+        existing = sw.ha_get(solver_shared.resolve_real_entity_id(BACKTEST_ENTITY_ID))
+        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            sw.ha_post_state(
+                BACKTEST_ENTITY_ID, existing["state"], existing["attributes"]
+            )
+            return
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        pass
+    report = compute_efficiency_backtest_report(cfg, now)
+    if report is None:
+        return
+    sw.ha_post_state(
+        BACKTEST_ENTITY_ID,
+        report["spread_dollars"],
+        {
+            # nimbus issue #1253: `"$"` assumed a currency. This is the
+            # cheapest of that issue's three sites -- a plain REST-posted
+            # attribute with no entity-registry or long-term-statistics
+            # relationship -- so it carries none of the ~20-repair migration
+            # risk the flattened children do. The native path resolves this
+            # from `hass.config.currency` on the entity; this standalone/cron
+            # path has no `hass`, so it says nothing rather than guessing.
+            # An absent unit is honest; a wrong one is not.
+            "friendly_name": "Nimbus Efficiency Backtest",
+            "latest_date": yesterday_key,
+            "generated_at": now.isoformat(),
+            # nimbus issue #1256: stamped with the computation -- see the
+            # flex report above.
+            **sw._version_stamp(),
+            **report,
+        },
+    )

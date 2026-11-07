@@ -20,7 +20,9 @@ default. Moving it here changes none of that.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import json
+import urllib.error
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
@@ -207,3 +209,132 @@ def _compute_flex_report_for_window(
         "envelope_curtailment_kwh": envelope_curtailment_kwh,
         "price_response_curve": price_response_curve,
     }
+
+
+# --- moved from solver_writer.py (#2289 item 6, step 7b part 3): the publisher ---
+
+
+def compute_daily_flex_report(cfg: dict, now: datetime) -> dict | None:
+    """nimbus issue #496 (Signals 7/7 of #489), the second half Mark
+    Purcell authorized 2026-09-09 ("compute_daily_flex_report()'s own
+    offered-vs-realised/envelope-curtailment arithmetic") -- the sensor
+    half (switch.nimbus_solver_flex_signals_enabled, sensor.nimbus_flex_
+    signals) shipped separately as v0.94.282/v0.94.283. Same "yesterday"
+    thin-wrapper convention as compute_daily_quality_report() just above
+    this file's own quality-report section -- see that function's own
+    docstring for why "yesterday" (not "today so far") is the right
+    window for a real day-level report.
+
+    Three real, independently-available components, per this issue's
+    own body:
+
+    1. **Offered vs realised flex** (kWh, up and down). "Offered" is the
+       real recorder history of sensor.nimbus_flex_signals's own
+       flex_available_up_kw (native state) / flex_available_down_kw
+       (attribute) -- genuinely only available on days the opt-in
+       switch was on; `None` otherwise, never fabricated. "Realised" is
+       defined here as the real measured battery response: actual
+       charge kWh for "up" (absorbing more load right now IS charging
+       more), actual discharge kWh for "down" (reducing net import /
+       increasing export IS discharging) -- the same real battery-power
+       history and sign-convention handling compute_daily_quality_
+       report() already uses (solver_battery_power_sensor,
+       solver_battery_power_positive_is_charge), not a second,
+       independently-drifting read of the same sensor. This is a real,
+       defensible, but not the only possible definition of "realised" --
+       no generic commanded-vs-actual flex-event signal exists anywhere
+       in this codebase (same honest limitation compute_daily_quality_
+       report()'s own docstring already discloses for tracking_fidelity).
+
+    2. **Price-response curve**: real (import price, net import kW)
+       pairs for the day, binned into $0.05/kWh-wide price bands, mean
+       net import kW per band -- an empirical demand-response curve
+       from Nimbus's own measured data, matching #496's own "the
+       nem-flex-telemetry price-response tab computed locally" ask.
+       net_import_kw is derived from the SAME three sensors quality
+       report already requires (load - solar - discharge + charge, the
+       real energy-balance identity), not a new required config field.
+
+    3. **Envelope curtailment kWh**: `max(0, solar - load - export_limit)`
+       per interval, real solar/load history, real configured
+       `solver_grid_max_export_kw` as the export limit -- NOT the 5 kW
+       default this issue's own body explicitly warns against. #493's
+       own live DNSP envelope entity (resolve_envelope_limit_kw()) is
+       deliberately NOT used here: that function only ever returns the
+       CURRENT live/forecast value held flat, with no real historical
+       backing for a past envelope schedule (see its own docstring) --
+       using it for a day already gone would silently report today's
+       envelope as if it were yesterday's, which is worse than the
+       honest, disclosed simplification of using the flat configured
+       static limit (the same real per-install number every other
+       fallback in this codebase already uses instead of a fabricated
+       constant).
+
+    Returns a dict with `latest_date` plus the three components above
+    (offered/realised are `None`, not zero, on a day the switch was
+    off), or `None` if genuinely not configured (same three required
+    sensors as compute_daily_quality_report()) or no real history
+    exists for yesterday at all -- callers must treat `None` as "skip
+    this cycle, retry later," never an error, same convention as every
+    other report function in this file.
+    """
+    sw = _solver_writer()
+    yesterday = (now - timedelta(days=1)).date()
+    day_start = datetime(
+        yesterday.year, yesterday.month, yesterday.day, tzinfo=sw.LOCAL_TZ
+    )
+    day_end = day_start + timedelta(days=1)
+    return _compute_flex_report_for_window(cfg, day_start, day_end)
+
+
+FLEX_REPORT_ENTITY_ID = "sensor.nimbus_flex_report"
+
+
+def publish_daily_flex_report(cfg: dict, now: datetime) -> None:
+    """Publishes sensor.nimbus_flex_report -- same idempotency-first,
+    re-push-on-fast-path pattern as publish_daily_quality_report() just
+    above this file's own quality-report section (see that function's
+    own docstring for the full "why re-push instead of no-op" incident
+    history, #289/#292 -- applies identically here, same freshness-
+    watchdog mechanism, same entity class).
+    """
+    sw = _solver_writer()
+    yesterday_key = (now - timedelta(days=1)).date().isoformat()
+    try:
+        existing = sw.ha_get(
+            solver_shared.resolve_real_entity_id(FLEX_REPORT_ENTITY_ID)
+        )
+        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            solver_shared._LOGGER.debug(
+                "Nimbus flex report: fast-path hit, already scored %s -- "
+                "re-pushing cached state to keep the freshness stamp alive",
+                yesterday_key,
+            )
+            sw.ha_post_state(
+                FLEX_REPORT_ENTITY_ID, existing["state"], existing["attributes"]
+            )
+            return
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        pass
+    report = compute_daily_flex_report(cfg, now)
+    if report is None:
+        solver_shared._LOGGER.debug(
+            "Nimbus flex report: no report for %s this cycle -- sensor "
+            "left unchanged, will retry next cycle",
+            yesterday_key,
+        )
+        return
+    sw.ha_post_state(
+        FLEX_REPORT_ENTITY_ID,
+        report["realised_up_kwh"] + report["realised_down_kwh"],
+        {
+            "unit_of_measurement": "kWh",
+            "friendly_name": "Nimbus Flex Report",
+            **report,
+            "generated_at": datetime.now(UTC).astimezone(sw.LOCAL_TZ).isoformat(),
+            # nimbus issue #1256: stamped with the computation, not left to
+            # the entity's running-install fallback -- this sensor restores
+            # across a restart, so the two diverge on every deploy.
+            **sw._version_stamp(),
+        },
+    )

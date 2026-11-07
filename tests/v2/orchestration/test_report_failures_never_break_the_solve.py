@@ -12,6 +12,9 @@ import solver_shared
 import solver_writer
 from _isolated_state import isolated_state_paths
 from solver_inputs import solar as solar_inputs
+from solver_reports import backtest as backtest_reports
+from solver_reports import counterfactual as counterfactual_reports
+from solver_reports import flex as flex_reports
 from test_main_golden_output_guardrail import (
     _HEALTHY_LOAD_STATE,
     _LOAD_SENSOR,
@@ -30,7 +33,12 @@ _REPORT_PUBLISHERS = {
 
 # Publishers that moved out of solver_writer (#2289 item 6): main() calls them
 # through their own module, so that is where the failure is planted.
-_OWNERS = {"update_solar_delivery_ratio": solar_inputs}
+_OWNERS = {
+    "update_solar_delivery_ratio": solar_inputs,
+    "publish_daily_flex_report": flex_reports,
+    "publish_nimbus_only_soc_counterfactual": counterfactual_reports,
+    "publish_efficiency_backtest_report": backtest_reports,
+}
 
 
 def _make_ha_get():

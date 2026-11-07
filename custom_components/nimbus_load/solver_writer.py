@@ -320,7 +320,7 @@ except ImportError:
         _local,
         _native_http_error,  # noqa: F401 -- re-export, see comment below
         _nimbus_version,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
-        _version_stamp,
+        _version_stamp,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         _warn_if_attrs_exceed_recorder_cap,  # noqa: F401 -- re-export, see comment below
         fetch_entity_attribute_history_range,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         fetch_entity_history_range,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ and tests (#1301)
@@ -2426,128 +2426,6 @@ def _note_envelope_limit_recovered(entity_id: str) -> None:
     )
 
 
-def compute_daily_flex_report(cfg: dict, now: datetime) -> dict | None:
-    """nimbus issue #496 (Signals 7/7 of #489), the second half Mark
-    Purcell authorized 2026-09-09 ("compute_daily_flex_report()'s own
-    offered-vs-realised/envelope-curtailment arithmetic") -- the sensor
-    half (switch.nimbus_solver_flex_signals_enabled, sensor.nimbus_flex_
-    signals) shipped separately as v0.94.282/v0.94.283. Same "yesterday"
-    thin-wrapper convention as compute_daily_quality_report() just above
-    this file's own quality-report section -- see that function's own
-    docstring for why "yesterday" (not "today so far") is the right
-    window for a real day-level report.
-
-    Three real, independently-available components, per this issue's
-    own body:
-
-    1. **Offered vs realised flex** (kWh, up and down). "Offered" is the
-       real recorder history of sensor.nimbus_flex_signals's own
-       flex_available_up_kw (native state) / flex_available_down_kw
-       (attribute) -- genuinely only available on days the opt-in
-       switch was on; `None` otherwise, never fabricated. "Realised" is
-       defined here as the real measured battery response: actual
-       charge kWh for "up" (absorbing more load right now IS charging
-       more), actual discharge kWh for "down" (reducing net import /
-       increasing export IS discharging) -- the same real battery-power
-       history and sign-convention handling compute_daily_quality_
-       report() already uses (solver_battery_power_sensor,
-       solver_battery_power_positive_is_charge), not a second,
-       independently-drifting read of the same sensor. This is a real,
-       defensible, but not the only possible definition of "realised" --
-       no generic commanded-vs-actual flex-event signal exists anywhere
-       in this codebase (same honest limitation compute_daily_quality_
-       report()'s own docstring already discloses for tracking_fidelity).
-
-    2. **Price-response curve**: real (import price, net import kW)
-       pairs for the day, binned into $0.05/kWh-wide price bands, mean
-       net import kW per band -- an empirical demand-response curve
-       from Nimbus's own measured data, matching #496's own "the
-       nem-flex-telemetry price-response tab computed locally" ask.
-       net_import_kw is derived from the SAME three sensors quality
-       report already requires (load - solar - discharge + charge, the
-       real energy-balance identity), not a new required config field.
-
-    3. **Envelope curtailment kWh**: `max(0, solar - load - export_limit)`
-       per interval, real solar/load history, real configured
-       `solver_grid_max_export_kw` as the export limit -- NOT the 5 kW
-       default this issue's own body explicitly warns against. #493's
-       own live DNSP envelope entity (resolve_envelope_limit_kw()) is
-       deliberately NOT used here: that function only ever returns the
-       CURRENT live/forecast value held flat, with no real historical
-       backing for a past envelope schedule (see its own docstring) --
-       using it for a day already gone would silently report today's
-       envelope as if it were yesterday's, which is worse than the
-       honest, disclosed simplification of using the flat configured
-       static limit (the same real per-install number every other
-       fallback in this codebase already uses instead of a fabricated
-       constant).
-
-    Returns a dict with `latest_date` plus the three components above
-    (offered/realised are `None`, not zero, on a day the switch was
-    off), or `None` if genuinely not configured (same three required
-    sensors as compute_daily_quality_report()) or no real history
-    exists for yesterday at all -- callers must treat `None` as "skip
-    this cycle, retry later," never an error, same convention as every
-    other report function in this file.
-    """
-    yesterday = (now - timedelta(days=1)).date()
-    day_start = datetime(
-        yesterday.year, yesterday.month, yesterday.day, tzinfo=LOCAL_TZ
-    )
-    day_end = day_start + timedelta(days=1)
-    return _compute_flex_report_for_window(cfg, day_start, day_end)
-
-
-FLEX_REPORT_ENTITY_ID = "sensor.nimbus_flex_report"
-
-
-def publish_daily_flex_report(cfg: dict, now: datetime) -> None:
-    """Publishes sensor.nimbus_flex_report -- same idempotency-first,
-    re-push-on-fast-path pattern as publish_daily_quality_report() just
-    above this file's own quality-report section (see that function's
-    own docstring for the full "why re-push instead of no-op" incident
-    history, #289/#292 -- applies identically here, same freshness-
-    watchdog mechanism, same entity class).
-    """
-    yesterday_key = (now - timedelta(days=1)).date().isoformat()
-    try:
-        existing = ha_get(solver_shared.resolve_real_entity_id(FLEX_REPORT_ENTITY_ID))
-        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
-            _LOGGER.debug(
-                "Nimbus flex report: fast-path hit, already scored %s -- "
-                "re-pushing cached state to keep the freshness stamp alive",
-                yesterday_key,
-            )
-            ha_post_state(
-                FLEX_REPORT_ENTITY_ID, existing["state"], existing["attributes"]
-            )
-            return
-    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
-        pass
-    report = compute_daily_flex_report(cfg, now)
-    if report is None:
-        _LOGGER.debug(
-            "Nimbus flex report: no report for %s this cycle -- sensor "
-            "left unchanged, will retry next cycle",
-            yesterday_key,
-        )
-        return
-    ha_post_state(
-        FLEX_REPORT_ENTITY_ID,
-        report["realised_up_kwh"] + report["realised_down_kwh"],
-        {
-            "unit_of_measurement": "kWh",
-            "friendly_name": "Nimbus Flex Report",
-            **report,
-            "generated_at": datetime.now(UTC).astimezone(LOCAL_TZ).isoformat(),
-            # nimbus issue #1256: stamped with the computation, not left to
-            # the entity's running-install fallback -- this sensor restores
-            # across a restart, so the two diverge on every deploy.
-            **_version_stamp(),
-        },
-    )
-
-
 def resolve_envelope_limit_kw(
     entity_id: str | None,
     static_limit_kw: float,
@@ -3149,112 +3027,6 @@ def repair_provisional_quality_history(cfg: dict, now: datetime) -> dict | None:
     return {"repaired": repaired} if repaired else None
 
 
-BACKTEST_ENTITY_ID = "sensor.nimbus_efficiency_backtest"
-
-
-def publish_efficiency_backtest_report(cfg: dict, now: datetime) -> None:
-    """Publishes sensor.nimbus_efficiency_backtest. Same cheap
-    idempotency-first pattern as publish_daily_quality_report() -- see
-    that function's own docstring for why (a solver cycle running every
-    minute must not re-solve an already-scored day's whole sweep 1440
-    times), and for the real 2026-08-30 fix (issues #289/#292): the
-    fast path re-pushes the same already-read state/attributes instead
-    of returning with nothing published, so this entity's own freshness
-    stamp keeps refreshing and it never goes stale/unavailable between
-    real recomputes.
-    """
-    yesterday_key = (now - timedelta(days=1)).date().isoformat()
-    try:
-        # solver_shared.resolve_real_entity_id() -- see publish_daily_quality_report()'s
-        # matching comment / that function's own docstring for the full
-        # entity-id-collision incident this guards against.
-        existing = ha_get(solver_shared.resolve_real_entity_id(BACKTEST_ENTITY_ID))
-        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
-            ha_post_state(BACKTEST_ENTITY_ID, existing["state"], existing["attributes"])
-            return
-    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
-        pass
-    report = compute_efficiency_backtest_report(cfg, now)
-    if report is None:
-        return
-    ha_post_state(
-        BACKTEST_ENTITY_ID,
-        report["spread_dollars"],
-        {
-            # nimbus issue #1253: `"$"` assumed a currency. This is the
-            # cheapest of that issue's three sites -- a plain REST-posted
-            # attribute with no entity-registry or long-term-statistics
-            # relationship -- so it carries none of the ~20-repair migration
-            # risk the flattened children do. The native path resolves this
-            # from `hass.config.currency` on the entity; this standalone/cron
-            # path has no `hass`, so it says nothing rather than guessing.
-            # An absent unit is honest; a wrong one is not.
-            "friendly_name": "Nimbus Efficiency Backtest",
-            "latest_date": yesterday_key,
-            "generated_at": now.isoformat(),
-            # nimbus issue #1256: stamped with the computation -- see the
-            # flex report above.
-            **_version_stamp(),
-            **report,
-        },
-    )
-
-
-COUNTERFACTUAL_ENTITY_ID = "sensor.nimbus_counterfactual_soc"
-
-
-def publish_nimbus_only_soc_counterfactual(cfg: dict, now: datetime) -> None:
-    """Publishes sensor.nimbus_counterfactual_soc -- the generic,
-    built-in equivalent of the reference household's own NUC1
-    "Nimbus-only Counterfactual SoC" card (see
-    compute_nimbus_only_soc_counterfactual()'s own docstring). Same
-    idempotency-check-first pattern as publish_daily_quality_report():
-    reads back this sensor's own currently-published latest_date before
-    ever attempting a real day-long rolling replay (96 LP solves), so a
-    solver cycle that runs every minute doesn't redo that work 1440
-    times for an already-scored day -- and the same real 2026-08-30 fix
-    (issues #289/#292): the fast path re-pushes the same already-read
-    state/attributes instead of returning with nothing published, so
-    this entity's own freshness stamp keeps refreshing and it never
-    goes stale/unavailable between real recomputes.
-    """
-    yesterday = (now - timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    yesterday_key = yesterday.date().isoformat()
-    try:
-        # solver_shared.resolve_real_entity_id() -- see publish_daily_quality_report()'s
-        # matching comment / that function's own docstring for the full
-        # entity-id-collision incident this guards against.
-        existing = ha_get(
-            solver_shared.resolve_real_entity_id(COUNTERFACTUAL_ENTITY_ID)
-        )
-        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
-            ha_post_state(
-                COUNTERFACTUAL_ENTITY_ID, existing["state"], existing["attributes"]
-            )
-            return
-    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
-        pass  # never seen before, or transiently unreachable -- fall through and try to compute
-    day_entry = compute_nimbus_only_soc_counterfactual(cfg, yesterday)
-    if day_entry is None:
-        return
-    ha_post_state(
-        COUNTERFACTUAL_ENTITY_ID,
-        day_entry["nimbus_only_soc_close_pct"],
-        {
-            "unit_of_measurement": "%",
-            "friendly_name": "Nimbus-only Counterfactual SoC",
-            "latest_date": yesterday_key,
-            "generated_at": now.isoformat(),
-            # nimbus issue #1256: stamped with the computation -- see the
-            # flex report above.
-            **_version_stamp(),
-            **day_entry,
-        },
-    )
-
-
 # nimbus #128: solar_delivery_ratio, the rolling mean of actual / forecast
 # solar over recent hours where the forecast is above 5 kW, catches inverter
 # AC clipping that the curtailment switch can't see. Optional: it reuses
@@ -3812,14 +3584,14 @@ def _publish_side_reports(
     # Purcell authorized 2026-09-09, shipped separately from the sensor
     # half already published above via publish_flex_signals()).
     try:
-        publish_daily_flex_report(cfg_unmoded, now)
+        flex_reports.publish_daily_flex_report(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         _LOGGER.warning("Nimbus: daily flex report publish failed: %s", e)
 
     # Same "never break the real solve" wrapping; see
     # publish_nimbus_only_soc_counterfactual()'s docstring.
     try:
-        publish_nimbus_only_soc_counterfactual(cfg_unmoded, now)
+        counterfactual_reports.publish_nimbus_only_soc_counterfactual(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         # Logged, not swallowed (2026-08-31), as above.
         _LOGGER.warning("Nimbus: counterfactual SoC publish failed: %s", e)
@@ -3827,7 +3599,7 @@ def _publish_side_reports(
     # Same "never break the real solve" wrapping; see
     # publish_efficiency_backtest_report()'s docstring.
     try:
-        publish_efficiency_backtest_report(cfg_unmoded, now)
+        backtest_reports.publish_efficiency_backtest_report(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         # Logged, not swallowed (2026-08-31), as above.
         _LOGGER.warning("Nimbus: efficiency backtest publish failed: %s", e)
