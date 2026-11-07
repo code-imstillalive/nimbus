@@ -262,7 +262,7 @@ def test_the_tail_is_left_alone_without_everything_it_needs(
     monkeypatch.setattr(price_blend, "price_unit_scale_of_history", lambda eid: 1.0)
     monkeypatch.setattr(price_blend, "fetch_price_history", lambda eid: [])
     monkeypatch.setattr(
-        sw, "compute_5min_offset", lambda h, regional_spot_sensor: offset
+        price_blend, "compute_5min_offset", lambda h, regional_spot_sensor: offset
     )
     side = ([1.0, 1.0], [True, False], has_fc)
     assert price_blend.extend_generic_price_tails(cfg, _grid(2), side, side) == (
@@ -962,7 +962,7 @@ def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(
 
                 n = len(EVENING)
                 mp.setattr(
-                    sw,
+                    price_blend,
                     "resample_generic_price_forecast_with_coverage",
                     lambda *_a: ([0.1] * n, [True] * n),  # noqa: B023
                 )
@@ -1120,7 +1120,7 @@ def array_branch(monkeypatch):
 def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
     calls = []
     monkeypatch.setattr(
-        sw, "fetch_entity_history_range", lambda *a: calls.append(a) or []
+        solver_shared, "fetch_entity_history_range", lambda *a: calls.append(a) or []
     )
     price_blend.fetch_price_history("sensor.price", **kwargs)
     ((entity, start, end),) = calls

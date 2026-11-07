@@ -146,11 +146,13 @@ def aemo_now(monkeypatch):
 
             monkeypatch.setattr(solver_shared, "ha_get", boom)
             monkeypatch.setattr(sw, "ha_get", boom)
+            monkeypatch.setattr(solver_shared, "ha_get", boom)
         else:
-            monkeypatch.setattr(
-                sw,
-                "ha_get",
-                lambda e: {"entity_id": e, "state": state, "attributes": {}},
-            )
+            for owner in (sw, solver_shared):
+                monkeypatch.setattr(
+                    owner,
+                    "ha_get",
+                    lambda e: {"entity_id": e, "state": state, "attributes": {}},
+                )
 
     return set_state
