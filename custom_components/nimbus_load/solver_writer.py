@@ -3679,6 +3679,155 @@ def _battery_phase(
     )
 
 
+@dataclass(frozen=True)
+class _Solve:
+    """What `_solve_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    _assembly: Any
+    all_batteries: Any
+    export_price_risk_aversion: Any
+    fleet_capacity_kwh: Any
+    grid: Any
+    import_price_risk_aversion: Any
+    plan: Any
+    previous_plan: Any
+    risk_aversion: Any
+    solve_started: Any
+    tariff_attributed_cost_by_subentry: Any
+
+
+def _solve_phase(
+    _soc_envelope,
+    capacity_kwh,
+    cfg,
+    charge_cost,
+    discharge_cost_arr,
+    export_bonus_price,
+    export_limit_kw,
+    export_price,
+    export_price_lower,
+    grid_times,
+    import_limit_kw,
+    import_price,
+    import_price_upper,
+    load_kw,
+    load_lower_kw,
+    load_upper_kw,
+    max_charge_kw,
+    max_discharge_kw,
+    n_periods,
+    now,
+    p2p_recent_volume_kwh,
+    period_hours_arr,
+    salvage_value,
+    solar_kw,
+    solar_lower_kw,
+    solar_quantile_result,
+    solar_upper_kw,
+    spike_override_kw,
+) -> _Solve:
+    """The solve: the previous plan, assemble_and_solve_plan() and the tariff-attributed cost of the result. Phase 8 of `main()`, moved verbatim (#2289 item 6 step 9)."""
+    # nimbus issue #1303 (spec 004, Phase 4 of #1298): the 244-line plan-
+    # assembly span that used to sit inline here now lives in solver_plan.py.
+    #
+    # load_previous_plan() is called HERE rather than inside the moved span
+    # because it stays in this module (layer 4) while solver_plan.py is layer
+    # 3 -- calling it from there would be an upward dependency needing an
+    # import-linter exception. Hoisting it is observationally identical:
+    # everything it now crosses is pure computation (elements.*Config
+    # construction, terminal_value_breakpoints_for,
+    # midnight_boundary_period_indices, fetch_p2p_fixed_export_kw -- all
+    # verified to do no I/O), and the only write to PLAN_STATE_PATH is
+    # save_plan_state(), which runs later inside publish_plan().
+    previous_plan = load_previous_plan()
+    _assembly = solver_plan.assemble_and_solve_plan(
+        cfg,
+        soc_envelope=_soc_envelope,
+        now=now,
+        grid_times=grid_times,
+        period_hours_arr=period_hours_arr,
+        n_periods=n_periods,
+        capacity_kwh=capacity_kwh,
+        max_charge_kw=max_charge_kw,
+        max_discharge_kw=max_discharge_kw,
+        charge_cost=charge_cost,
+        discharge_cost_arr=discharge_cost_arr,
+        salvage_value=salvage_value,
+        spike_override_kw=spike_override_kw,
+        import_price=import_price,
+        export_price=export_price,
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+        export_bonus_price=export_bonus_price,
+        p2p_recent_volume_kwh=p2p_recent_volume_kwh,
+        import_price_upper=import_price_upper,
+        export_price_lower=export_price_lower,
+        solar_kw=solar_kw,
+        solar_lower_kw=solar_lower_kw,
+        solar_upper_kw=solar_upper_kw,
+        load_kw=load_kw,
+        load_lower_kw=load_lower_kw,
+        load_upper_kw=load_upper_kw,
+        previous_plan=previous_plan,
+        solar_p10_kw=solar_quantile_result["p10"],
+        solar_p90_kw=solar_quantile_result["p90"],
+    )
+    # Unpacked into the same names the inline span bound, so every line below
+    # is byte-identical to before this phase.
+    plan = _assembly.plan
+    grid = _assembly.grid
+    all_batteries = _assembly.all_batteries
+    fleet_capacity_kwh = _assembly.fleet_capacity_kwh
+    solve_started = _assembly.solve_started
+    risk_aversion = _assembly.risk_aversion
+    import_price_risk_aversion = _assembly.import_price_risk_aversion
+    export_price_risk_aversion = _assembly.export_price_risk_aversion
+    # nimbus issue #483, item 2: tariff-attributed cost needs the same
+    # grid_to_load flow this function's own publish_plan() call below
+    # independently recomputes for the published forecast table --
+    # duplicated here (not threaded through publish_plan()'s own return,
+    # which doesn't exist today and isn't worth adding) specifically
+    # because apply_commanded_state_guard() below has to run BEFORE
+    # publish_plan() (the comment on that call explains why: real
+    # relay-dispatch timing, can't wait on the much larger diagnostic-
+    # publishing pass). Uses plan.battery_charge_kw/discharge_kw
+    # directly (not publish_plan()'s own corrected_battery_*, which
+    # only ever differs from the raw plan values during a rare
+    # historical-incident defensive clamp, see that variable's own
+    # comment) -- KNOWN DRIFT RISK, same accepted tradeoff #582's own
+    # duplicated same-day-window logic already carries in this file.
+    _flow_decomp_for_tariff = [
+        solver_publish._flow_decomposition(
+            float(solar_kw[i]),
+            float(load_kw[i]),
+            float(plan.battery_charge_kw[i]),
+            float(plan.battery_discharge_kw[i]),
+            grid_export_kw_i=float(plan.grid_export_kw[i]),
+        )
+        for i in range(n_periods)
+    ]
+    tariff_attributed_cost_by_subentry = price_inputs.compute_tariff_attributed_cost(
+        plan.adequacy_loads,
+        np.array([f["grid_to_load"] for f in _flow_decomp_for_tariff]),
+        load_kw,
+        import_price,
+        period_hours_arr,
+    )
+    return _Solve(
+        _assembly=_assembly,
+        all_batteries=all_batteries,
+        export_price_risk_aversion=export_price_risk_aversion,
+        fleet_capacity_kwh=fleet_capacity_kwh,
+        grid=grid,
+        import_price_risk_aversion=import_price_risk_aversion,
+        plan=plan,
+        previous_plan=previous_plan,
+        risk_aversion=risk_aversion,
+        solve_started=solve_started,
+        tariff_attributed_cost_by_subentry=tariff_attributed_cost_by_subentry,
+    )
+
+
 def main() -> None:
     _settings = _settings_phase()
     cfg = _settings.cfg
@@ -3807,92 +3956,47 @@ def main() -> None:
     initial_soc_kwh = _battery.initial_soc_kwh
     price_spike_active = _battery.price_spike_active
     spike_override_kw = _battery.spike_override_kw
-    # nimbus issue #1303 (spec 004, Phase 4 of #1298): the 244-line plan-
-    # assembly span that used to sit inline here now lives in solver_plan.py.
-    #
-    # load_previous_plan() is called HERE rather than inside the moved span
-    # because it stays in this module (layer 4) while solver_plan.py is layer
-    # 3 -- calling it from there would be an upward dependency needing an
-    # import-linter exception. Hoisting it is observationally identical:
-    # everything it now crosses is pure computation (elements.*Config
-    # construction, terminal_value_breakpoints_for,
-    # midnight_boundary_period_indices, fetch_p2p_fixed_export_kw -- all
-    # verified to do no I/O), and the only write to PLAN_STATE_PATH is
-    # save_plan_state(), which runs later inside publish_plan().
-    previous_plan = load_previous_plan()
-    _assembly = solver_plan.assemble_and_solve_plan(
-        cfg,
-        soc_envelope=_soc_envelope,
-        now=now,
-        grid_times=grid_times,
-        period_hours_arr=period_hours_arr,
-        n_periods=n_periods,
+    _solve = _solve_phase(
+        _soc_envelope=_soc_envelope,
         capacity_kwh=capacity_kwh,
-        max_charge_kw=max_charge_kw,
-        max_discharge_kw=max_discharge_kw,
+        cfg=cfg,
         charge_cost=charge_cost,
         discharge_cost_arr=discharge_cost_arr,
-        salvage_value=salvage_value,
-        spike_override_kw=spike_override_kw,
-        import_price=import_price,
-        export_price=export_price,
-        import_limit_kw=import_limit_kw,
-        export_limit_kw=export_limit_kw,
         export_bonus_price=export_bonus_price,
-        p2p_recent_volume_kwh=p2p_recent_volume_kwh,
-        import_price_upper=import_price_upper,
+        export_limit_kw=export_limit_kw,
+        export_price=export_price,
         export_price_lower=export_price_lower,
-        solar_kw=solar_kw,
-        solar_lower_kw=solar_lower_kw,
-        solar_upper_kw=solar_upper_kw,
+        grid_times=grid_times,
+        import_limit_kw=import_limit_kw,
+        import_price=import_price,
+        import_price_upper=import_price_upper,
         load_kw=load_kw,
         load_lower_kw=load_lower_kw,
         load_upper_kw=load_upper_kw,
-        previous_plan=previous_plan,
-        solar_p10_kw=solar_quantile_result["p10"],
-        solar_p90_kw=solar_quantile_result["p90"],
+        max_charge_kw=max_charge_kw,
+        max_discharge_kw=max_discharge_kw,
+        n_periods=n_periods,
+        now=now,
+        p2p_recent_volume_kwh=p2p_recent_volume_kwh,
+        period_hours_arr=period_hours_arr,
+        salvage_value=salvage_value,
+        solar_kw=solar_kw,
+        solar_lower_kw=solar_lower_kw,
+        solar_quantile_result=solar_quantile_result,
+        solar_upper_kw=solar_upper_kw,
+        spike_override_kw=spike_override_kw,
     )
-    # Unpacked into the same names the inline span bound, so every line below
-    # is byte-identical to before this phase.
-    plan = _assembly.plan
-    grid = _assembly.grid
-    all_batteries = _assembly.all_batteries
-    fleet_capacity_kwh = _assembly.fleet_capacity_kwh
-    solve_started = _assembly.solve_started
-    risk_aversion = _assembly.risk_aversion
-    import_price_risk_aversion = _assembly.import_price_risk_aversion
-    export_price_risk_aversion = _assembly.export_price_risk_aversion
-    # nimbus issue #483, item 2: tariff-attributed cost needs the same
-    # grid_to_load flow this function's own publish_plan() call below
-    # independently recomputes for the published forecast table --
-    # duplicated here (not threaded through publish_plan()'s own return,
-    # which doesn't exist today and isn't worth adding) specifically
-    # because apply_commanded_state_guard() below has to run BEFORE
-    # publish_plan() (the comment on that call explains why: real
-    # relay-dispatch timing, can't wait on the much larger diagnostic-
-    # publishing pass). Uses plan.battery_charge_kw/discharge_kw
-    # directly (not publish_plan()'s own corrected_battery_*, which
-    # only ever differs from the raw plan values during a rare
-    # historical-incident defensive clamp, see that variable's own
-    # comment) -- KNOWN DRIFT RISK, same accepted tradeoff #582's own
-    # duplicated same-day-window logic already carries in this file.
-    _flow_decomp_for_tariff = [
-        solver_publish._flow_decomposition(
-            float(solar_kw[i]),
-            float(load_kw[i]),
-            float(plan.battery_charge_kw[i]),
-            float(plan.battery_discharge_kw[i]),
-            grid_export_kw_i=float(plan.grid_export_kw[i]),
-        )
-        for i in range(n_periods)
-    ]
-    tariff_attributed_cost_by_subentry = price_inputs.compute_tariff_attributed_cost(
-        plan.adequacy_loads,
-        np.array([f["grid_to_load"] for f in _flow_decomp_for_tariff]),
-        load_kw,
-        import_price,
-        period_hours_arr,
-    )
+    _assembly = _solve._assembly
+    all_batteries = _solve.all_batteries
+    export_price_risk_aversion = _solve.export_price_risk_aversion
+    fleet_capacity_kwh = _solve.fleet_capacity_kwh
+    grid = _solve.grid
+    import_price_risk_aversion = _solve.import_price_risk_aversion
+    plan = _solve.plan
+    previous_plan = _solve.previous_plan
+    risk_aversion = _solve.risk_aversion
+    solve_started = _solve.solve_started
+    tariff_attributed_cost_by_subentry = _solve.tariff_attributed_cost_by_subentry
     # nimbus issue #484: the relay-chatter guard, run once per solve
     # right after the plan exists -- needs the plan's own just-solved
     # period-0 power per load, so it can't run any earlier than this.
