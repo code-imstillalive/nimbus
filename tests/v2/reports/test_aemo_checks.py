@@ -13,11 +13,13 @@ import logging
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
+import solver_shared
 import solver_writer as sw
 from aemo_crosscheck import (
     compare_forecast_to_actuals,
     select_current_bucket,
 )
+from solver_inputs import price_blend
 
 AEST = timezone(timedelta(hours=10))
 
@@ -98,7 +100,9 @@ def test_nothing_usable_is_no_bucket(aemo_now, monkeypatch, caplog):
         (0.05, True, -0.25),
     ]:
         aemo_now("0.10")
-        got = sw.check_aemo_p5min_disagreement(P5, retail, 10, {10: 0.20}, 0.10)
+        got = price_blend.check_aemo_p5min_disagreement(
+            P5, retail, 10, {10: 0.20}, 0.10
+        )
         assert got["flagged"] is flagged
         assert got["disagreement_dollars"] == pytest.approx(gap)
         assert got["expected_retail"] == pytest.approx(0.30)
@@ -106,7 +110,7 @@ def test_nothing_usable_is_no_bucket(aemo_now, monkeypatch, caplog):
     # test_a_disagreement_is_warned_once_per_period
     caplog.clear()
     with monkeypatch.context() as mp:
-        mp.setattr(sw, "_AEMO_P5MIN_LAST_WARNED_PERIOD", None)
+        mp.setattr(price_blend, "_AEMO_P5MIN_LAST_WARNED_PERIOD", None)
         detail = {
             "retail_now": 0.55,
             "aemo_p5min_now": 0.10,
@@ -117,7 +121,7 @@ def test_nothing_usable_is_no_bucket(aemo_now, monkeypatch, caplog):
         a, b = at(12, 0), at(12, 5)
         with caplog.at_level(logging.WARNING):
             for period in (a, a, b):
-                sw._warn_aemo_p5min_disagreement_once(period, detail)
+                price_blend._warn_aemo_p5min_disagreement_once(period, detail)
         assert sum("Nimbus #452" in r.getMessage() for r in caplog.records) == 2
 
 
@@ -140,12 +144,15 @@ def aemo_now(monkeypatch):
             def boom(_e):
                 raise state
 
+            monkeypatch.setattr(solver_shared, "ha_get", boom)
             monkeypatch.setattr(sw, "ha_get", boom)
+            monkeypatch.setattr(solver_shared, "ha_get", boom)
         else:
-            monkeypatch.setattr(
-                sw,
-                "ha_get",
-                lambda e: {"entity_id": e, "state": state, "attributes": {}},
-            )
+            for owner in (sw, solver_shared):
+                monkeypatch.setattr(
+                    owner,
+                    "ha_get",
+                    lambda e: {"entity_id": e, "state": state, "attributes": {}},
+                )
 
     return set_state

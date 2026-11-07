@@ -51,7 +51,7 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     import device_bindings  # type: ignore[no-redef]
 
-from . import loss_factors, p2p, price_consolidation
+from . import loss_factors, p2p, price_blend, price_consolidation
 
 
 def _bucket_5min(t):
@@ -218,7 +218,7 @@ def build_price_arrays(
         # entity params default to None (a clean no-op, same graceful
         # fallback each function already had) whenever the household
         # hasn't also configured the matching optional field.
-        aemo_forecast = sw.fetch_aemo_forecast(
+        aemo_forecast = price_blend.fetch_aemo_forecast(
             cfg.get("solver_regional_spot_forecast_sensor")
         )
         # 2026-08-20: migrated off guerrier's sensor.costsflexup/earningsflexup
@@ -233,8 +233,12 @@ def build_price_arrays(
         # own CONF_SOLVER_IMPORT_PRICE_SENSOR/EXPORT_PRICE_SENSOR fields
         # point at (confirmed live) -- reusing those existing, already-
         # wizard-configured fields instead of two more hardcoded literals.
-        import_history = sw.fetch_price_history(cfg["solver_import_price_sensor"])
-        export_history = sw.fetch_price_history(cfg["solver_export_price_sensor"])
+        import_history = price_blend.fetch_price_history(
+            cfg["solver_import_price_sensor"]
+        )
+        export_history = price_blend.fetch_price_history(
+            cfg["solver_export_price_sensor"]
+        )
         # nimbus #1698 (Mark Purcell): an Amber Express price sensor carries the
         # interval's wholesale in the same response; collected each solve, it
         # is the reference for the intervals it covers. Empty otherwise.
@@ -245,12 +249,12 @@ def build_price_arrays(
             ),
             now,
         )
-        import_offset_by_5min = sw.compute_5min_offset(
+        import_offset_by_5min = price_blend.compute_5min_offset(
             import_history,
             regional_spot_sensor=cfg.get("solver_regional_spot_current_price_sensor"),
             same_poll_wholesale=same_poll_wholesale,
         )
-        export_offset_by_5min = sw.compute_5min_offset(
+        export_offset_by_5min = price_blend.compute_5min_offset(
             export_history,
             regional_spot_sensor=cfg.get("solver_regional_spot_current_price_sensor"),
             same_poll_wholesale=same_poll_wholesale,
@@ -278,7 +282,7 @@ def build_price_arrays(
         # nimbus #2190 (Mark): AEMO NEM Data's own predispatch where it
         # covers, the regional forecast (PD7DAY) past its last row.
         rrp_forecast, aemo_until = price_consolidation.join_rrp_forecasts(
-            sw.fetch_aemo_forecast(cfg.get("solver_aemo_forecast_sensor")),
+            price_blend.fetch_aemo_forecast(cfg.get("solver_aemo_forecast_sensor")),
             aemo_forecast,
         )
         try:
@@ -310,11 +314,13 @@ def build_price_arrays(
         # percentile estimation genuinely benefits from more real samples
         # per bucket than a mean does, and this data has been live and
         # recorder-tracked since well before 14 days ago.
-        import_price_upper_band = sw.compute_price_percentile_band(
-            sw.fetch_price_history(cfg["solver_import_price_sensor"], days=14), 90.0
+        import_price_upper_band = price_blend.compute_price_percentile_band(
+            price_blend.fetch_price_history(cfg["solver_import_price_sensor"], days=14),
+            90.0,
         )
-        export_price_lower_band = sw.compute_price_percentile_band(
-            sw.fetch_price_history(cfg["solver_export_price_sensor"], days=14), 10.0
+        export_price_lower_band = price_blend.compute_price_percentile_band(
+            price_blend.fetch_price_history(cfg["solver_export_price_sensor"], days=14),
+            10.0,
         )
         # nimbus issue #348 (Mark Purcell, codebase review): the "generic"
         # solver_price_forecast_array_sensor field was parsed with these
@@ -333,10 +339,16 @@ def build_price_arrays(
         export_key = (
             cfg.get("solver_price_forecast_array_export_key") or "earningsflexup"
         )
-        spot_import_raw, import_real_mask = sw.resample_price_with_extrapolation(
-            lv_price_fc, import_key, grid_times, aemo_forecast, import_offset_by_5min
+        spot_import_raw, import_real_mask = (
+            price_blend.resample_price_with_extrapolation(
+                lv_price_fc,
+                import_key,
+                grid_times,
+                aemo_forecast,
+                import_offset_by_5min,
+            )
         )
-        spot_export, export_real_mask = sw.resample_price_with_extrapolation(
+        spot_export, export_real_mask = price_blend.resample_price_with_extrapolation(
             lv_price_fc,
             export_key,
             grid_times,
@@ -363,7 +375,9 @@ def build_price_arrays(
             if spot_sensor:
                 try:
                     live_spot = float(
-                        sw.price_now(spot_sensor, fallback=float("nan"), quiet=True)
+                        price_blend.price_now(
+                            spot_sensor, fallback=float("nan"), quiet=True
+                        )
                     )
                 except Exception as err:  # noqa: BLE001 -- no live spot is not an error
                     solver_shared._LOGGER.debug(
@@ -383,7 +397,7 @@ def build_price_arrays(
                 import_real_mask = [False] * len(grid_times)
                 export_real_mask = [False] * len(grid_times)
                 price_source_freshness = {**price_source_freshness, "fallback": "aemo"}
-                sw._warn_stale_price_source_once(price_source_freshness)
+                price_blend._warn_stale_price_source_once(price_source_freshness)
             else:
                 price_source_freshness = {**price_source_freshness, "fallback": None}
         # nimbus #1537 item 5: the matched rate counts inside the household's
@@ -407,7 +421,7 @@ def build_price_arrays(
         # wrapping as update_solar_delivery_ratio() above -- this is a
         # diagnostic cross-check, never allowed to affect the real plan.
         try:
-            aemo_p5min_check = sw.check_aemo_p5min_disagreement(
+            aemo_p5min_check = price_blend.check_aemo_p5min_disagreement(
                 cfg.get("solver_regional_spot_current_price_sensor"),
                 float(spot_import_raw[0]),
                 sw._local(grid_times[0]).hour * 12
@@ -423,7 +437,9 @@ def build_price_arrays(
             )
             aemo_p5min_check = None
         if aemo_p5min_check is not None and aemo_p5min_check["flagged"]:
-            sw._warn_aemo_p5min_disagreement_once(grid_times[0], aemo_p5min_check)
+            price_blend._warn_aemo_p5min_disagreement_once(
+                grid_times[0], aemo_p5min_check
+            )
 
         # nimbus issue #452, the other half: AEMO's own 30-minute
         # forecast against AEMO's own realised 5-minute prices for the
@@ -464,7 +480,9 @@ def build_price_arrays(
             )
             aemo_fc_check = None
         if aemo_fc_check is not None and aemo_fc_check["flagged"]:
-            sw._warn_aemo_forecast_vs_actuals_once(grid_times[0], aemo_fc_check)
+            price_blend._warn_aemo_forecast_vs_actuals_once(
+                grid_times[0], aemo_fc_check
+            )
 
         # Real, live-CONFIGURABLE TOU network + flat fees baked directly
         # into import_price[t] (2026-08-16, real ask: "it needs ot be super
@@ -559,7 +577,7 @@ def build_price_arrays(
         # DC-006 slice 4 (#1574): in `active`, through the device contract.
         _import_fc = _contract_price_forecast(
             cfg, "import_price_forecast", grid_times, now
-        ) or sw.resample_generic_price_forecast_with_coverage(
+        ) or price_blend.resample_generic_price_forecast_with_coverage(
             cfg["solver_import_price_sensor"], grid_times
         )
         # Real fee breakdown DOES apply to a generic install too, same
@@ -571,18 +589,20 @@ def build_price_arrays(
             spot_import_raw, import_real_mask = _import_fc
         else:
             spot_import_raw = [
-                sw.price_now(cfg["solver_import_price_sensor"])
+                price_blend.price_now(cfg["solver_import_price_sensor"])
             ] * n_periods
             import_real_mask = [True] * n_periods
         _export_fc = _contract_price_forecast(
             cfg, "export_price_forecast", grid_times, now
-        ) or sw.resample_generic_price_forecast_with_coverage(
+        ) or price_blend.resample_generic_price_forecast_with_coverage(
             cfg["solver_export_price_sensor"], grid_times
         )
         if _export_fc is not None:
             spot_export, export_real_mask = _export_fc
         else:
-            spot_export = [sw.price_now(cfg["solver_export_price_sensor"])] * n_periods
+            spot_export = [
+                price_blend.price_now(cfg["solver_export_price_sensor"])
+            ] * n_periods
             export_real_mask = [True] * n_periods
         # nimbus #1537 item 4: past the source's own last real point the
         # generic branch held the last price flat (on #1535's capture, 117 of
@@ -591,7 +611,7 @@ def build_price_arrays(
         # tail as the price-array branch does: wholesale forecast plus the
         # learned 5-minute-of-day retail markup. Without both, unchanged.
         if _import_fc is not None or _export_fc is not None:
-            spot_import_raw, spot_export = sw.extend_generic_price_tails(
+            spot_import_raw, spot_export = price_blend.extend_generic_price_tails(
                 cfg,
                 grid_times,
                 (spot_import_raw, import_real_mask, _import_fc is not None),
@@ -706,13 +726,13 @@ def _retail_from_rrp(
         return None if k is None else k * loss_factors.IMPORT_GST
 
     spot_sensor = cfg.get("solver_regional_spot_current_price_sensor")
-    fees_import = sw.compute_5min_offset(
+    fees_import = price_blend.compute_5min_offset(
         import_history,
         regional_spot_sensor=spot_sensor,
         same_poll_wholesale=same_poll_wholesale,
         wholesale_scale=import_scale,
     )
-    fees_export = sw.compute_5min_offset(
+    fees_export = price_blend.compute_5min_offset(
         export_history,
         regional_spot_sensor=spot_sensor,
         same_poll_wholesale=same_poll_wholesale,
@@ -720,7 +740,7 @@ def _retail_from_rrp(
     )
     rrp_now = None
     if spot_sensor:
-        value = sw.price_now(spot_sensor, fallback=float("nan"), quiet=True)
+        value = price_blend.price_now(spot_sensor, fallback=float("nan"), quiet=True)
         rrp_now = None if math.isnan(value) else float(value)
     out = []
     for fees, scale in ((fees_import, import_scale), (fees_export, export_scale)):

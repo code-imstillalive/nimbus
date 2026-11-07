@@ -21,7 +21,7 @@ import solver_shared
 import solver_writer as sw
 from golden.fake_ha import FakeHA, HistoryPoint
 from native_transport import use_native_fake
-from solver_inputs import p2p, prices
+from solver_inputs import p2p, price_blend, prices
 from solver_reports import quality as quality_reports
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)  # 16:00 Brisbane
@@ -88,16 +88,21 @@ def test_instant_readings_edge_shapes(ha, monkeypatch):
     ]:
         if state is not None:
             ha.states["sensor.p"] = state
-        assert sw._resample_generic_price_forecast_raw("sensor.p", _grid(2)) is None
         assert (
-            sw.resample_generic_price_forecast_with_coverage("sensor.p", _grid(2))
+            price_blend._resample_generic_price_forecast_raw("sensor.p", _grid(2))
+            is None
+        )
+        assert (
+            price_blend.resample_generic_price_forecast_with_coverage(
+                "sensor.p", _grid(2)
+            )
             is None
         )
 
     # test_a_generic_forecast_is_scaled_by_its_own_unit
     for unit, scale in [("$/kWh", 1.0), ("c/kWh", 0.01), ("$/MWh", 0.001)]:
         ha.states["sensor.p"] = _price([20.0, 40.0], unit=unit)
-        values, real = sw.resample_generic_price_forecast_with_coverage(
+        values, real = price_blend.resample_generic_price_forecast_with_coverage(
             "sensor.p", _grid(2)
         )
         assert values == pytest.approx([20.0 * scale, 40.0 * scale])
@@ -128,7 +133,7 @@ def test_instant_readings_edge_shapes(ha, monkeypatch):
     )
     assert values == pytest.approx([0.30, 0.275, 0.325, 0.40, 0.40])
     assert real == [False, True, True, True, False]
-    today = sw.resample_generic_price_forecast_with_coverage("sensor.p", grid)
+    today = price_blend.resample_generic_price_forecast_with_coverage("sensor.p", grid)
     assert today == ([0.30, 0.30, 0.25, 0.40, 0.40], [False, True, True, False, False])
     assert (
         prices._contract_price_forecast({}, "import_price_forecast", grid, T0) is None
@@ -144,12 +149,12 @@ def test_instant_readings_edge_shapes(ha, monkeypatch):
 
     # test_with_no_secondary_source_the_primary_passes_through_untouched
     primary = [0.1, 0.2]
-    out, spread, labels = sw.blend_price_with_secondary_sources(
+    out, spread, labels = price_blend.blend_price_with_secondary_sources(
         primary, {}, ("k2", "k3"), _grid(2)
     )
     assert out is primary and spread is None and labels == ["primary", "primary"]
     # Configured but missing reads the same.
-    out, spread, labels = sw.blend_price_with_secondary_sources(
+    out, spread, labels = price_blend.blend_price_with_secondary_sources(
         primary, CFG, ("k2", "k3"), _grid(2)
     )
     assert out is primary and spread is None
@@ -159,7 +164,7 @@ def test_instant_readings_edge_shapes(ha, monkeypatch):
     # second: real for periods 1-2; third: real for period 2 only.
     ha.states["sensor.second"] = _price([0.5, 0.7], start=grid[1])
     ha.states["sensor.third"] = _price([0.9], start=grid[2])
-    out, spread, labels = sw.blend_price_with_secondary_sources(
+    out, spread, labels = price_blend.blend_price_with_secondary_sources(
         [0.1, 0.2, 0.3, 0.4], CFG, ("k2", "k3"), grid, [True, False, False, False]
     )
     assert labels == ["primary", "secondary", "secondary", "fallback"]
@@ -177,8 +182,8 @@ def test_instant_readings_edge_shapes(ha, monkeypatch):
             (grid[2], 0.30),
             (grid[3] + timedelta(hours=1), 9.0),
         ]
-        mp.setattr(sw, "fetch_aemo_forecast", lambda eid: aemo)
-        mp.setattr(sw, "price_unit_scale_of_history", lambda eid: 0.01)
+        mp.setattr(price_blend, "fetch_aemo_forecast", lambda eid: aemo)
+        mp.setattr(price_blend, "price_unit_scale_of_history", lambda eid: 0.01)
         seen = {}
 
         def history(eid):
@@ -189,9 +194,9 @@ def test_instant_readings_edge_shapes(ha, monkeypatch):
             b = sw._local(grid[2])
             return {b.hour * 12 + b.minute // 5: 0.10, 0: 0.02}
 
-        mp.setattr(sw, "fetch_price_history", history)
-        mp.setattr(sw, "compute_5min_offset", offset)
-        imp, exp = sw.extend_generic_price_tails(
+        mp.setattr(price_blend, "fetch_price_history", history)
+        mp.setattr(price_blend, "compute_5min_offset", offset)
+        imp, exp = price_blend.extend_generic_price_tails(
             _tail_cfg(),
             grid,
             ([1.0, 1.0, 1.0, 1.0], [True, True, False, False], True),
@@ -254,14 +259,14 @@ def test_the_tail_is_left_alone_without_everything_it_needs(
 ):
     cfg = _tail_cfg()
     cfg.pop(drop, None)
-    monkeypatch.setattr(sw, "fetch_aemo_forecast", lambda eid: aemo)
-    monkeypatch.setattr(sw, "price_unit_scale_of_history", lambda eid: 1.0)
-    monkeypatch.setattr(sw, "fetch_price_history", lambda eid: [])
+    monkeypatch.setattr(price_blend, "fetch_aemo_forecast", lambda eid: aemo)
+    monkeypatch.setattr(price_blend, "price_unit_scale_of_history", lambda eid: 1.0)
+    monkeypatch.setattr(price_blend, "fetch_price_history", lambda eid: [])
     monkeypatch.setattr(
-        sw, "compute_5min_offset", lambda h, regional_spot_sensor: offset
+        price_blend, "compute_5min_offset", lambda h, regional_spot_sensor: offset
     )
     side = ([1.0, 1.0], [True, False], has_fc)
-    assert sw.extend_generic_price_tails(cfg, _grid(2), side, side) == (
+    assert price_blend.extend_generic_price_tails(cfg, _grid(2), side, side) == (
         [1.0, 1.0],
         [1.0, 1.0],
     )
@@ -775,7 +780,15 @@ def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
             "p2p_match_fraction": lambda **k: 0.65,
             "p2p_recent_avg_volume_kwh": lambda **k: 60.0,
         }.items():
-            mp.setattr(p2p if hasattr(p2p, name) else sw, name, value)
+            mp.setattr(
+                p2p
+                if hasattr(p2p, name)
+                else price_blend
+                if hasattr(price_blend, name)
+                else sw,
+                name,
+                value,
+            )
             if name == "ha_get":
                 mp.setattr(solver_shared, name, value)
 
@@ -950,7 +963,7 @@ def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(
 
                 n = len(EVENING)
                 mp.setattr(
-                    sw,
+                    price_blend,
                     "resample_generic_price_forecast_with_coverage",
                     lambda *_a: ([0.1] * n, [True] * n),  # noqa: B023
                 )
@@ -1076,7 +1089,15 @@ def array_branch(monkeypatch):
             "p2p_match_fraction": lambda **k: 0.65,
             "p2p_recent_avg_volume_kwh": lambda **k: recent,
         }.items():
-            monkeypatch.setattr(p2p if hasattr(p2p, name) else sw, name, value)
+            monkeypatch.setattr(
+                p2p
+                if hasattr(p2p, name)
+                else price_blend
+                if hasattr(price_blend, name)
+                else sw,
+                name,
+                value,
+            )
             if name == "ha_get":
                 monkeypatch.setattr(solver_shared, name, value)
         return prices.build_price_arrays(
@@ -1100,9 +1121,9 @@ def array_branch(monkeypatch):
 def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
     calls = []
     monkeypatch.setattr(
-        sw, "fetch_entity_history_range", lambda *a: calls.append(a) or []
+        solver_shared, "fetch_entity_history_range", lambda *a: calls.append(a) or []
     )
-    sw.fetch_price_history("sensor.price", **kwargs)
+    price_blend.fetch_price_history("sensor.price", **kwargs)
     ((entity, start, end),) = calls
     assert entity == "sensor.price" and end - start == timedelta(days=days)
     assert datetime.now(UTC) - end < timedelta(seconds=10)

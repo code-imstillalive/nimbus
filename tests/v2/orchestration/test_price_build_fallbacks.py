@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import solver_shared
 import solver_writer as sw
-from solver_inputs import p2p, price_consolidation, prices
+from solver_inputs import p2p, price_blend, price_consolidation, prices
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)  # 16:00 Brisbane
 N = 3
@@ -49,7 +49,15 @@ def writer(monkeypatch):
     }.items():
         # nimbus #2289 item 6 step 8: the P2P readers live in solver_inputs/p2p.py
         # and read through solver_shared, so they are faked there.
-        monkeypatch.setattr(p2p if hasattr(p2p, name) else sw, name, value)
+        monkeypatch.setattr(
+            p2p
+            if hasattr(p2p, name)
+            else price_blend
+            if hasattr(price_blend, name)
+            else sw,
+            name,
+            value,
+        )
         if name == "ha_get":
             monkeypatch.setattr(solver_shared, name, value)
     return seen
@@ -94,7 +102,7 @@ def test_without_a_live_spot_the_fallback_still_runs(writer, monkeypatch, readin
 
     monkeypatch.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
     monkeypatch.setattr(prices.price_freshness, "aemo_series", _fallback(writer))
-    monkeypatch.setattr(sw, "price_now", price_now)
+    monkeypatch.setattr(price_blend, "price_now", price_now)
     out = _build(solver_regional_spot_current_price_sensor="sensor.spot")
     assert out.spot_import_raw == AEMO_IMPORT
     assert writer["live_spot"] == [None, None]

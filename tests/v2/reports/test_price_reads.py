@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 import solver_shared
 import solver_writer as sw
+from solver_inputs import price_blend
 
 FIX = Path(__file__).resolve().parents[2] / "fixtures" / "pricing"
 
@@ -52,12 +53,15 @@ def t(s):
 def sensor(monkeypatch):
     """One price sensor whose attributes the test sets."""
     attrs = {}
+    monkeypatch.setattr(solver_shared, "ha_get", lambda _e: {"attributes": attrs})
     monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": attrs})
 
     def read(grid, **set_attrs):
         attrs.clear()
         attrs.update(set_attrs)
-        return sw.resample_generic_price_forecast_with_coverage("sensor.price", grid)
+        return price_blend.resample_generic_price_forecast_with_coverage(
+            "sensor.price", grid
+        )
 
     read.attrs = attrs
     return read
@@ -178,9 +182,11 @@ def test_the_regional_forecast_reads_aemo_and_pd7day_alike(monkeypatch, subtests
     for name, (rows, points) in _REGIONAL_CASES.items():
         with subtests.test(name=name):
             monkeypatch.setattr(
-                sw, "ha_get", lambda _e, rows=rows: {"attributes": {"forecast": rows}}
+                solver_shared,
+                "ha_get",
+                lambda _e, rows=rows: {"attributes": {"forecast": rows}},
             )
-            assert sw.fetch_aemo_forecast("sensor.regional") == [
+            assert price_blend.fetch_aemo_forecast("sensor.regional") == [
                 (t(a), v) for a, v in points
             ]
 
@@ -190,12 +196,14 @@ def test_past_the_retail_feed_the_regional_price_plus_the_learned_offset_is_used
     retail = [{"time": "2026-10-06T13:00:00+10:00", "costsflexup": 0.20}]
     grid = [t("2026-10-06T13:00:00+10:00"), t("2026-10-06T13:40:00+10:00")]
     bucket = 13 * 12 + 40 // 5
-    values, real = sw.resample_price_with_extrapolation(
+    values, real = price_blend.resample_price_with_extrapolation(
         retail, "costsflexup", grid, aemo, {bucket: 0.05}
     )
     assert values[0] == 0.20 and values[1] == pytest.approx(0.0767)
     assert real == [True, False]
-    held, _ = sw.resample_price_with_extrapolation(retail, "costsflexup", grid, [], {})
+    held, _ = price_blend.resample_price_with_extrapolation(
+        retail, "costsflexup", grid, [], {}
+    )
     assert held == [0.20, 0.20]
 
 
@@ -222,13 +230,14 @@ def openadr(monkeypatch):
             response = {
                 ADR_EID: {"payload_type": payload, "unit": "$/kWh", "forecast": rows}
             }
+        monkeypatch.setattr(solver_shared, "ha_get", lambda _e: {"attributes": a})
         monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": a})
         monkeypatch.setattr(
             solver_shared,
             "ha_call_service_with_response",
             lambda d, s, data: calls.append((d, s, data)) or response,
         )
-        return sw.resample_generic_price_forecast_with_coverage(
+        return price_blend.resample_generic_price_forecast_with_coverage(
             ADR_EID, [t(g) for g in grid]
         )
 
@@ -250,6 +259,7 @@ def test_no_answer_for_this_entity_is_no_forecast(openadr, spot_store, monkeypat
             "sensor.lv_buy": {"state": "0.2", "attributes": {"forecast": []}},
             "sensor.amber_feed_in": _amber(_spot_row(0.1074139)),
         }
+        mp.setattr(solver_shared, "ha_get", lambda e: states[e])
         mp.setattr(sw, "ha_get", lambda e: states[e])
         assert (
             len(
@@ -294,6 +304,9 @@ def spot_store(tmp_path, monkeypatch):
 def test_without_amber_or_with_a_failed_read_nothing_is_collected(
     spot_store, monkeypatch
 ):
+    monkeypatch.setattr(
+        solver_shared, "ha_get", lambda _e: {"state": "0.2", "attributes": {}}
+    )
     monkeypatch.setattr(sw, "ha_get", lambda _e: {"state": "0.2", "attributes": {}})
     assert sw.collect_amber_spot(["sensor.lv_buy"], SPOT_NOW) == {}
     assert not spot_store.exists()
@@ -301,6 +314,7 @@ def test_without_amber_or_with_a_failed_read_nothing_is_collected(
     def down(_e):
         raise OSError("down")
 
+    monkeypatch.setattr(solver_shared, "ha_get", down)
     monkeypatch.setattr(sw, "ha_get", down)
     assert sw.collect_amber_spot(["sensor.amber_general"], SPOT_NOW) == {}
 
@@ -310,6 +324,7 @@ def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
     with monkeypatch.context() as mp:
         old = int((SPOT_END - timedelta(days=6)).timestamp()) // 300
         spot_store.write_text(json.dumps({str(old): 0.05}))
+        mp.setattr(solver_shared, "ha_get", lambda _e: _amber(_spot_row(0.11)))
         mp.setattr(sw, "ha_get", lambda _e: _amber(_spot_row(0.11)))
         out = sw.collect_amber_spot(["sensor.amber_general"], SPOT_NOW)
         assert old not in out and len(out) == 1
@@ -319,15 +334,17 @@ def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
         late = [
             (MARKUP_START + timedelta(seconds=60), 0.1357)
         ]  # the previous interval's
-        mp.setattr(sw, "fetch_price_history", lambda *_a, **_k: late)
+        mp.setattr(price_blend, "fetch_price_history", lambda *_a, **_k: late)
         same = {int(MARKUP_START.timestamp()) // 300: (MARKUP_START, 0.1697)}
-        regional = sw.compute_5min_offset(RETAIL, regional_spot_sensor="sensor.aemo")
+        regional = price_blend.compute_5min_offset(
+            RETAIL, regional_spot_sensor="sensor.aemo"
+        )
         assert regional[BUCKET] == pytest.approx(0.40 - 0.1357)
-        assert sw.compute_5min_offset(
+        assert price_blend.compute_5min_offset(
             RETAIL, regional_spot_sensor="sensor.aemo", same_poll_wholesale=same
         )[BUCKET] == pytest.approx(0.40 - 0.1697)
         assert (
-            sw.compute_5min_offset(
+            price_blend.compute_5min_offset(
                 RETAIL, regional_spot_sensor="sensor.aemo", same_poll_wholesale={}
             )
             == regional
@@ -335,12 +352,12 @@ def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
 
     # test_an_amber_only_install_needs_no_regional_sensor
     with monkeypatch.context() as mp:
-        mp.setattr(sw, "fetch_price_history", lambda *_a, **_k: [])
+        mp.setattr(price_blend, "fetch_price_history", lambda *_a, **_k: [])
         same = {int(MARKUP_START.timestamp()) // 300: (MARKUP_START, 0.15)}
-        assert sw.compute_5min_offset(RETAIL, same_poll_wholesale=same) == {
+        assert price_blend.compute_5min_offset(RETAIL, same_poll_wholesale=same) == {
             BUCKET: pytest.approx(0.25)
         }
-        assert sw.compute_5min_offset(RETAIL) == {}
+        assert price_blend.compute_5min_offset(RETAIL) == {}
 
     # test_no_usable_spot_in_progress_is_none
     for rows in [
@@ -370,10 +387,16 @@ def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
         ]:
             with mp.context() as mp:
                 rows = [{"time": "2026-08-25T12:00:00+00:00", **row}]
+                mp.setattr(
+                    solver_shared,
+                    "ha_get",
+                    lambda _e: {"attributes": {"forecast": rows}},  # noqa: B023
+                )
                 mp.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})  # noqa: B023
                 grid = [datetime(2026, 8, 25, 12, 0, tzinfo=UTC)]
                 assert (
-                    sw.resample_generic_price_forecast("sensor.price", grid) == expected
+                    price_blend.resample_generic_price_forecast("sensor.price", grid)
+                    == expected
                 )
 
     # test_amber_rows_that_cannot_be_read_are_skipped_one_by_one
@@ -396,8 +419,9 @@ def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
         def down(_e):
             raise OSError("down")
 
+        mp.setattr(solver_shared, "ha_get", down)
         mp.setattr(sw, "ha_get", down)
-        assert sw.price_unit_scale_of_history("sensor.price") == 1.0
+        assert price_blend.price_unit_scale_of_history("sensor.price") == 1.0
 
 
 MARKUP_START = datetime(2026, 10, 10, 9, 5, tzinfo=UTC)  # 19:05 local

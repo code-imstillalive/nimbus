@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import solver_shared
-import solver_writer
+from solver_inputs import price_blend
 
 NON_FINITE = ["nan", "NaN", "inf", "-inf", "Infinity"]
 
@@ -25,10 +25,8 @@ def _states(states):
     def ha_get(entity_id):
         return states[entity_id]
 
-    with (
-        patch.object(solver_shared, "ha_get", ha_get),
-        patch.object(solver_writer, "ha_get", ha_get),
-    ):
+    # nimbus #2289 item 6 step 8: the price readers read through solver_shared.
+    with patch.object(solver_shared, "ha_get", ha_get):
         yield
 
 
@@ -37,7 +35,7 @@ def test_price_now_falls_back_on_a_non_finite_state():
     for text in NON_FINITE:
         state = {"state": text, "attributes": {"unit_of_measurement": "$/kWh"}}
         with _states({"sensor.price": state}):
-            value = solver_writer.price_now("sensor.price", fallback=0.3)
+            value = price_blend.price_now("sensor.price", fallback=0.3)
         assert value == pytest.approx(0.3)
         assert math.isfinite(value)
 
@@ -45,14 +43,9 @@ def test_price_now_falls_back_on_a_non_finite_state():
     def gone(entity_id):
         raise solver_shared._native_http_error(entity_id, 404, "not found")
 
-    with (
-        patch.object(solver_shared, "ha_get", gone),
-        patch.object(solver_writer, "ha_get", gone),
-    ):
+    with patch.object(solver_shared, "ha_get", gone):
         assert solver_shared.safe_num("number.gone", 80.0) == pytest.approx(80.0)
-        assert solver_writer.price_now("sensor.gone", fallback=0.3) == pytest.approx(
-            0.3
-        )
+        assert price_blend.price_now("sensor.gone", fallback=0.3) == pytest.approx(0.3)
 
     # test_a_quiet_read_of_an_unavailable_price_does_not_warn
     state = {"state": "unavailable", "attributes": {"unit_of_measurement": "$/MWh"}}
@@ -63,9 +56,7 @@ def test_price_now_falls_back_on_a_non_finite_state():
             patch.object(solver_shared._LOGGER, "warning") as warning,
             patch.object(solver_shared._LOGGER, "debug") as debug,
         ):
-            value = solver_writer.price_now(
-                "sensor.spot", fallback=math.nan, quiet=quiet
-            )
+            value = price_blend.price_now("sensor.spot", fallback=math.nan, quiet=quiet)
         assert math.isnan(value)
         assert warning.called is (level == logging.WARNING)
         assert debug.called is (level == logging.DEBUG)
@@ -74,7 +65,7 @@ def test_price_now_falls_back_on_a_non_finite_state():
     # test_the_aemo_cross_check_skips_a_non_finite_spot_price
     for text in NON_FINITE:
         with _states({"sensor.spot": {"state": text}}):
-            result = solver_writer.check_aemo_p5min_disagreement(
+            result = price_blend.check_aemo_p5min_disagreement(
                 "sensor.spot", 0.25, 0, {0: 0.1}, 0.05
             )
         assert result is None
