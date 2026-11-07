@@ -89,6 +89,7 @@ plan's own numbers" evaluation would silently get regret wrong.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -177,8 +178,8 @@ def evaluate_realized_cost(
     discharge_cost: float | NDArray[np.float64],
     final_soc_kwh: float,
     salvage_value: float,
-    grid_import_limit_kw: float | NDArray[np.float64],
-    grid_export_limit_kw: float | NDArray[np.float64],
+    grid_import_limit_kw: float | Sequence[float] | NDArray[np.float64],
+    grid_export_limit_kw: float | Sequence[float] | NDArray[np.float64],
     terminal_value_breakpoints: list[tuple[float, float]] | None = None,
     battery_min_soc_kwh: float | None = None,
     degradation_cost_per_kwh: float = 0.0,

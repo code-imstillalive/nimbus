@@ -1712,8 +1712,8 @@ def assemble_and_solve_plan(
     grid = elements.GridConfig(
         import_price=np.array(import_price),
         export_price=np.array(export_price),
-        import_limit_kw=np.asarray(import_limit_kw, dtype=np.float64),
-        export_limit_kw=np.asarray(export_limit_kw, dtype=np.float64),
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
         export_bonus_price=np.array(export_bonus_price),
         export_bonus_volume_kwh=p2p_recent_volume_kwh,
         fixed_export_kw=np.array(fixed_export_kw)
