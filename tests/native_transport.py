@@ -34,7 +34,7 @@ def use_native_fake(monkeypatch: Any, sw: Any, fake: FakeHA, **hass_kw: Any) -> 
     `monkeypatch` undoes the patches; the caller closes the returned hass
     (its loop thread) after the test.
     """
-    shared = importlib.import_module(sw.native_state_changes.__module__)
+    shared = importlib.import_module(type(sw.NATIVE).__module__)
     hass = FakeNativeHass(fake=fake, **hass_kw)
 
     def changes(entity_id, start, end, *, no_attributes):
@@ -49,7 +49,6 @@ def use_native_fake(monkeypatch: Any, sw: Any, fake: FakeHA, **hass_kw: Any) -> 
 
     monkeypatch.setattr(shared.NATIVE, "hass", hass)
     monkeypatch.setattr(shared, "native_state_changes", changes)
-    monkeypatch.setattr(sw, "native_state_changes", changes)
     # Handlers are module state: give this test its own table.
     monkeypatch.setattr(
         shared, "_ENTITY_UPDATE_HANDLERS", dict(shared._ENTITY_UPDATE_HANDLERS)

@@ -24,7 +24,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.nimbus_load import solver_writer
+from custom_components.nimbus_load import solver_shared, solver_writer
 from custom_components.nimbus_load.const import DOMAIN
 
 
@@ -58,7 +58,7 @@ async def test_one_solve_per_window_however_many_cards_ask(
             scored.append(start.timestamp())
         return {"epr_pct": 95.0}
 
-    monkeypatch.setattr(solver_writer, "fetch_solver_config", dict)
+    monkeypatch.setattr(solver_shared, "fetch_solver_config", dict)
     monkeypatch.setattr(solver_writer, "_compute_report_for_window", fake_report)
     monkeypatch.setattr(
         solver_writer, "rescore_quality_history", lambda *a, **k: {"rows": 0}

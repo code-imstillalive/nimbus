@@ -96,10 +96,9 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    29  # solver_writer.py alone as of nimbus #2289 item 6 step 6
-    # (offer curve and flex signals to solver_publish.py); 32 as of nimbus #2289 item 6 steps 1-2
-    # (update_solar_delivery_ratio to solver_inputs/solar.py, build_tiered_grid
-    # to solver_shared.py); 34 as of
+    22  # solver_writer.py alone as of nimbus #2289 item 6 steps 1-6
+    # (solar, the time grid, the history and load-forecast readers, the offer
+    # curve and flex signals moved out); 34 as of
     # nimbus #2289 item 5 (B.2b: the REST
     # transport's removal took ha_call_service_with_response and
     # fetch_entity_state_history_range under the limit); 36 as of nimbus #1305

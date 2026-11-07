@@ -120,6 +120,10 @@ SIGNAL_ROLE_OTHER: Final = "other"
 SIGNAL_ROLE_BATTERY: Final = "battery"
 SIGNAL_ROLE_SOLAR: Final = "solar"
 SIGNAL_ROLE_GRID: Final = "grid"
+# nimbus #2299 (Mark Purcell, Cottonwood): a second meter of the whole house's
+# own draw (a Sigenergy "Total Load" beside "Consumed Power"). The cards keep
+# it off the circuits, so House is not drawn twice. Display only.
+SIGNAL_ROLE_WHOLE_HOUSE: Final = "whole_house"
 
 # Controllable Load fields (2026-09-07, nimbus issue #486). `kind`
 # selects which LP class solver_writer.py builds this subentry into --

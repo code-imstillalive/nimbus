@@ -6,6 +6,7 @@ import urllib.error
 from unittest.mock import patch
 
 import pytest
+import solver_shared
 import solver_writer
 from _isolated_state import isolated_state_paths
 
@@ -64,7 +65,9 @@ class TestStartupRaceLoadForecastNeverPublishesAZeroLoadPlan:
         ha_get_mock = _make_ha_get(unavailable_state)
 
         with (
-            patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
+            # Every read this test reaches (the settings and the load forecast)
+            # resolves ha_get in solver_shared (#2289 item 6, steps 3 and 5).
+            patch.object(solver_shared, "ha_get", side_effect=ha_get_mock),
             patch.object(solver_writer, "ha_post_state") as mock_post_state,
             patch.object(solver_writer, "acquire_lock", return_value=True),
             patch.object(solver_writer, "release_lock"),
@@ -104,6 +107,8 @@ class TestNeverTrainedLoadForecastNeverPublishesAZeroLoadPlan:
 
         with (
             patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
+            # The settings read lives in solver_shared (#2289 item 6).
+            patch.object(solver_shared, "ha_get", side_effect=ha_get_mock),
             patch.object(solver_writer, "acquire_lock", return_value=True),
             patch.object(solver_writer, "release_lock"),
             # nimbus issue #1330: main() writes real /opt state paths by default.

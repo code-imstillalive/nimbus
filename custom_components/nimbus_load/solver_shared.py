@@ -125,6 +125,7 @@ try:
         is_energy_unit,
         is_non_power_unit,
         warn_non_power_once,
+        warn_refused_input_once,
     )
     from .power_units import power_scale_to_kw
 except ImportError:  # pragma: no cover - standalone/cron path
@@ -132,6 +133,7 @@ except ImportError:  # pragma: no cover - standalone/cron path
         is_energy_unit,
         is_non_power_unit,
         warn_non_power_once,
+        warn_refused_input_once,
     )
     from power_units import power_scale_to_kw  # type: ignore[no-redef]
 
@@ -972,6 +974,177 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> bool:
     return False
 
 
+# --- moved from solver_writer.py (#2289 item 6, step 3): service calls and the settings read ---
+
+
+def fetch_solver_config() -> dict:
+    """The real Solver settings a household fills in through Nimbus's own
+    Configure -> "Solver settings" wizard (nimbus repo,
+    flows/hub_options.py), bridged out via sensor.nimbus_solver_config
+    (nimbus repo, sensor.py's own NimbusSolverConfigSensor) since
+    config_entries.options isn't exposed over HA's plain REST API
+    (confirmed live 2026-08-20 -- /api/config/config_entries/entry only
+    returns entry metadata, never the entry's own options dict).
+
+    2026-08-20, direct household ask, following a genuinely honest self-
+    assessment of how installable this Solver actually is for someone
+    else (Mark Purcell, or anyone): "close this gap... or get rid of it
+    totally - need its own installer and inputs period." Before this
+    function existed, main() read battery/grid config from a set of ad-
+    hoc input_number.nimbus_solver_* helpers that had to be hand-created
+    via a separate YAML package file -- undocumented, NUC-specific,
+    genuinely not something a fresh installer could discover on their
+    own. This function (and the config-flow/bridge-sensor behind it) is
+    what actually closes that gap: a real install now needs nothing more
+    than filling in Nimbus's own hub "Configure" form.
+
+    Raises a clear, actionable RuntimeError -- not a confusing KeyError
+    deep inside network.py -- if the Solver hasn't been configured yet.
+
+    nimbus issue #831: also raises that same clear RuntimeError (not a
+    raw urllib.error.HTTPError leaking straight through) if the bridge
+    entity itself doesn't exist yet -- confirmed live on devhub, a
+    scheduled `nimbus_load.compute_quality_report` call landed during a
+    window where `sensor.nimbus_solver_config` wasn't registered yet
+    (the entity genuinely not existing yet during startup/reload is a
+    different failure mode than "registered but not configured", and
+    deserves the same actionable message, not "HTTP Error 404: Entity
+    sensor.nimbus_solver_config not found" with no guidance at all).
+    """
+    try:
+        state = ha_get("sensor.nimbus_solver_config")
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+        raise RuntimeError(
+            "Nimbus Solver's own sensor.nimbus_solver_config entity does not "
+            "exist yet (the hub may still be starting up, reloading, or "
+            "hasn't been set up at all). Wait for Home Assistant to finish "
+            "loading, or if this is a fresh install, add the Nimbus "
+            "integration first (Settings -> Devices & Services -> Add "
+            "Integration -> Nimbus)."
+        ) from e
+    if state["state"] != "configured":
+        msg = (
+            "Nimbus Solver is not configured yet. Open the Nimbus hub's own "
+            '"Configure" button in Home Assistant, choose "Solver settings", '
+            "and fill in every required field (battery capacity/SoC sensor, "
+            "max charge/discharge power, grid import/export limits, live "
+            "import/export price sensors, solar/load forecast sensors) "
+            "before running this writer."
+        )
+        raise RuntimeError(msg)
+    return _refuse_non_power_inputs(dict(state["attributes"]))
+
+
+# nimbus #1643: optional power inputs whose sensor reports a unit that is not
+# power are treated as not configured, rather than read as kW. The load
+# forecast is required, so it is refused where it is parsed instead
+# (`_validate_and_parse_load_forecast_attrs`), which takes the existing
+# missing-forecast path.
+_OPTIONAL_POWER_INPUTS = (
+    "solver_solar_power_sensor",
+    "solver_battery_power_sensor",
+    "solver_whole_house_cross_check_sensor",
+    "switchboard_grid_meter_sensor",
+    "switchboard_battery_power_sensor",
+    "grid_sensor",
+)
+
+
+def _refuse_non_power_inputs(cfg: dict) -> dict:
+    """`cfg` with each optional power input blanked whose sensor reports a
+    stated non-power unit (A, kVA, kWh, unknown). The Repair names it
+    (setup_health, #1643); this logs it once per sensor."""
+    for key in _OPTIONAL_POWER_INPUTS:
+        entity_id = cfg.get(key)
+        if not entity_id:
+            continue
+        try:
+            unit = ha_get(entity_id).get("attributes", {}).get("unit_of_measurement")
+        except Exception:
+            _LOGGER.debug("Nimbus: unit of %s unreadable", entity_id, exc_info=True)
+            continue
+        if power_scale_or_none(unit) is None:
+            warn_refused_input_once(entity_id, unit)
+            cfg[key] = None
+    return cfg
+
+
+def ha_call_service(domain: str, service: str, data: dict) -> None:
+    """Fire-and-forget HA service call -- same native/REST dual-mode
+    split as ha_get()/ha_post_state() above. Currently used only for
+    the one-time load-forecast-shape persistent notification (see
+    _notify_load_forecast_error_once()) -- any failure here is
+    deliberately swallowed by the caller, since a failed notification
+    must never be allowed to break the actual solve."""
+    if NATIVE.hass is not None:
+        NATIVE.hass.add_job(
+            functools.partial(NATIVE.hass.services.async_call, domain, service, data)
+        )
+        return
+
+
+def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict | None:
+    """Same REST call as ha_call_service() above, but for a service that
+    returns response data (return_response) -- e.g. weather.get_forecasts,
+    whose whole forecast array is ONLY available via this response
+    payload on any modern (2023+) HA weather entity, never a plain state
+    attribute the way every other forecast source in this file publishes.
+    Used by publish_weather_forecast_mirrors() (2026-08-25, nimbus repo
+    dashboard follow-up) -- see that function's own docstring.
+
+    Returns the service's own service_response dict (keyed by the
+    entity_id(s) targeted), or None on any failure. Deliberately
+    swallows every failure rather than raising -- every caller here
+    already treats a missing/unavailable forecast source as a graceful
+    no-op (see every other optional external source in this file), not
+    a reason to break the actual solve.
+
+    Native mode (2026-08-25, real bug found live on devhub -- this
+    function's own first version returned None unconditionally here,
+    silently no-op'ing publish_weather_forecast_mirrors() on any native
+    install without ever surfacing why): same
+    asyncio.run_coroutine_threadsafe() bridge fetch_price_history()'s
+    own native branch already uses to call async, event-loop-owned HA
+    APIs from this file's own sync executor-thread context -- a plain
+    hass.services.async_call(..., blocking=True, return_response=True)
+    is itself a coroutine, and there's no public sync-callable variant,
+    same reasoning as that function's own comment.
+    """
+    if NATIVE.hass is not None:
+        try:
+            import asyncio
+
+            async def _call() -> dict:
+                return await NATIVE.hass.services.async_call(
+                    domain,
+                    service,
+                    data,
+                    blocking=True,
+                    return_response=True,
+                )
+
+            future = asyncio.run_coroutine_threadsafe(_call(), NATIVE.hass.loop)
+            return future.result(timeout=15)
+        except Exception:
+            # nimbus issue #363 (Mark Purcell, codebase review): the swallow
+            # itself is the correct, deliberate contract (see docstring) --
+            # what was missing is any breadcrumb AT ALL when it fires.
+            # DEBUG, not WARNING: a missing/unavailable weather-forecast
+            # service call is already an accepted, routine no-op for every
+            # caller here, not an operator-actionable condition on its own.
+            _LOGGER.debug(
+                "Nimbus Solver: ha_call_service_with_response(%s.%s) failed",
+                domain,
+                service,
+                exc_info=True,
+            )
+            return None
+    # Native only (#2289 item 5): no hass, no response.
+    return None
+
+
 # Real, live household automation design (config/automations.yaml):
 # p2p_battery_sell_end_midnight switches the battery to Self-Consume the
 # INSTANT the P2P window closes (00:00:00 sharp, no ramp), and
@@ -1573,6 +1746,130 @@ def fetch_entity_attribute_history_range(
             if v is None:
                 continue
             out.append((s.last_changed.astimezone(LOCAL_TZ), v))
+        return sorted(out, key=lambda x: x[0])
+    # Native only (#2289 item 5): no hass means Home Assistant is not
+    # attached, so there is no history to read.
+    return []
+
+
+# --- moved from solver_writer.py (#2289 item 6, step 4): the other two history readers ---
+
+
+def fetch_entity_power_history_kw(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, float]]:
+    """Real recorded power history normalised to kW **per row**, using
+    each sample's OWN recorded `unit_of_measurement`.
+
+    nimbus issue #843 (option A of Mark Purcell's own A/B/C steer,
+    2026-09-13). `fetch_entity_history_range()` above deliberately strips
+    attributes on BOTH paths -- `no_attributes=True` natively and
+    `&minimal_response` over REST -- so per-row units are not merely
+    ignored there, they are never fetched. Every caller therefore has to
+    lean on `_kw_scale_factor()`, which reads the sensor's CURRENT LIVE
+    unit exactly once and applies that single scale across the whole
+    window.
+
+    That is structurally unable to see a sensor whose unit changes
+    mid-window, which is a real, confirmed thing rather than a
+    hypothetical: Mark's own EV pack sensor reports `W` for ~80 seconds
+    as the car wakes from sleep, then switches to `kW` --
+
+        08:51:04.410  state=1514.417   unit="W"     <- really 1.514417 kW
+        08:51:30.004  state=-774.818   (still W)
+        08:52:27.078  state=-0.774994  <- kW from here on
+
+    -- so a live check returning `kW` scaled that 1514.417 by 1.0 and
+    the quality report published ~1,500 kW of achieved battery power
+    against a real ~80 kW fleet ceiling.
+
+    Deliberately a SEPARATE function rather than a flag on
+    fetch_entity_history_range(), and deliberately used by only ONE
+    caller (`_resolve_battery_participant_history()`'s participant power
+    fetch). Preserving attributes makes a recorder read materially
+    heavier -- they are a separate join, and the quality report fetches a
+    full day per sensor per participant -- so every other history read in
+    this file keeps the cheap attribute-stripped path. That scoping is
+    the whole reason option A was viable at all; a blanket change would
+    have imposed the cost on every install to fix a wake transient on one
+    sensor family.
+
+    Per-row conversion goes through `solver_shared.power_scale_or_none()`, the
+    one converter every Nimbus power reading shares (nimbus #1570), rather
+    than a convention of its own. A row with no unit at all is taken as
+    already-kW, matching `_kw_scale_factor()`'s own documented default for
+    the same case.
+
+    Same "degrade to [] on any failure, never crash" discipline as every
+    other real-data fetch here.
+    """
+    if NATIVE.hass is not None:
+        try:
+            states = native_state_changes(entity_id, start, end, no_attributes=False)
+        except Exception:
+            _LOGGER.debug(
+                "Nimbus Solver: fetch_entity_power_history_kw(%s) recorder read failed",
+                entity_id,
+                exc_info=True,
+            )
+            return []
+        out: list[tuple[datetime, float]] = []
+        for s in states:
+            try:
+                v = float(s.state)
+            except (TypeError, ValueError):
+                continue
+            scale = power_scale_or_none(  # nimbus #1570, #1643
+                s.attributes.get("unit_of_measurement")
+            )
+            if scale is None:
+                continue  # not a power unit: no reading, not kW
+            v *= scale
+            out.append((s.last_changed.astimezone(LOCAL_TZ), v))
+        return sorted(out, key=lambda x: x[0])
+    # Native only (#2289 item 5): no hass means Home Assistant is not
+    # attached, so there is no history to read.
+    return []
+
+
+def fetch_entity_state_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, str]]:
+    """Real recorded STATE-STRING history for one entity over an
+    explicit [start, end) window -- same shape and same dual native/
+    REST mode as fetch_entity_history_range() just above, but keeps
+    each state as its raw string instead of casting to float.
+
+    nimbus issue #768 (Mark Purcell, 2026-09-13): needed for a
+    genuinely non-numeric state -- a battery_participant's own
+    `battery_participant_available_entity` (a `binary_sensor`,
+    "on"/"off", not a number). fetch_entity_history_range() itself
+    would silently drop EVERY point for an entity like this (its own
+    `float(s.state)` cast fails and skips it), returning an empty
+    history regardless of how much real data actually exists -- exactly
+    the kind of silent, misleading "history missing" this project's own
+    established discipline never wants (see that function's own several
+    real-bug-history comments).
+
+    Skips only a genuinely missing/unusable state (None, "unknown",
+    "unavailable") -- every other real string state is kept as-is,
+    unlike fetch_entity_history_range()'s own numeric-cast filter.
+    """
+    if NATIVE.hass is not None:
+        try:
+            states = native_state_changes(entity_id, start, end, no_attributes=True)
+        except Exception:
+            _LOGGER.debug(
+                "Nimbus Solver: fetch_entity_state_history_range(%s) recorder read failed",
+                entity_id,
+                exc_info=True,
+            )
+            return []
+        out: list[tuple[datetime, str]] = []
+        for s in states:
+            if s.state in (None, "unknown", "unavailable"):
+                continue
+            out.append((s.last_changed.astimezone(LOCAL_TZ), s.state))
         return sorted(out, key=lambda x: x[0])
     # Native only (#2289 item 5): no hass means Home Assistant is not
     # attached, so there is no history to read.

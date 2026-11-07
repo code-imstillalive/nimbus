@@ -131,7 +131,7 @@ def test_power_history_from_the_recorder_is_in_kw(hass, publish, caplog):
         _s(-30, "5", unit_of_measurement="A"),
         _s(-40, "x", unit_of_measurement="W"),
     ]
-    got = sw.fetch_entity_power_history_kw("sensor.pv", START, END)
+    got = shared.fetch_entity_power_history_kw("sensor.pv", START, END)
     assert [v for _t, v in got] == [2.0, 3.0]
 
     # test_went_unavailable_counts_only_changes_after_the_cutoff
@@ -153,17 +153,17 @@ def test_power_history_from_the_recorder_is_in_kw(hass, publish, caplog):
     hass.history_error = RuntimeError("recorder busy")
     assert sw.fetch_entity_history_range("sensor.x", START, END) == []
     assert sw.fetch_entity_attribute_history_range("sensor.x", "a", START, END) == []
-    assert sw.fetch_entity_power_history_kw("sensor.x", START, END) == []
+    assert shared.fetch_entity_power_history_kw("sensor.x", START, END) == []
     assert shared.fetch_entity_went_unavailable("sensor.x", START, END) is None
 
     # --- service calls with a response ------------------------------------------------
     # test_a_service_response_comes_back_from_the_loop
     hass.service_result = {"calendar.x": {"events": []}}
-    assert sw.ha_call_service_with_response("calendar", "get_events", {}) == {
+    assert shared.ha_call_service_with_response("calendar", "get_events", {}) == {
         "calendar.x": {"events": []}
     }
     hass.service_result = RuntimeError("no such service")
-    assert sw.ha_call_service_with_response("calendar", "get_events", {}) is None
+    assert shared.ha_call_service_with_response("calendar", "get_events", {}) is None
 
     # test_a_managed_entity_without_a_handler_is_skipped_and_warned_after_ten_cycles
     caplog.clear()

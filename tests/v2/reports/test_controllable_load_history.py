@@ -51,7 +51,7 @@ def site(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        sw,
+        shared,
         "fetch_entity_power_history_kw",
         lambda eid, start, end: s.history.get(eid, []),
     )
