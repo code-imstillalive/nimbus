@@ -16,7 +16,7 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import power_input_check as pic
-from custom_components.nimbus_load import solver_shared, solver_writer
+from custom_components.nimbus_load import solver_shared
 
 UNITS = {
     "sensor.pv_amps": "A",
@@ -45,7 +45,7 @@ def test_optional_power_inputs_with_a_non_power_unit_become_not_configured(caplo
         "solver_import_price_sensor": "sensor.not_a_power_input",
     }
     with (
-        patch.object(solver_writer, "ha_get", _ha_get),
+        patch.object(solver_shared, "ha_get", _ha_get),
         caplog.at_level(logging.WARNING),
     ):
         out = solver_shared._refuse_non_power_inputs(dict(cfg))
@@ -64,6 +64,6 @@ def test_optional_power_inputs_with_a_non_power_unit_become_not_configured(caplo
         raise OSError("down")
 
     cfg = {"solver_solar_power_sensor": "sensor.pv_amps"}
-    with patch.object(solver_writer, "ha_get", _raise):
+    with patch.object(solver_shared, "ha_get", _raise):
         out = solver_shared._refuse_non_power_inputs(dict(cfg))
     assert out == cfg
