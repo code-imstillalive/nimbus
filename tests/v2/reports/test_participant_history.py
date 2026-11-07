@@ -288,8 +288,6 @@ def test_the_quality_report_scores_home_and_every_participant(site, monkeypatch)
 
     monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
     monkeypatch.setattr(sw, "fetch_entity_power_history_kw", fetch)
-    # Every other read fails at once: no Home Assistant attached.
-    monkeypatch.setattr(sw.NATIVE, "hass", None)
     now = END + timedelta(hours=10)
     assert sw.compute_daily_quality_report(cfg, now)["scored_participants"] == ["home"]
     site.add()
