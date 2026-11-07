@@ -35,8 +35,8 @@ so a fix can be verified against the exact same conditions:
 - **Nimbus version** — `custom_components/nimbus_load/manifest.json`'s
   `version` field (or the HACS-shown version).
 - **Home Assistant Core version.**
-- **Install method** — HACS (native in-process Solver) or a standalone
-  cron script (see `docs/real-world-integration/`). The `nimbus_solver_app`
+- **Install method** — HACS, in-process. The standalone cron script was
+  retired on 7 Nov 2026 (#2289), and the `nimbus_solver_app`
   Supervisor add-on was removed in **v0.94.85**
   ([#357](https://github.com/code-imstillalive/nimbus/issues/357)) — if you're
   reporting against an install older than that, note the exact version too.

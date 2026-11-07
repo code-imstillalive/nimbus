@@ -8,12 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.99.0] - 2026-11-07
+
+**Topology: a circuit's own devices are easier to read; Power Flow says when it is waiting for a plan.**
+
+- **Topology** (#2338): a circuit with several devices under it now has one line down to them, with one arrow, and each device has its own short arrow into its tile, indented further. The arrows no longer pile on top of each other.
+- **Power Flow says "Waiting for the plan"** (#2340) for the minute after Nimbus reloads, such as after saving a circuit's name, instead of keeping the last plan's "On plan" and "Solar xx% of forecast" up with no Buy/Sell price.
+- Internal: long incident notes moved out of five more modules' code comments into history files (#2331, #2332, #2334–#2336).
+
 ## [0.98.0] - 2026-11-07
 
 **"Part of another circuit" is now recorded in the device contract.**
 
 - **Device setup** (#2323, #2293, reviewed by Mark Purcell). A Load or plain Power Signal set as "part of" a circuit is recorded in the device contract as that circuit's sub-device, and it's counted once, inside its circuit. A plain ("Other") power signal on its own sensor is now a circuit in the contract. One on a sensor Nimbus already reads, such as the battery or grid meter, stays as it was. With device setup in `active`, setting "part of" shows **Settings → Repairs → Keep my change** once, which records it. Display only: forecasts and plans are unchanged.
 - Internal: the regression tests now also run every scenario in the mode real installs use (#2324–#2326), and long incident notes moved out of two modules' code comments into a history file (#2327, #2328).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at a3823f28** (`release/0.98.0`, installed untagged through Home Assistant's marketplace and restarted at 09:19 AEST, 7 Nov; read through 09:22).
+  - 123 of the 127 Nimbus entities carrying a version read 0.98.0; the other four are the daily reports.
+  - None of the 388 Nimbus entities unavailable; plan `optimal` (solved 09:21); all 62 Solver numbers kept their values over the restart.
+  - Help's What's New shows 0.98.0.
+  - The device contract (`active`) stayed at revision 4, holding the test pairing's `part_of` that "Keep my change" recorded on the PR build (#2323). The preview is clean, and there are no Nimbus Repairs.
+  - The Repair-and-keep path itself was exercised on the PR build: one `device_contract_drift`, kept, revision 3 → 4.
+  - Not seen live: a plain signal on its own sensor becoming a circuit, because the test box's plain signals are all on hub sensors. It's covered by the import test.
+  - Log: no ERROR.
+- Consumer check: no setting or entity is moved or renamed. A Load's or plain Power Signal's `part_of` is now an owned key in device setup, so in `active` a change to it shows as drift until kept. Forecasts and plans are unchanged.
 
 ## [0.97.0] - 2026-11-07
 

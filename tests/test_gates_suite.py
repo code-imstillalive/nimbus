@@ -934,7 +934,7 @@ def _battery(cycle: dict) -> dict:
 
 
 def test_two_cycles_reads_back_the_plan() -> None:
-    snap = _snapshot("guardrail_two_cycles")
+    snap = _snapshot("native_guardrail_two_cycles")
     assert "plan_state.json" in snap["files"]
     first, second = (_battery(c) for c in snap["cycles"])
     # Same inputs, five minutes later: the only reason the LP dual moves
@@ -1043,7 +1043,7 @@ def test_nemweb_inputs_match_their_provenance():
 
 def test_pd7day_spikes_reach_the_lp_uncalibrated_and_not_calibrated():
     for folder in NEMWEB_FOLDERS:
-        raw = _battery(_snapshot(f"{folder}_passthrough")["cycles"][0])
+        raw = _battery(_snapshot(f"native_{folder}_passthrough")["cycles"][0])
         spikes = [p for p in raw["forecast"] if p["import_price"] >= SPIKE]
         assert spikes, "no PD7DAY spike reached import_price"
         assert any(p["battery_kw"] > 0 for p in spikes), (
@@ -1053,7 +1053,7 @@ def test_pd7day_spikes_reach_the_lp_uncalibrated_and_not_calibrated():
         # Beyond the first 30 minutes every price is a PD7DAY forecast; inside
         # them the live price and the retail array decide (the real SA1 spike
         # in sa_nemweb_spike_arrived is live, not forecast).
-        snap = _snapshot(f"{folder}_fitted")
+        snap = _snapshot(f"native_{folder}_fitted")
         horizon = datetime.fromisoformat(snap["cycles"][0]["instant"]) + timedelta(
             minutes=30
         )
@@ -1069,7 +1069,9 @@ def test_pd7day_spikes_reach_the_lp_uncalibrated_and_not_calibrated():
 
 def test_real_spike_arms_the_override():
     for variant in ["passthrough", "fitted"]:
-        attrs = _battery(_snapshot(f"sa_nemweb_spike_arrived_{variant}")["cycles"][0])
+        attrs = _battery(
+            _snapshot(f"native_sa_nemweb_spike_arrived_{variant}")["cycles"][0]
+        )
         assert attrs["price_spike_active"] is True
         assert attrs["forecast"][0]["import_price"] >= SPIKE
         assert attrs["forecast"][0]["battery_kw"] == 5.0
@@ -1079,7 +1081,7 @@ def test_forecast_spikes_alone_do_not_arm_the_override() -> None:
     for folder in NEMWEB_FOLDERS:
         if folder == "sa_nemweb_spike_arrived":
             continue
-        attrs = _battery(_snapshot(f"{folder}_passthrough")["cycles"][0])
+        attrs = _battery(_snapshot(f"native_{folder}_passthrough")["cycles"][0])
         assert attrs["price_spike_active"] is False, folder
 
 
