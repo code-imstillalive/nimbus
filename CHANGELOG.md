@@ -15,6 +15,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Power signal role "Whole house"** (#2350, #2299, reviewed by Mark Purcell). Some inverters report the whole house twice, such as a Sigenergy "Total Load" beside "Consumed Power". Give the second one the role **Whole house** (Reconfigure → Role) and the Power Flow card no longer draws it again as a circuit; the Forecast card charts it with the loads. Display only: forecasts and plans are unchanged.
 - **The standalone Solver script is retired** (#2333). `solver_writer.py` no longer runs from cron or the Supervisor; Nimbus's own integration has run the Solver for every install for some time. If you still run the old standalone script, see the README.
 - Internal (all reviewed by Mark Purcell): the Solver reads and writes only through Home Assistant, and the REST transport and its token handling are gone (#2337, #2341); the regression tests run every scenario the way installs do; the first two steps of splitting the Solver's largest file (#2346, #2347).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at 83616636** (`release/0.100.0`, installed untagged through Home Assistant's marketplace and restarted at 15:19 AEST, 7 Nov; read through 15:23).
+  - 123 of the 127 Nimbus entities carrying a version read 0.100.0; the other four are the daily reports.
+  - None of the 388 Nimbus entities unavailable; plan `optimal` (solved 15:20); all 62 Solver numbers kept their values over the restart.
+  - Help's What's New shows 0.100.0. No Nimbus Repairs. Log: no Nimbus ERROR.
+  - The power signal form offers **Whole house** (`whole_house`): a new-signal form was opened, its role options read, and cancelled, so nothing was created. The served Forecast card carries the Whole house routing.
+  - Not seen live: the duplicate bubble disappearing, because devhub has no second whole-house meter. It's covered by the card's source test. Cottonwood (Mark) will see it after setting the role.
+  - The native-only Solver ran its first solve and those since without error on the same restart.
+- Consumer check: no setting or entity is moved or renamed. A new optional role value, `whole_house`, is added. The standalone `solver_writer.py` entry is retired; Home Assistant installs never used it.
 
 ## [0.99.0] - 2026-11-07
 
