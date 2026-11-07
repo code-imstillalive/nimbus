@@ -3157,8 +3157,8 @@ def _day_ahead_forecast_regret_attributes(
     blank = dict.fromkeys(_FORECAST_REGRET_KEYS)
 
     try:
-        from .forecast_snapshot_store import get_cached_snapshot
-        from .solver_inputs.forecast_snapshot import (
+        from ..forecast_snapshot_store import get_cached_snapshot
+        from ..solver_inputs.forecast_snapshot import (
             day_key_for,
             resample_snapshot_to_grid,
         )
@@ -3208,7 +3208,7 @@ def _day_ahead_forecast_regret_attributes(
         return {**blank, "forecast_regret_reason": "no_persistence_baseline"}
 
     try:
-        from .solver.forecast_regret import compute_forecast_regret
+        from ..solver.forecast_regret import compute_forecast_regret
 
         fr = compute_forecast_regret(
             periods=periods,
