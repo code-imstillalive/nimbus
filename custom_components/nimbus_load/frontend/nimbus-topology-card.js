@@ -101,9 +101,10 @@ const COLORS = {
   battery: "#4ac9e0",
   batteryLow: "#e05a5a",
   load: "#c874d1",
-  // A circuit's own sub-device, drawing power: a deeper shade of the same
-  // purple, so it reads as part of its circuit (household, 7 Nov 2026).
-  subLoad: "#9a4fb0",
+  // A circuit's own sub-device, drawing power: a clearly deeper shade of the
+  // same purple for its tile, so it reads as part of its circuit (household,
+  // 7 Nov 2026; #9a4fb0 was too close). Its value keeps `load`, to stay legible.
+  subLoad: "#6a2486",
   bus: "#d8d8d8",
   unavailable: "#454549",
   line: "#454549",
@@ -888,7 +889,7 @@ class TopologyCard extends HTMLElement {
     const nameEl = svgEl("text", { x: x - w / 2 + 15, y: y + 2.5, class: "node-label", style: `fill:${COLORS.text}` });
     nameEl.textContent = load.name;
     group.appendChild(nameEl);
-    const valueEl = svgEl("text", { x: x + w / 2 - 40, y: y + 3, "text-anchor": "end", class: "node-value-big", style: `fill:${color}` });
+    const valueEl = svgEl("text", { x: x + w / 2 - 40, y: y + 3, "text-anchor": "end", class: "node-value-big", style: `fill:${color === COLORS.subLoad ? COLORS.load : color}` });
     valueEl.textContent = live.text;
     group.appendChild(valueEl);
     const fcEl = svgEl("text", { x: x + w / 2 - 4, y: y + 3, "text-anchor": "end", class: "node-value-sub", style: `fill:${COLORS.textDim}` });
