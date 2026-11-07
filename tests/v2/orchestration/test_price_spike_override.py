@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import solver_writer
+from solver_inputs import prices as price_inputs
 
 
 def _cfg(**overrides):
@@ -25,7 +26,7 @@ class TestSpikeDetectionByAlertEntity(unittest.TestCase):
         # test_alert_entity_off_is_not_detected
         cfg = _cfg(solver_price_spike_alert_entity="binary_sensor.retailer_spike")
         with patch.object(solver_writer, "ha_get", return_value={"state": "off"}):
-            _kw, detected = solver_writer.resolve_price_spike_override(cfg, 0.10)
+            _kw, detected = price_inputs.resolve_price_spike_override(cfg, 0.10)
         self.assertFalse(detected)
 
         # test_alert_entity_fetch_failure_fails_open_to_not_detected: A spike-alert integration having a bad moment must never
@@ -37,7 +38,7 @@ class TestSpikeDetectionByAlertEntity(unittest.TestCase):
             "ha_get",
             side_effect=urllib.error.URLError("connection refused"),
         ):
-            _kw, detected = solver_writer.resolve_price_spike_override(cfg, 0.10)
+            _kw, detected = price_inputs.resolve_price_spike_override(cfg, 0.10)
         self.assertFalse(detected)
 
 

@@ -12,15 +12,15 @@ from __future__ import annotations
 import logging
 
 import pytest
-import solver_writer as sw
 from solver import elements
+from solver_inputs import prices as price_inputs
 
 LIVE = {"solver_max_discharge_kw": 10.0, "solver_max_discharge_live_entity": "number.x"}
 
 
 @pytest.fixture(autouse=True)
 def _fresh_episode(monkeypatch):
-    monkeypatch.setattr(sw, "_SPIKE_OVERRIDE_CLAMP_WARNED", False)
+    monkeypatch.setattr(price_inputs, "_SPIKE_OVERRIDE_CLAMP_WARNED", False)
 
 
 def _battery(spike_kw, max_discharge_kw):
@@ -51,7 +51,8 @@ def test_otherwise_the_rate_passes_through_unchanged(
 ):
     with caplog.at_level(logging.WARNING):
         assert (
-            sw.clamp_spike_override_to_live_ceiling(LIVE, spike_kw, ceiling) == expected
+            price_inputs.clamp_spike_override_to_live_ceiling(LIVE, spike_kw, ceiling)
+            == expected
         )
     assert caplog.text == ""
 
@@ -59,9 +60,13 @@ def test_otherwise_the_rate_passes_through_unchanged(
 def test_the_warning_comes_once_per_episode(caplog):
     with caplog.at_level(logging.WARNING):
         for _ in range(3):
-            sw.clamp_spike_override_to_live_ceiling(LIVE, 10.0, 8.0)
-        sw.clamp_spike_override_to_live_ceiling(LIVE, None, 8.0)  # the spike ends
-        sw.clamp_spike_override_to_live_ceiling(LIVE, 10.0, 8.0)  # the next one
+            price_inputs.clamp_spike_override_to_live_ceiling(LIVE, 10.0, 8.0)
+        price_inputs.clamp_spike_override_to_live_ceiling(
+            LIVE, None, 8.0
+        )  # the spike ends
+        price_inputs.clamp_spike_override_to_live_ceiling(
+            LIVE, 10.0, 8.0
+        )  # the next one
     assert (
         sum("live max-discharge ceiling" in r.getMessage() for r in caplog.records) == 2
     )
