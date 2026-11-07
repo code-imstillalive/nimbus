@@ -3251,58 +3251,35 @@ def _price_sources_phase(cfg, grid_times, n_periods, now) -> _PriceSources:
     )
 
 
-def main() -> None:
-    _settings = _settings_phase()
-    cfg = _settings.cfg
-    cfg_unmoded = _settings.cfg_unmoded
-    now = _settings.now
-    grid_times = _settings.grid_times
-    period_hours_arr = _settings.period_hours_arr
-    n_periods = _settings.n_periods
+@dataclass(frozen=True)
+class _PriceBlend:
+    """What `_price_blend_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
 
-    _input = _input_phase(
-        cfg=cfg,
-        cfg_unmoded=cfg_unmoded,
-        grid_times=grid_times,
-        n_periods=n_periods,
-        now=now,
-        period_hours_arr=period_hours_arr,
-    )
-    failed_load_entities = _input.failed_load_entities
-    live_load_kw = _input.live_load_kw
-    load_forecast_coverage_hours = _input.load_forecast_coverage_hours
-    load_forecast_error = _input.load_forecast_error
-    load_forecast_source_decision = _input.load_forecast_source_decision
-    load_forecast_source_used = _input.load_forecast_source_used
-    load_forecast_warnings = _input.load_forecast_warnings
-    load_kw = _input.load_kw
-    load_lower_kw = _input.load_lower_kw
-    load_upper_kw = _input.load_upper_kw
-    solar_delivery = _input.solar_delivery
-    solar_kw = _input.solar_kw
-    solar_lower_kw = _input.solar_lower_kw
-    solar_quantile_result = _input.solar_quantile_result
-    solar_upper_kw = _input.solar_upper_kw
-    summed_18_now_kw = _input.summed_18_now_kw
-    whole_house_now_kw = _input.whole_house_now_kw
+    export_price_cross_spread: Any
+    export_price_source: Any
+    import_price_cross_spread: Any
+    import_price_source: Any
+    price_consolidation_result: Any
+    rrp_crosscheck_result: Any
+    spot_export: Any
+    spot_export_source: Any
+    spot_import_raw: Any
+    spot_import_source: Any
 
-    _price_sources = _price_sources_phase(
-        cfg=cfg, grid_times=grid_times, n_periods=n_periods, now=now
-    )
-    _prices = _price_sources._prices
-    export_bonus_price = _price_sources.export_bonus_price
-    export_price_lower_band = _price_sources.export_price_lower_band
-    export_real_mask = _price_sources.export_real_mask
-    has_price_forecast_array = _price_sources.has_price_forecast_array
-    import_price_upper_band = _price_sources.import_price_upper_band
-    import_real_mask = _price_sources.import_real_mask
-    match_fraction = _price_sources.match_fraction
-    p2p_recent_volume_kwh = _price_sources.p2p_recent_volume_kwh
-    price_source_freshness = _price_sources.price_source_freshness
-    price_source_on_aemo = _price_sources.price_source_on_aemo
-    spot_export = _price_sources.spot_export
-    spot_import_raw = _price_sources.spot_import_raw
 
+def _price_blend_phase(
+    _prices,
+    cfg,
+    export_real_mask,
+    grid_times,
+    import_real_mask,
+    now,
+    period_hours_arr,
+    price_source_on_aemo,
+    spot_export,
+    spot_import_raw,
+) -> _PriceBlend:
+    """The settled-period override, the secondary-source blend, consolidation, the RRP cross-check and the p5min guard. Phase 4 of `main()`, moved verbatim (#2289 item 6 step 9)."""
     # Every period inside the current settlement block takes the source's
     # live settled `state`, not a forecast or blended value (nimbus #220).
     # The settled price is a contractual fact, and a forecast-array lookup
@@ -3428,6 +3405,94 @@ def main() -> None:
         ),
         ha_get,
     )
+    return _PriceBlend(
+        export_price_cross_spread=export_price_cross_spread,
+        export_price_source=export_price_source,
+        import_price_cross_spread=import_price_cross_spread,
+        import_price_source=import_price_source,
+        price_consolidation_result=price_consolidation_result,
+        rrp_crosscheck_result=rrp_crosscheck_result,
+        spot_export=spot_export,
+        spot_export_source=spot_export_source,
+        spot_import_raw=spot_import_raw,
+        spot_import_source=spot_import_source,
+    )
+
+
+def main() -> None:
+    _settings = _settings_phase()
+    cfg = _settings.cfg
+    cfg_unmoded = _settings.cfg_unmoded
+    now = _settings.now
+    grid_times = _settings.grid_times
+    period_hours_arr = _settings.period_hours_arr
+    n_periods = _settings.n_periods
+
+    _input = _input_phase(
+        cfg=cfg,
+        cfg_unmoded=cfg_unmoded,
+        grid_times=grid_times,
+        n_periods=n_periods,
+        now=now,
+        period_hours_arr=period_hours_arr,
+    )
+    failed_load_entities = _input.failed_load_entities
+    live_load_kw = _input.live_load_kw
+    load_forecast_coverage_hours = _input.load_forecast_coverage_hours
+    load_forecast_error = _input.load_forecast_error
+    load_forecast_source_decision = _input.load_forecast_source_decision
+    load_forecast_source_used = _input.load_forecast_source_used
+    load_forecast_warnings = _input.load_forecast_warnings
+    load_kw = _input.load_kw
+    load_lower_kw = _input.load_lower_kw
+    load_upper_kw = _input.load_upper_kw
+    solar_delivery = _input.solar_delivery
+    solar_kw = _input.solar_kw
+    solar_lower_kw = _input.solar_lower_kw
+    solar_quantile_result = _input.solar_quantile_result
+    solar_upper_kw = _input.solar_upper_kw
+    summed_18_now_kw = _input.summed_18_now_kw
+    whole_house_now_kw = _input.whole_house_now_kw
+
+    _price_sources = _price_sources_phase(
+        cfg=cfg, grid_times=grid_times, n_periods=n_periods, now=now
+    )
+    _prices = _price_sources._prices
+    export_bonus_price = _price_sources.export_bonus_price
+    export_price_lower_band = _price_sources.export_price_lower_band
+    export_real_mask = _price_sources.export_real_mask
+    has_price_forecast_array = _price_sources.has_price_forecast_array
+    import_price_upper_band = _price_sources.import_price_upper_band
+    import_real_mask = _price_sources.import_real_mask
+    match_fraction = _price_sources.match_fraction
+    p2p_recent_volume_kwh = _price_sources.p2p_recent_volume_kwh
+    price_source_freshness = _price_sources.price_source_freshness
+    price_source_on_aemo = _price_sources.price_source_on_aemo
+    spot_export = _price_sources.spot_export
+    spot_import_raw = _price_sources.spot_import_raw
+
+    _price_blend = _price_blend_phase(
+        _prices=_prices,
+        cfg=cfg,
+        export_real_mask=export_real_mask,
+        grid_times=grid_times,
+        import_real_mask=import_real_mask,
+        now=now,
+        period_hours_arr=period_hours_arr,
+        price_source_on_aemo=price_source_on_aemo,
+        spot_export=spot_export,
+        spot_import_raw=spot_import_raw,
+    )
+    export_price_cross_spread = _price_blend.export_price_cross_spread
+    export_price_source = _price_blend.export_price_source
+    import_price_cross_spread = _price_blend.import_price_cross_spread
+    import_price_source = _price_blend.import_price_source
+    price_consolidation_result = _price_blend.price_consolidation_result
+    rrp_crosscheck_result = _price_blend.rrp_crosscheck_result
+    spot_export = _price_blend.spot_export
+    spot_export_source = _price_blend.spot_export_source
+    spot_import_raw = _price_blend.spot_import_raw
+    spot_import_source = _price_blend.spot_import_source
 
     # TOU network fees and the flat fee rate apply to every install
     # (nimbus #152), and are zero until the household sets them.
