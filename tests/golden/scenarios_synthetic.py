@@ -58,28 +58,11 @@ def base_states(config: dict | None = None) -> dict:
 
 # The fixture of tests/test_main_golden_output_guardrail.py, unchanged, so
 # the new golden master starts from the one output Nimbus already pins.
-register(
-    Scenario(
-        name="guardrail_baseline",
-        instant="2026-09-06T10:00:00+00:00",
-        build=lambda: FakeHA(states=base_states()),
-        purpose="the existing #363 guardrail fixture, now snapshotted whole",
-    )
-)
 
 
 # Two cycles five minutes apart over one workdir: the second cycle reads
 # the plan_state.json the first one wrote, so the proximal (plan-stability)
 # term and the plan-state reload are inside the golden master.
-register(
-    Scenario(
-        name="guardrail_two_cycles",
-        instant="2026-09-06T10:00:00+00:00",
-        build=lambda: FakeHA(states=base_states()),
-        purpose="plan_state.json written by cycle 1 and read back by cycle 2",
-        cycles=2,
-    )
-)
 
 
 # nimbus #2026: an armed spike rate within the static max-discharge setting
@@ -99,19 +82,9 @@ def _spike_above_live_ceiling() -> FakeHA:
     return FakeHA(states=states)
 
 
-register(
-    Scenario(
-        name="spike_override_above_live_ceiling",
-        instant="2026-09-06T10:00:00+00:00",
-        build=_spike_above_live_ceiling,
-        purpose="#2026: the spike rate is clamped to the live ceiling, not refused",
-    )
-)
-
-
-# nimbus #2289 item 5, step B.1 (Mark Purcell, 7 Nov 2026): every scenario
-# above also runs in native mode, the mode every install uses, with the same
-# inputs. The REST originals stay until the standalone mode is retired (B.2).
+# nimbus #2289 item 5 (Mark Purcell, 7 Nov 2026): these scenarios run in
+# native mode, the mode every install uses. B.1 added the native twins; B.2a
+# retired the REST originals with the standalone mode.
 def _plain_native(fake: FakeHA) -> Any:
     from golden.fake_native import FakeNativeHass
 
