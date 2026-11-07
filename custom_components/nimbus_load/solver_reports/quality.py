@@ -3508,7 +3508,9 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
         yesterday.year, yesterday.month, yesterday.day, tzinfo=solver_shared.LOCAL_TZ
     )
     day_end = day_start + timedelta(days=1)
-    return _compute_report_for_window(cfg, day_start, day_end, allow_partial=False)
+    return _solver_writer()._compute_report_for_window(
+        cfg, day_start, day_end, allow_partial=False
+    )
 
 
 def _epr_soc_reason(
