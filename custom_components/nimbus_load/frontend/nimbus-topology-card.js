@@ -101,6 +101,9 @@ const COLORS = {
   battery: "#4ac9e0",
   batteryLow: "#e05a5a",
   load: "#c874d1",
+  // A circuit's own sub-device, drawing power: a deeper shade of the same
+  // purple, so it reads as part of its circuit (household, 7 Nov 2026).
+  subLoad: "#9a4fb0",
   bus: "#d8d8d8",
   unavailable: "#454549",
   line: "#454549",
@@ -846,7 +849,7 @@ class TopologyCard extends HTMLElement {
     // load (a very normal state, most loads are idle most of the time) was
     // rendering in the same full purple as an active one, which read as
     // "18 things are all drawing power" at a glance when almost none were.
-    const color = !live.healthy ? COLORS.unavailable : active ? COLORS.load : COLORS.textDim;
+    const color = !live.healthy ? COLORS.unavailable : active ? (load.sub ? COLORS.subLoad : COLORS.load) : COLORS.textDim;
     // Real, distinct third state: the raw circuit is fine, but THIS
     // load's own Nimbus forecast failed during the Solver's last solve
     // (see COLORS.forecastWarning's own comment) -- checked against the
@@ -1394,7 +1397,7 @@ class TopologyCard extends HTMLElement {
     // spine per circuit, down to its last sub-device, and a stub into each.
     // The indent leaves each stub's arrow room to show, and one spine means
     // no arrow lands on another.
-    const subIndent = 40;
+    const subIndent = 64;
     const spineX = loadX0 + 12;
     let parentY = null;
     let spine = null;
