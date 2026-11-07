@@ -38,6 +38,8 @@ import re
 import unittest
 from pathlib import Path
 
+from tests._changelog import archive_files, changelog_text
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
 _MANIFEST = _REPO_ROOT / "custom_components" / "nimbus_load" / "manifest.json"
@@ -47,7 +49,7 @@ _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 def _headings() -> list[str]:
-    return _HEADING_RE.findall(_CHANGELOG.read_text(encoding="utf-8"))
+    return _HEADING_RE.findall(changelog_text())
 
 
 def _version_key(v: str) -> tuple[int, ...]:
@@ -105,6 +107,16 @@ class TestChangelogStructure(unittest.TestCase):
             f"'## [{version}]' section -- either the release entry was never "
             "written, or the version was bumped without one.",
         )
+
+        # Every archive file is linked from CHANGELOG.md's "Earlier
+        # releases" list, so no band of history is left unreachable.
+        main_text = _CHANGELOG.read_text(encoding="utf-8")
+        unlinked = [
+            p.name
+            for p in archive_files()
+            if f"(docs/changelog/{p.name})" not in main_text
+        ]
+        self.assertEqual(unlinked, [], f"archive files not linked: {unlinked}")
 
 
 if __name__ == "__main__":
