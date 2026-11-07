@@ -85,6 +85,13 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
   the same fake.
 - **Source-reading tests** (`Path(...).read_text()` on `solver_writer.py`)
   must read the file the code moved to.
+- **Callers inside the destination module.** Code already in the module the
+  functions move into may call them as `sw.<name>()` through its
+  `_solver_writer()` seam. After the move those must call the local name, or
+  they fail at runtime (#2368: `sw.collect_amber_spot()` in `prices.py`).
+  Grep the destination for `sw\.<moved name>` and `_solver_writer()\.<moved name>`.
+- **`sys.modules[__name__]`** in moved code meant "the writer module". In
+  its new home it names the new module, so replace it with `_solver_writer()`.
 - **Patches written across several lines** (`mp.setattr(
     sw, "ha_get", ...)`)
   escape a one-line search. After rewriting, grep `-A1 "setattr($"` for any
@@ -137,6 +144,15 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
   expected count (#2361).
 
 ## Merging stacked moves
+
+- **After a base PR is squash-merged**, the stacked branch still carries the
+  base's old commits, so merging `main` conflicts on code that is really the
+  same. Check each conflicted file: if `main`'s version equals the base
+  branch's final version (`git diff --quiet origin/main origin/<base> -- f`),
+  keep the stacked side. Otherwise replay only the stacked PR's own commits
+  onto `main` in a scratch worktree (`git cherry-pick <own commits>`),
+  resolve there, and make the merge's tree equal the replay
+  (`git checkout <replay> -- .`, then `git diff --quiet <replay>`).
 
 - **Resolve each hunk by intent.** For a function this step moved, keep the
   deletion. For a nit fixed on `main`, keep `main`'s side. Then confirm with
