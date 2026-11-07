@@ -22,6 +22,7 @@ import solver_writer as sw
 from golden.fake_ha import FakeHA, HistoryPoint
 from native_transport import use_native_fake
 from solver_inputs import p2p, price_blend, prices
+from solver_reports import quality as quality_reports
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)  # 16:00 Brisbane
 
@@ -565,7 +566,7 @@ def test_power_history_coverage(cal):
         ),
     ]:
         pts = [(T0 + timedelta(minutes=m), 1.0) for m in times]
-        out = sw._power_history_coverage(pts, _grid(4), 0.5)
+        out = quality_reports._power_history_coverage(pts, _grid(4), 0.5)
         if expected is None:
             assert out is None
             continue

@@ -85,6 +85,12 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
   the same fake.
 - **Source-reading tests** (`Path(...).read_text()` on `solver_writer.py`)
   must read the file the code moved to.
+- **Patches written across several lines** (`mp.setattr(
+    sw, "ha_get", ...)`)
+  escape a one-line search. After rewriting, grep `-A1 "setattr($"` for any
+  remaining `sw, "<name>"` beside a call into the moved code (#2364).
+- **A new module reaching shared helpers through `solver_shared`** means a
+  test that faked `sw.ha_get` must also fake `solver_shared.ha_get`.
 - **Relative imports gain a dot** when code moves into a subpackage
   (`solver_reports/`, `solver_inputs/`): `from .solver.x import` becomes
   `from ..solver.x import`. Check every `from .` line inside moved function
@@ -105,6 +111,11 @@ grep -rnE "\"(name1|name2)\"" tests   # names held in patch tables, e.g. _REPORT
   `git diff -U0 | grep -E "^-.*noqa"`.
 
 ## 5. Gates that catch what review misses
+
+- **A new module needs a risk tier.** Add it to `RISK_TIERS` in
+  `scripts/coverage_by_risk.py` beside its group (for example
+  `solver_inputs/p2p.py` under "prices", tier 1), or
+  `test_every_module_has_a_risk_tier` fails (#2364).
 
 - **No-op Patch Gate (#1316)** reports a patch site that went from touched to
   untouched. Treat it as a real finding:
