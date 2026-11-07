@@ -1240,9 +1240,12 @@ async def async_setup_entry(
     # later import is a cache hit.
     import importlib
 
-    solver_writer = await hass.async_add_import_executor_job(
+    await hass.async_add_import_executor_job(
         importlib.import_module, ".solver_writer", __package__
     )
+    # The handler registry is in solver_shared (#2289 item 6); solver_writer's
+    # import above has already loaded it, so this is a cache hit.
+    from . import solver_shared
 
     # real_entity_id= (2026-08-31): the dispatch key stays the literal
     # string (unchanged, still correct for ha_post_state()'s own lookup)
@@ -1254,32 +1257,32 @@ async def async_setup_entry(
     # confirmed live on devhub). See register_entity_handler()'s and
     # resolve_real_entity_id()'s own docstrings in solver_writer.py for
     # the full incident this fixes.
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_solver_battery_forecast",
         battery_forecast.update_from_solver,
         battery_forecast.entity_id,
     )
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_household_load_total_forecast",
         household_load_forecast.update_from_solver,
         household_load_forecast.entity_id,
     )
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_solver_dispatch_dry_run",
         dispatch_dry_run.update_from_solver,
         dispatch_dry_run.entity_id,
     )
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_offer_curve",
         offer_curve.update_from_solver,
         offer_curve.entity_id,
     )
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_mirror_temperature_forecast",
         mirror_temperature_forecast.update_from_solver,
         mirror_temperature_forecast.entity_id,
     )
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_mirror_humidity_forecast",
         mirror_humidity_forecast.update_from_solver,
         mirror_humidity_forecast.entity_id,
@@ -1410,27 +1413,27 @@ async def async_setup_entry(
 
     # real_entity_id= -- see the matching comment on the five
     # register_entity_handler() calls above; same fix, same reason.
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_solver_quality_report",
         quality_report.update_from_solver,
         quality_report.entity_id,
     )
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_efficiency_backtest",
         efficiency_backtest.update_from_solver,
         efficiency_backtest.entity_id,
     )
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_counterfactual_soc",
         counterfactual_soc.update_from_solver,
         counterfactual_soc.entity_id,
     )
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_flex_signals",
         flex_signals.update_from_solver,
         flex_signals.entity_id,
     )
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_flex_report",
         flex_report.update_from_solver,
         flex_report.entity_id,
@@ -1440,7 +1443,7 @@ async def async_setup_entry(
     # required set by walking this file's AST and refuses a non-literal
     # first argument rather than letting its own invariant silently shrink.
     # It caught this exact call written the other way.
-    solver_writer.register_entity_handler(
+    solver_shared.register_entity_handler(
         "sensor.nimbus_flex_telemetry",
         flex_telemetry.update_from_solver,
         flex_telemetry.entity_id,
@@ -4011,7 +4014,6 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
             id(self),
             self.entity_id,
         )
-        from . import solver_writer
 
         # nimbus issue #343 (Mark Purcell): register_entity_handler() in
         # async_setup_entry is ALWAYS called with the literal dispatch
@@ -4029,7 +4031,9 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
         # Reconstructing the SAME literal key used at registration
         # (rather than storing it separately) guarantees the two calls
         # always agree regardless of what self.entity_id becomes.
-        solver_writer.unregister_entity_handler(f"sensor.{self._UNIQUE_ID_SUFFIX}")
+        from . import solver_shared
+
+        solver_shared.unregister_entity_handler(f"sensor.{self._UNIQUE_ID_SUFFIX}")
         await super().async_will_remove_from_hass()
 
 

@@ -15,6 +15,7 @@ import urllib.request
 from datetime import date, datetime, timedelta
 
 import pytest
+import solver_shared
 import solver_writer as sw
 from _module_time import ModuleTime
 from golden.fake_ha import FakeHA
@@ -628,7 +629,7 @@ def test_the_publisher_falls_through_to_a_rescore_only_when_due(
         "state": "90.6",
         "attributes": _prov(status, minutes_ago=minutes_ago),
     }
-    monkeypatch.setattr(sw, "resolve_real_entity_id", lambda e: e)
+    monkeypatch.setattr(solver_shared, "resolve_real_entity_id", lambda e: e)
     monkeypatch.setattr(sw, "compute_daily_quality_report", lambda *_a: calls.append(1))
     sw.publish_daily_quality_report({}, PROV_NOW)
     assert bool(calls) is recomputed
@@ -700,7 +701,7 @@ def test_the_row_field_is_one_character_and_its_own(ha, monkeypatch):
     with monkeypatch.context() as mp:
         seen = []
         mp.setattr(
-            sw,
+            solver_shared,
             "resolve_real_entity_id",
             lambda e: seen.append(e) or "sensor.own_report",
         )
@@ -727,7 +728,7 @@ def test_the_row_field_is_one_character_and_its_own(ha, monkeypatch):
     with monkeypatch.context() as mp:
         for attrs in [{}, {"history": None}, {"history": []}, {"history": "x"}]:
             with mp.context() as mp:
-                mp.setattr(sw, "resolve_real_entity_id", lambda e: e)
+                mp.setattr(solver_shared, "resolve_real_entity_id", lambda e: e)
                 ha["states"][sw.QUALITY_ENTITY_ID] = {"attributes": attrs}
                 assert sw.read_day_ahead_value_add_history() == {}
 
@@ -739,7 +740,7 @@ def test_an_unreachable_home_assistant_is_no_record(monkeypatch, exc):
     def boom(_e):
         raise exc
 
-    monkeypatch.setattr(sw, "resolve_real_entity_id", lambda e: e)
+    monkeypatch.setattr(solver_shared, "resolve_real_entity_id", lambda e: e)
     monkeypatch.setattr(sw, "ha_get", boom)
     assert sw.read_day_ahead_value_add_history() == {}
 

@@ -865,6 +865,93 @@ def last_posted_at(entity_id: str) -> datetime | None:
     return _LAST_POSTED_AT.get(entity_id)
 
 
+# --- moved from solver_writer.py (#2289 item 6, step 7b): the entity-handler registry ---
+
+
+# register_entity_handler() can also record an entity's real, HA-resolved
+# entity_id. Self-reads (the "already scored this day" checks in the
+# publish_* reports) go through resolve_real_entity_id(), because the literal
+# id can resolve to another entity once HA has suffixed this install's own
+# (seen on the test box, 2026-08-31).
+_ENTITY_REAL_IDS: dict[str, str] = {}
+
+
+def register_entity_handler(
+    entity_id: str, handler, real_entity_id: str | None = None
+) -> None:
+    """Called once per migrated entity from sensor.py's async_setup_entry.
+
+    `handler(state, attributes)` will be scheduled on the event loop
+    (via hass.add_job) whenever ha_post_state() below is asked to update
+    this entity_id in native mode. In practice the handler is the
+    entity's own update_from_solver() method, which stores the values
+    and calls async_write_ha_state() so HA sees a real entity update
+    with all the SensorEntity class metadata attached.
+
+    Registration is idempotent (a re-registration cleanly replaces the
+    previous handler) so a config-entry reload doesn't leave a stale
+    handler pointing at a torn-down entity -- see issue #55's own
+    conversation about the module-level import-caching gotcha with
+    _ensure_ready() in solver_runtime.py.
+
+    `real_entity_id` (2026-08-31): the entity's OWN actual, HA-resolved
+    entity_id (self.entity_id), captured by the caller after async_add_
+    entities has run. `entity_id` above stays the literal dispatch key
+    ha_post_state() below is always called with -- that part was never
+    broken, since every call site uses the same literal string both to
+    register and to look up. What real_entity_id fixes is the SEPARATE
+    self-read some publish functions do (ha_get(entity_id), as a cheap
+    "did I already publish this" idempotency check) -- see
+    resolve_real_entity_id()'s own docstring for the full story. Optional
+    and additive: omitting it (every pre-2026-08-31 call site, until
+    sensor.py is updated) leaves resolve_real_entity_id() falling back to
+    the literal string unchanged, i.e. today's exact behaviour.
+    """
+    _ENTITY_UPDATE_HANDLERS[entity_id] = handler
+    if real_entity_id is not None:
+        _ENTITY_REAL_IDS[entity_id] = real_entity_id
+
+
+def unregister_entity_handler(entity_id: str) -> None:
+    """Symmetric partner to register_entity_handler(); safe to call for
+    an entity_id that was never registered. Called on config-entry
+    unload so a torn-down entity's handler doesn't linger."""
+    _ENTITY_UPDATE_HANDLERS.pop(entity_id, None)
+    _ENTITY_REAL_IDS.pop(entity_id, None)
+
+
+def resolve_real_entity_id(entity_id: str) -> str:
+    """Resolves a literal dispatch-key entity_id (e.g.
+    "sensor.nimbus_solver_quality_report") to the entity's own real,
+    HA-assigned entity_id, when register_entity_handler() recorded one --
+    otherwise returns entity_id unchanged (REST mode, or a caller that
+    hasn't passed real_entity_id).
+
+    Use this before any ha_get()/ha_post_state() call whose job is to
+    read back THIS install's own prior output (an idempotency check) --
+    never for the plain forward publish, which is correctly keyed by the
+    literal dispatch string regardless of collisions (see
+    register_entity_handler's own docstring).
+
+    Why this matters (2026-08-31, devhub quality-report flicker): the
+    literal string is only guaranteed to resolve to THIS entity when
+    nothing else in the same HA instance has already claimed it. Confirmed
+    live on devhub: a remote_homeassistant mirror of another Nimbus
+    install's identically-named sensor.nimbus_solver_quality_report wins
+    the plain entity_id first, so HA's own dedup bumps the local platform
+    entity to sensor.nimbus_solver_quality_report_2. A self-read via the
+    literal string then silently reads the UNRELATED mirror's state
+    instead of this install's own -- compute_daily_quality_report()'s
+    idempotency check believed "already scored today" every cycle
+    (because the mirror, a different working install, genuinely had
+    scored today), so this install's own quality-report entity only ever
+    got a fresh publish on the rare cycle the fast path happened to
+    re-push something valid through it, explaining the multi-hour stale/
+    unavailable stretches observed.
+    """
+    return _ENTITY_REAL_IDS.get(entity_id, entity_id)
+
+
 def ha_post_state(entity_id: str, state, attributes: dict) -> bool:
     """False only when native mode deliberately drops the post (the real
     entity is mid-setup/unload, see below); True otherwise. A caller that

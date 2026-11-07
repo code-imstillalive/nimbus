@@ -27,6 +27,7 @@ if not hasattr(_device_registry, "DeviceInfo"):
 
 sm = importlib.import_module("custom_components.nimbus_load.sensor")
 sw = importlib.import_module("custom_components.nimbus_load.solver_writer")
+shared = importlib.import_module("custom_components.nimbus_load.solver_shared")
 p5 = importlib.import_module("custom_components.nimbus_load.sensor_p5min")
 const = importlib.import_module("custom_components.nimbus_load.const")
 
@@ -92,7 +93,7 @@ def world(monkeypatch, tmp_path):
         ),
     )
     monkeypatch.setattr(
-        sw,
+        shared,
         "register_entity_handler",
         lambda eid, handler, real: handlers.__setitem__(eid, (handler, real)),
     )
