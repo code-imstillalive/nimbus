@@ -47,6 +47,11 @@ using `ast` line numbers, and paste it unchanged. Then let
 it. Never add a new `_solver_writer()` late-import seam. A module that
 already uses one may keep using it for names that stay in `solver_writer`.
 
+An AST span ends at the function's **last statement**. A trailing comment at
+the end of its body sits after that line, so it is left behind as an orphan
+in the old module. Check the lines just after each cut, and move or delete
+them.
+
 Ruff cannot check **attribute** names. After the move, confirm every
 `module.attr` the moved code uses really exists in that module.
 
