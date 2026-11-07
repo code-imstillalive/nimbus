@@ -355,7 +355,10 @@ def test_the_flex_record_service_returns_the_record_or_why_there_is_none(
 @pytest.fixture
 def writer(monkeypatch):
     sw = importlib.import_module("custom_components.nimbus_load.solver_writer")
-    monkeypatch.setattr(sw, "fetch_solver_config", lambda: {"cfg": 1})
+    solver_shared = importlib.import_module(
+        "custom_components.nimbus_load.solver_shared"
+    )
+    monkeypatch.setattr(solver_shared, "fetch_solver_config", lambda: {"cfg": 1})
     return sw
 
 

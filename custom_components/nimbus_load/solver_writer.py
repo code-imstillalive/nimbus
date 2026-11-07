@@ -20,7 +20,6 @@ sensor.nimbus_solver_config, the Solver settings wizard's bridge sensor.
 
 from __future__ import annotations
 
-import functools
 import itertools
 import json
 import math
@@ -69,10 +68,6 @@ except ImportError:
 # name, so this file's own patched-in-tests helpers stay resolvable at
 # call time from the other side (see solver_inputs/__init__.py for the
 # full note on that import direction).
-try:
-    from .power_input_check import warn_refused_input_once
-except ImportError:  # pragma: no cover - standalone/cron path
-    from power_input_check import warn_refused_input_once  # type: ignore[no-redef]
 try:
     from . import price_intervals
 except ImportError:  # pragma: no cover - standalone/cron path
@@ -268,6 +263,7 @@ except ImportError:
 # logger after this same spec repoints them -- aliasing is what keeps
 # those suites passing, not what breaks them.
 try:
+    from . import solver_shared
     from .solver_shared import (
         _ENTITY_UPDATE_HANDLERS,
         _LOGGER,
@@ -309,6 +305,7 @@ try:
         safe_num,
     )
 except ImportError:
+    import solver_shared  # type: ignore[no-redef]
     from solver_shared import (  # type: ignore[no-redef]
         _ENTITY_UPDATE_HANDLERS,
         _LOGGER,
@@ -1141,7 +1138,7 @@ def resolve_real_entity_id(entity_id: str) -> str:
 def entity_exists(entity_id: str) -> bool:
     """Real existence check, not just "did the last read happen to
     succeed" -- used to gate the optional LocalVolts/AEMO-specific price-
-    forecasting enhancement below (2026-08-20, see fetch_solver_config()'s
+    forecasting enhancement below (2026-08-20, see solver_shared.fetch_solver_config()'s
     own docstring for the full "installable by anyone" context). A caller
     without LocalVolts configured shouldn't get an HTTPError crash just
     because this ONE household happens to have it -- this is the genuine
@@ -1156,100 +1153,6 @@ def entity_exists(entity_id: str) -> bool:
         raise
 
 
-def fetch_solver_config() -> dict:
-    """The real Solver settings a household fills in through Nimbus's own
-    Configure -> "Solver settings" wizard (nimbus repo,
-    flows/hub_options.py), bridged out via sensor.nimbus_solver_config
-    (nimbus repo, sensor.py's own NimbusSolverConfigSensor) since
-    config_entries.options isn't exposed over HA's plain REST API
-    (confirmed live 2026-08-20 -- /api/config/config_entries/entry only
-    returns entry metadata, never the entry's own options dict).
-
-    2026-08-20, direct household ask, following a genuinely honest self-
-    assessment of how installable this Solver actually is for someone
-    else (Mark Purcell, or anyone): "close this gap... or get rid of it
-    totally - need its own installer and inputs period." Before this
-    function existed, main() read battery/grid config from a set of ad-
-    hoc input_number.nimbus_solver_* helpers that had to be hand-created
-    via a separate YAML package file -- undocumented, NUC-specific,
-    genuinely not something a fresh installer could discover on their
-    own. This function (and the config-flow/bridge-sensor behind it) is
-    what actually closes that gap: a real install now needs nothing more
-    than filling in Nimbus's own hub "Configure" form.
-
-    Raises a clear, actionable RuntimeError -- not a confusing KeyError
-    deep inside network.py -- if the Solver hasn't been configured yet.
-
-    nimbus issue #831: also raises that same clear RuntimeError (not a
-    raw urllib.error.HTTPError leaking straight through) if the bridge
-    entity itself doesn't exist yet -- confirmed live on devhub, a
-    scheduled `nimbus_load.compute_quality_report` call landed during a
-    window where `sensor.nimbus_solver_config` wasn't registered yet
-    (the entity genuinely not existing yet during startup/reload is a
-    different failure mode than "registered but not configured", and
-    deserves the same actionable message, not "HTTP Error 404: Entity
-    sensor.nimbus_solver_config not found" with no guidance at all).
-    """
-    try:
-        state = ha_get("sensor.nimbus_solver_config")
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            raise
-        raise RuntimeError(
-            "Nimbus Solver's own sensor.nimbus_solver_config entity does not "
-            "exist yet (the hub may still be starting up, reloading, or "
-            "hasn't been set up at all). Wait for Home Assistant to finish "
-            "loading, or if this is a fresh install, add the Nimbus "
-            "integration first (Settings -> Devices & Services -> Add "
-            "Integration -> Nimbus)."
-        ) from e
-    if state["state"] != "configured":
-        msg = (
-            "Nimbus Solver is not configured yet. Open the Nimbus hub's own "
-            '"Configure" button in Home Assistant, choose "Solver settings", '
-            "and fill in every required field (battery capacity/SoC sensor, "
-            "max charge/discharge power, grid import/export limits, live "
-            "import/export price sensors, solar/load forecast sensors) "
-            "before running this writer."
-        )
-        raise RuntimeError(msg)
-    return _refuse_non_power_inputs(dict(state["attributes"]))
-
-
-# nimbus #1643: optional power inputs whose sensor reports a unit that is not
-# power are treated as not configured, rather than read as kW. The load
-# forecast is required, so it is refused where it is parsed instead
-# (`_validate_and_parse_load_forecast_attrs`), which takes the existing
-# missing-forecast path.
-_OPTIONAL_POWER_INPUTS = (
-    "solver_solar_power_sensor",
-    "solver_battery_power_sensor",
-    "solver_whole_house_cross_check_sensor",
-    "switchboard_grid_meter_sensor",
-    "switchboard_battery_power_sensor",
-    "grid_sensor",
-)
-
-
-def _refuse_non_power_inputs(cfg: dict) -> dict:
-    """`cfg` with each optional power input blanked whose sensor reports a
-    stated non-power unit (A, kVA, kWh, unknown). The Repair names it
-    (setup_health, #1643); this logs it once per sensor."""
-    for key in _OPTIONAL_POWER_INPUTS:
-        entity_id = cfg.get(key)
-        if not entity_id:
-            continue
-        try:
-            unit = ha_get(entity_id).get("attributes", {}).get("unit_of_measurement")
-        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-            _LOGGER.debug("Nimbus: unit of %s unreadable", entity_id, exc_info=True)
-            continue
-        if power_scale_or_none(unit) is None:
-            warn_refused_input_once(entity_id, unit)
-            cfg[key] = None
-    return cfg
-
-
 # nimbus issue #944: the recorder's own per-state attribute cap
 # (homeassistant/components/recorder/db_schema.py::MAX_STATE_ATTRS_BYTES).
 # Mirrored here rather than imported because this module must keep
@@ -1262,79 +1165,7 @@ def _refuse_non_power_inputs(cfg: dict) -> dict:
 # to clean up for #757.
 
 
-def ha_call_service(domain: str, service: str, data: dict) -> None:
-    """Fire-and-forget HA service call -- same native/REST dual-mode
-    split as ha_get()/ha_post_state() above. Currently used only for
-    the one-time load-forecast-shape persistent notification (see
-    _notify_load_forecast_error_once()) -- any failure here is
-    deliberately swallowed by the caller, since a failed notification
-    must never be allowed to break the actual solve."""
-    if NATIVE.hass is not None:
-        NATIVE.hass.add_job(
-            functools.partial(NATIVE.hass.services.async_call, domain, service, data)
-        )
-        return
-    # Native only (#2289 item 5): no hass, nothing to call.
-
-
-def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict | None:
-    """Same REST call as ha_call_service() above, but for a service that
-    returns response data (return_response) -- e.g. weather.get_forecasts,
-    whose whole forecast array is ONLY available via this response
-    payload on any modern (2023+) HA weather entity, never a plain state
-    attribute the way every other forecast source in this file publishes.
-    Used by publish_weather_forecast_mirrors() (2026-08-25, nimbus repo
-    dashboard follow-up) -- see that function's own docstring.
-
-    Returns the service's own service_response dict (keyed by the
-    entity_id(s) targeted), or None on any failure. Deliberately
-    swallows every failure rather than raising -- every caller here
-    already treats a missing/unavailable forecast source as a graceful
-    no-op (see every other optional external source in this file), not
-    a reason to break the actual solve.
-
-    Native mode (2026-08-25, real bug found live on devhub -- this
-    function's own first version returned None unconditionally here,
-    silently no-op'ing publish_weather_forecast_mirrors() on any native
-    install without ever surfacing why): same
-    asyncio.run_coroutine_threadsafe() bridge fetch_price_history()'s
-    own native branch already uses to call async, event-loop-owned HA
-    APIs from this file's own sync executor-thread context -- a plain
-    hass.services.async_call(..., blocking=True, return_response=True)
-    is itself a coroutine, and there's no public sync-callable variant,
-    same reasoning as that function's own comment.
-    """
-    if NATIVE.hass is not None:
-        try:
-            import asyncio
-
-            async def _call() -> dict:
-                return await NATIVE.hass.services.async_call(
-                    domain,
-                    service,
-                    data,
-                    blocking=True,
-                    return_response=True,
-                )
-
-            future = asyncio.run_coroutine_threadsafe(_call(), NATIVE.hass.loop)
-            return future.result(timeout=15)
-        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-            # nimbus issue #363 (Mark Purcell, codebase review): the swallow
-            # itself is the correct, deliberate contract (see docstring) --
-            # what was missing is any breadcrumb AT ALL when it fires.
-            # DEBUG, not WARNING: a missing/unavailable weather-forecast
-            # service call is already an accepted, routine no-op for every
-            # caller here, not an operator-actionable condition on its own.
-            _LOGGER.debug(
-                "Nimbus Solver: ha_call_service_with_response(%s.%s) failed",
-                domain,
-                service,
-                exc_info=True,
-            )
-            return None
-    # Native only (#2289 item 5): no hass, no response.
-    return None
+# Native only (#2289 item 5): no hass, nothing to call.
 
 
 def _fetch_weather_hourly_forecast(entity_id: str) -> list[dict] | None:
@@ -1359,7 +1190,7 @@ def _fetch_weather_hourly_forecast(entity_id: str) -> list[dict] | None:
         return None
     domain = entity_id.split(".", 1)[0]
     if domain == "weather":
-        response = ha_call_service_with_response(
+        response = solver_shared.ha_call_service_with_response(
             "weather", "get_forecasts", {"entity_id": entity_id, "type": "hourly"}
         )
         hourly = (response or {}).get(entity_id, {}).get("forecast")
@@ -1390,7 +1221,7 @@ def publish_weather_forecast_mirrors(cfg: dict) -> None:
     (coordinator.py's own _async_fetch_temperature_forecast()): a
     weather.* entity (Nimbus calls weather.get_forecasts for you --
     modern HA weather entities publish forecast data ONLY via that
-    service response, see ha_call_service_with_response()'s own
+    service response, see solver_shared.ha_call_service_with_response()'s own
     docstring) or a sensor.* whose own 'forecast' attribute already
     carries datetime/temperature[/humidity] entries directly. Bridged
     into the same {time, value} shape ha_post_state() already uses for
@@ -3193,7 +3024,7 @@ def _notify_load_forecast_error_once(
         key = error_key if error_key is not None else error
         if already == key:
             return
-        ha_call_service(
+        solver_shared.ha_call_service(
             "persistent_notification",
             "create",
             {
@@ -3243,7 +3074,7 @@ def _clear_load_forecast_error_notification_if_needed() -> None:
     try:
         if not os.path.exists(LOAD_FORECAST_ERROR_NOTIFIED_PATH):
             return
-        ha_call_service(
+        solver_shared.ha_call_service(
             "persistent_notification",
             "dismiss",
             {"notification_id": "nimbus_solver_load_forecast_error"},
@@ -4144,7 +3975,7 @@ def _openadr_forecast_rows(entity_id: str) -> list | None:
     return price_intervals.openadr_rows_from_response(
         # A literal domain, so the DC-R15 inventory can see this is the
         # read-only OpenADR forecast lookup, not an equipment command.
-        ha_call_service_with_response(
+        solver_shared.ha_call_service_with_response(
             "openadr3_ven", "get_forecast", {"entity_id": entity_id}
         ),
         entity_id,
@@ -7876,7 +7707,7 @@ def fetch_calendar_trips(
     (nimbus issue #467 item 4).
 
     Uses `calendar.get_events`, a response-returning service, through this
-    module's own `ha_call_service_with_response()` -- so it works in BOTH
+    module's own `solver_shared.ha_call_service_with_response()` -- so it works in BOTH
     deployment shapes with no new mechanism: that helper already bridges the
     native in-process path and the standalone/cron REST path, exactly as
     `publish_weather_forecast_mirrors()` does for `weather.get_forecasts`.
@@ -7894,7 +7725,7 @@ def fetch_calendar_trips(
     """
     from .solver_inputs.calendar_trips import TripEvent
 
-    response = ha_call_service_with_response(
+    response = solver_shared.ha_call_service_with_response(
         "calendar",
         "get_events",
         {
@@ -8278,9 +8109,9 @@ def _publish_side_reports(
 
 def main() -> None:
     # Fail fast, with a real, actionable message, if the Solver hasn't
-    # been configured yet -- see fetch_solver_config()'s own docstring
+    # been configured yet -- see solver_shared.fetch_solver_config()'s own docstring
     # for the full "installable by anyone" context this closes.
-    cfg = fetch_solver_config()
+    cfg = solver_shared.fetch_solver_config()
     # nimbus issue #485: household-mode presets, applied to `cfg`
     # ITSELF and here rather than at each consumer -- the battery and
     # solver levers are read at 3-4 independent `_cfg_num(cfg, ...)`
@@ -8564,7 +8395,7 @@ def main() -> None:
         for i in range(n_periods)
     ]
 
-    # Battery settings come from the Solver settings (fetch_solver_config()).
+    # Battery settings come from the Solver settings (solver_shared.fetch_solver_config()).
     # Capacity is SoH-derated on this live dispatch path (nimbus #1013); see
     # resolve_effective_capacity_kwh().
     capacity_kwh = resolve_effective_capacity_kwh(cfg)

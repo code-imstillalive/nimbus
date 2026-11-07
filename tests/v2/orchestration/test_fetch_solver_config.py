@@ -7,9 +7,10 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+import solver_shared
 import solver_writer
 
-fetch_solver_config = solver_writer.fetch_solver_config
+fetch_solver_config = solver_shared.fetch_solver_config
 
 
 def test_entity_does_not_exist_yet_raises_a_clear_runtime_error():
@@ -24,7 +25,7 @@ def test_entity_does_not_exist_yet_raises_a_clear_runtime_error():
         )
 
     with (
-        patch.object(solver_writer, "ha_get", _raise),
+        patch.object(solver_shared, "ha_get", _raise),
         pytest.raises(RuntimeError) as exc_info,
     ):
         fetch_solver_config()
@@ -43,7 +44,7 @@ def test_entity_does_not_exist_yet_raises_a_clear_runtime_error():
         )
 
     with (
-        patch.object(solver_writer, "ha_get", _raise),
+        patch.object(solver_shared, "ha_get", _raise),
         pytest.raises(solver_writer.urllib.error.HTTPError) as exc_info,
     ):
         fetch_solver_config()
