@@ -96,7 +96,9 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    21  # solver_writer.py alone as of nimbus #2289 item 6 step 8 part 1
+    18  # solver_writer.py alone as of nimbus #2289 item 6 step 8 part 2
+    # (the price forecast, blend and band helpers to
+    # solver_inputs/price_blend.py); 21 as of step 8 part 1
     # (the P2P rate readers to solver_inputs/p2p.py); 22 as of steps 1-6
     # (solar, the time grid, the history and load-forecast readers, the offer
     # curve and flex signals moved out); 34 as of

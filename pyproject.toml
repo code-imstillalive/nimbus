@@ -635,6 +635,12 @@ ignore_imports = [
     "custom_components.nimbus_load.solver_reports.counterfactual -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_reports.flex -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_reports.quality -> custom_components.nimbus_load.solver_writer",
+    # nimbus #2289 item 6 step 8 part 2: the quality report replays the
+    # retail-minus-wholesale offset the solve priced with, so it calls the
+    # same compute_5min_offset()/fetch_price_history() the price inputs use
+    # (they reached it through solver_writer before the move). A report
+    # reading the price inputs' helpers, not a report feeding an input.
+    "custom_components.nimbus_load.solver_reports.quality -> custom_components.nimbus_load.solver_inputs.price_blend",
     "custom_components.nimbus_load.solver_publish -> custom_components.nimbus_load.solver_writer",
     # nimbus issue #1305 (spec 006, Phase 6): the dispatch guard, same seam.
     "custom_components.nimbus_load.solver_dispatch.guard -> custom_components.nimbus_load.solver_writer",

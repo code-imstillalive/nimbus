@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 import solver_writer
+from solver_inputs import price_blend
 
 
 class TestScheduleIsGenuinelyConfigurable(unittest.TestCase):
@@ -41,7 +42,7 @@ class TestPriceForecastArrayKeysAreConfigurable(unittest.TestCase):
 
         forecast = [{"time": "2026-01-01T00:00:00+00:00", "import_rate": 0.22}]
         grid_times = [datetime(2026, 1, 1, 0, 0, tzinfo=UTC)]
-        values, _mask = solver_writer.resample_price_with_extrapolation(
+        values, _mask = price_blend.resample_price_with_extrapolation(
             forecast, "import_rate", grid_times, [], {}
         )
         self.assertEqual(values, [0.22])
@@ -49,7 +50,7 @@ class TestPriceForecastArrayKeysAreConfigurable(unittest.TestCase):
         # all against this forecast shape -- confirming the two key names
         # are genuinely not interchangeable, i.e. this is a real fix, not
         # a no-op generalisation.
-        old_values, _old_mask = solver_writer.resample_price_with_extrapolation(
+        old_values, _old_mask = price_blend.resample_price_with_extrapolation(
             forecast, "costsflexup", grid_times, [], {}
         )
         self.assertEqual(old_values, [0.0])

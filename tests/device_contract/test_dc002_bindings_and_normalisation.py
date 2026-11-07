@@ -19,7 +19,7 @@ from typing import Any
 import device_bindings as db
 import price_intervals
 import pytest
-import solver_writer
+from solver_inputs import price_blend
 
 from tests.device_contract.oracles_signals import (
     PriceInterval,
@@ -460,20 +460,20 @@ def test_dc_r06_f04_an_expired_price_is_not_extended() -> None:
     state = {"attributes": {"forecast": points}}
     step = timedelta(minutes=30)
     aligned = [NOW + step * i for i in range(3)]
-    held, real = solver_writer._resample_generic_price_forecast_raw(
+    held, real = price_blend._resample_generic_price_forecast_raw(
         "sensor.p", aligned, state
     )
     assert real == [True] * 3
     assert held == [db.value_over(series, t, t + step)[0] for t in aligned]
     straddle = NOW + timedelta(minutes=15)
-    held, _ = solver_writer._resample_generic_price_forecast_raw(
+    held, _ = price_blend._resample_generic_price_forecast_raw(
         "sensor.p", [straddle], state
     )
     mean, _ = db.value_over(series, straddle, straddle + step)
     assert held == [0.30]
     assert mean is not None and abs(mean - 0.275) <= TOL
     beyond = NOW + timedelta(minutes=90)
-    held, real = solver_writer._resample_generic_price_forecast_raw(
+    held, real = price_blend._resample_generic_price_forecast_raw(
         "sensor.p", [beyond], state
     )
     assert (held, real) == ([0.40], [False])

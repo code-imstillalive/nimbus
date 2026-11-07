@@ -23,7 +23,7 @@ import solver_shared
 import solver_writer as sw
 import test_main_golden_output_guardrail as guardrail
 from _isolated_state import isolated_state_paths
-from solver_inputs import loss_factors, prices
+from solver_inputs import loss_factors, price_blend, prices
 from solver_inputs import price_consolidation as pc
 
 NOW = datetime(2026, 10, 16, 2, 0, 30, tzinfo=UTC)
@@ -342,7 +342,7 @@ def test_main_live_moves_every_future_period_and_not_the_settled_one(freezer):
     assert all(r["export_price"] == pytest.approx(0.05) for r in rows)
 
 
-def test_the_live_switch_is_declared_off_and_reaches_the_config():
+def test_the_live_switch_is_declared_off_and_reaches_the_config(monkeypatch):
     # test_the_live_switch_is_declared_off_and_reaches_the_config
     from _ha_stubs import install_ha_stubs
 
@@ -369,7 +369,7 @@ def test_the_live_switch_is_declared_off_and_reaches_the_config():
     assert pc.retail_from_rrp_series(GRID, None, {}, _bucket, lambda t: K) == [None] * 6
 
     # test_by_contract_import_carries_gst_and_the_factor_is_reported
-    w = _Writer({"sensor.tni": "NCMA", "sensor.dlf": "BL0A"})
+    w = _install(monkeypatch, _Writer({"sensor.tni": "NCMA", "sensor.dlf": "BL0A"}))
     imp, exp, summary = prices._retail_from_rrp(
         w, CODES, T0, GRID, [(T0, 0.10)], [], [], {}
     )
@@ -396,12 +396,14 @@ def test_the_live_switch_is_declared_off_and_reaches_the_config():
         prices._retail_from_rrp(_Writer({}), plain, T0, GRID, [(T0, 0.1)], [], [], {})
         is None
     )
-    w = _Writer({"sensor.tni": "ZZZZ", "sensor.dlf": "unavailable"})
+    w = _install(
+        monkeypatch, _Writer({"sensor.tni": "ZZZZ", "sensor.dlf": "unavailable"})
+    )
     imp, exp, summary = prices._retail_from_rrp(
         w, CODES, T0, GRID, [(T0, 0.1)], [], [], {}
     )
     assert (imp, exp, summary["reason"]) == (None, None, "no_codes")
-    w = _Writer({"sensor.tni": "ZZZZ", "sensor.dlf": "BL0A"})
+    w = _install(monkeypatch, _Writer({"sensor.tni": "ZZZZ", "sensor.dlf": "BL0A"}))
     assert (
         prices._retail_from_rrp(w, CODES, T0, GRID, [], [], [], {})[2]["reason"]
         == "unknown_tni"
@@ -432,6 +434,14 @@ class _Writer:
 
     def price_now(self, entity_id, fallback=0.0, *, quiet=False):
         return 0.08
+
+
+def _install(monkeypatch, w):
+    """The price helpers _retail_from_rrp() calls live in solver_inputs/price_blend.py
+    (nimbus #2289 item 6 step 8), so the fake's versions are planted there."""
+    monkeypatch.setattr(price_blend, "compute_5min_offset", w.compute_5min_offset)
+    monkeypatch.setattr(price_blend, "price_now", w.price_now)
+    return w
 
 
 CODES = {

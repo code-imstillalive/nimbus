@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -21,6 +22,7 @@ from golden.fake_ha import FakeHA, HistoryPoint
 from native_transport import use_native_fake
 from solver import elements
 from solver_inputs import battery_participants as participants
+from solver_inputs import price_blend
 
 TZ = sw.LOCAL_TZ
 DAY = datetime(2026, 8, 24, 0, 0, tzinfo=TZ)
@@ -432,16 +434,26 @@ def _reprice(stamps, aemo, *, boom=False):
         fetch_entity_attribute_history_range=attribute_history,
         fetch_entity_history_range=lambda *_a, **_k: aemo,
         resample_history_nearest=sw.resample_history_nearest,
-        compute_5min_offset=lambda hist, **_k: dict.fromkeys(range(288), 0.04),
-        fetch_price_history=lambda *_a, **_k: [(OCT16, 0.1)],
         import_fee_rate=lambda _c, _h: 0.10,
         _local=sw._local,
     )
     imp, exp = np.full(48, 0.30), np.full(48, 0.20)
     imp[23:27] = [0.36, 1.12, 1.12, 10.5]  # the withdrawn spike
-    result = quality_module()._reprice_stale_price_periods(
-        fake, LV_CFG, GRID, 0.5, OCT16, OCT16 + timedelta(days=1), imp, exp
-    )
+    # nimbus #2289 item 6 step 8: the offset and price-history helpers live in
+    # solver_inputs/price_blend.py now, so they are faked there.
+    with (
+        patch.object(
+            price_blend,
+            "compute_5min_offset",
+            lambda hist, **_k: dict.fromkeys(range(288), 0.04),
+        ),
+        patch.object(
+            price_blend, "fetch_price_history", lambda *_a, **_k: [(OCT16, 0.1)]
+        ),
+    ):
+        result = quality_module()._reprice_stale_price_periods(
+            fake, LV_CFG, GRID, 0.5, OCT16, OCT16 + timedelta(days=1), imp, exp
+        )
     return result, imp, exp, calls
 
 

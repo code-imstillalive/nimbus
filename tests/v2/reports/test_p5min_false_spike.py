@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import solver_writer
 from _ha_stubs import install_ha_stubs
+from solver_inputs import price_blend
 
 install_ha_stubs()
 
@@ -309,10 +310,10 @@ def _localvolts(grid, buy, sell):
         {"time": t.isoformat(), "costsflexup": b, "earningsflexup": e}
         for t, b, e in zip(grid, buy, sell)
     ]
-    imp, _ = solver_writer.resample_price_with_extrapolation(
+    imp, _ = price_blend.resample_price_with_extrapolation(
         rows, "costsflexup", grid, [], {}
     )
-    exp, _ = solver_writer.resample_price_with_extrapolation(
+    exp, _ = price_blend.resample_price_with_extrapolation(
         rows, "earningsflexup", grid, [], {}
     )
     return imp, exp

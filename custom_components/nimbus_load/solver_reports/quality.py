@@ -84,6 +84,10 @@ _PRIOR_READ_DEGRADED = (PRIOR_READ_UNAVAILABLE, PRIOR_READ_UNREACHABLE)
 
 
 try:
+    from ..solver_inputs import price_blend
+except ImportError:  # pragma: no cover - standalone/cron path
+    from solver_inputs import price_blend  # type: ignore[no-redef]
+try:
     from .. import solver_shared
 except ImportError:  # pragma: no cover - standalone/cron path
     import solver_shared  # type: ignore[no-redef]
@@ -198,12 +202,12 @@ def _reprice_stale_price_periods(
         result["price_stale_unusable"] = True
         return result
     aemo = sw.resample_history_nearest(aemo_hist, grid_times, backfill_first=True)
-    import_offset = sw.compute_5min_offset(
-        sw.fetch_price_history(import_sensor) if import_sensor else [],
+    import_offset = price_blend.compute_5min_offset(
+        price_blend.fetch_price_history(import_sensor) if import_sensor else [],
         regional_spot_sensor=spot_sensor,
     )
-    export_offset = sw.compute_5min_offset(
-        sw.fetch_price_history(export_sensor) if export_sensor else [],
+    export_offset = price_blend.compute_5min_offset(
+        price_blend.fetch_price_history(export_sensor) if export_sensor else [],
         regional_spot_sensor=spot_sensor,
     )
     for i in stale:
