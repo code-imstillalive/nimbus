@@ -1128,9 +1128,6 @@ def entity_exists(entity_id: str) -> bool:
 # to clean up for #757.
 
 
-# Native only (#2289 item 5): no hass, nothing to call.
-
-
 def _fetch_weather_hourly_forecast(entity_id: str) -> list[dict] | None:
     """nimbus issue #481: the raw-fetch half of publish_weather_forecast_
     mirrors()'s own CONF_SOLVER_WEATHER_FORECAST_SENSOR reading, factored
