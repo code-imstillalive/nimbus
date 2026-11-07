@@ -52,6 +52,11 @@ the end of its body sits after that line, so it is left behind as an orphan
 in the old module. Check the lines just after each cut, and move or delete
 them.
 
+A constant can carry its own docstring: a separate string statement on the
+lines right after the assignment. It is an `ast.Expr`, not part of the
+`Assign`, so move it with its constant. Print the first non-blank line after
+every cut to catch it.
+
 Ruff cannot check **attribute** names. After the move, confirm every
 `module.attr` the moved code uses really exists in that module.
 
