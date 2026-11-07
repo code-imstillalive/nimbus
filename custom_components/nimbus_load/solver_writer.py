@@ -3419,6 +3419,116 @@ def _price_blend_phase(
     )
 
 
+@dataclass(frozen=True)
+class _Limits:
+    """What `_limits_phase()` hands the rest of `main()` (#2289 item 6 step 9)."""
+
+    capacity_kwh: Any
+    charge_cost: Any
+    discharge_cost_arr: Any
+    export_limit_kw: Any
+    import_limit_kw: Any
+    import_price: Any
+    initial_pct: Any
+    max_charge_kw: Any
+    max_discharge_kw: Any
+    max_pct: Any
+    min_pct: Any
+    salvage_value: Any
+    static_export_limit_kw: Any
+    static_import_limit_kw: Any
+
+
+def _limits_phase(
+    cfg, grid_times, has_price_forecast_array, n_periods, spot_import_raw
+) -> _Limits:
+    """The import price and the battery and grid limits: capacity, SoC bounds, charge and discharge rates and costs, salvage value and the grid envelope. Phase 5 of `main()`, moved verbatim (#2289 item 6 step 9)."""
+    # TOU network fees and the flat fee rate apply to every install
+    # (nimbus #152), and are zero until the household sets them.
+    flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
+    import_price = [
+        spot_import_raw[i]
+        + import_fee_rate(cfg, _local(grid_times[i]).hour)
+        + flat_fee_rate
+        for i in range(n_periods)
+    ]
+
+    # Battery settings come from the Solver settings (solver_shared.fetch_solver_config()).
+    # Capacity is SoH-derated on this live dispatch path (nimbus #1013); see
+    # resolve_effective_capacity_kwh().
+    capacity_kwh = resolve_effective_capacity_kwh(cfg)
+    min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
+    max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
+    # The config-flow's own solver_battery_soc_sensor field replaces the
+    # old hardcoded sensor.logger_battery_level_soc -- any household's
+    # own real, live-measured SoC sensor now works, not just this one's.
+    initial_pct = safe_num(cfg["solver_battery_soc_sensor"])
+    max_charge_kw = float(cfg["solver_max_charge_kw"])
+    # See resolve_max_discharge_kw()'s own docstring (near _cfg_num/
+    # _cfg_int, top of file) for the full nimbus #125 story.
+    max_discharge_kw = resolve_max_discharge_kw(cfg)
+    charge_cost = _cfg_num(
+        cfg, "solver_charge_cost", 0.01
+    )  # not scheduled -- real automations never touch this, manual control
+
+    # The discharge-cost / salvage-value schedule (nimbus #348) applies only
+    # with a forecast-array price sensor; the `else` branch uses the flat
+    # settings. Its defaults are the flat settings at every hour since
+    # 13 Oct 2026; see scheduled_discharge_cost_rate().
+    if has_price_forecast_array:
+        discharge_cost_arr = np.array(
+            [scheduled_discharge_cost_rate(cfg, _local(t).hour) for t in grid_times]
+        )
+        salvage_value = scheduled_salvage_value_rate(cfg, _local(grid_times[-1]).hour)
+    else:
+        # Flat Discharge Cost and Salvage Value from the settings, no
+        # schedule.
+        discharge_cost_arr = np.full(
+            n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)
+        )
+        salvage_value = _cfg_num(cfg, "solver_salvage_value", 0.15)
+
+    # nimbus issue #493 (Signals 4/7 of #489, item 1): a real per-period
+    # array whenever a live DNSP envelope entity is configured (blank ==
+    # the exact same flat static value as before this issue, at every
+    # period -- byte-identical behaviour for any install that hasn't
+    # touched the new field). See resolve_envelope_limit_kw()'s own
+    # docstring for the fallback/unit-scaling/log-once behaviour. The
+    # static scalars are kept alongside the resolved arrays -- compute_
+    # cost_band()'s own read-only #630 diagnostic (below) takes a single
+    # flat limit for its whole window by design (out of this issue's own
+    # scope to change), so it keeps reading the plain configured value,
+    # not the live envelope.
+    static_import_limit_kw = float(cfg["solver_grid_max_import_kw"])
+    static_export_limit_kw = float(cfg["solver_grid_max_export_kw"])
+    import_limit_kw = resolve_envelope_limit_kw(
+        cfg.get("solver_envelope_import_limit_entity"),
+        static_import_limit_kw,
+        grid_times,
+    )
+    export_limit_kw = resolve_envelope_limit_kw(
+        cfg.get("solver_envelope_export_limit_entity"),
+        static_export_limit_kw,
+        grid_times,
+    )
+    return _Limits(
+        capacity_kwh=capacity_kwh,
+        charge_cost=charge_cost,
+        discharge_cost_arr=discharge_cost_arr,
+        export_limit_kw=export_limit_kw,
+        import_limit_kw=import_limit_kw,
+        import_price=import_price,
+        initial_pct=initial_pct,
+        max_charge_kw=max_charge_kw,
+        max_discharge_kw=max_discharge_kw,
+        max_pct=max_pct,
+        min_pct=min_pct,
+        salvage_value=salvage_value,
+        static_export_limit_kw=static_export_limit_kw,
+        static_import_limit_kw=static_import_limit_kw,
+    )
+
+
 def main() -> None:
     _settings = _settings_phase()
     cfg = _settings.cfg
@@ -3494,74 +3604,27 @@ def main() -> None:
     spot_import_raw = _price_blend.spot_import_raw
     spot_import_source = _price_blend.spot_import_source
 
-    # TOU network fees and the flat fee rate apply to every install
-    # (nimbus #152), and are zero until the household sets them.
-    flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
-    import_price = [
-        spot_import_raw[i]
-        + import_fee_rate(cfg, _local(grid_times[i]).hour)
-        + flat_fee_rate
-        for i in range(n_periods)
-    ]
-
-    # Battery settings come from the Solver settings (solver_shared.fetch_solver_config()).
-    # Capacity is SoH-derated on this live dispatch path (nimbus #1013); see
-    # resolve_effective_capacity_kwh().
-    capacity_kwh = resolve_effective_capacity_kwh(cfg)
-    min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
-    max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
-    # The config-flow's own solver_battery_soc_sensor field replaces the
-    # old hardcoded sensor.logger_battery_level_soc -- any household's
-    # own real, live-measured SoC sensor now works, not just this one's.
-    initial_pct = safe_num(cfg["solver_battery_soc_sensor"])
-    max_charge_kw = float(cfg["solver_max_charge_kw"])
-    # See resolve_max_discharge_kw()'s own docstring (near _cfg_num/
-    # _cfg_int, top of file) for the full nimbus #125 story.
-    max_discharge_kw = resolve_max_discharge_kw(cfg)
-    charge_cost = _cfg_num(
-        cfg, "solver_charge_cost", 0.01
-    )  # not scheduled -- real automations never touch this, manual control
-
-    # The discharge-cost / salvage-value schedule (nimbus #348) applies only
-    # with a forecast-array price sensor; the `else` branch uses the flat
-    # settings. Its defaults are the flat settings at every hour since
-    # 13 Oct 2026; see scheduled_discharge_cost_rate().
-    if has_price_forecast_array:
-        discharge_cost_arr = np.array(
-            [scheduled_discharge_cost_rate(cfg, _local(t).hour) for t in grid_times]
-        )
-        salvage_value = scheduled_salvage_value_rate(cfg, _local(grid_times[-1]).hour)
-    else:
-        # Flat Discharge Cost and Salvage Value from the settings, no
-        # schedule.
-        discharge_cost_arr = np.full(
-            n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)
-        )
-        salvage_value = _cfg_num(cfg, "solver_salvage_value", 0.15)
-
-    # nimbus issue #493 (Signals 4/7 of #489, item 1): a real per-period
-    # array whenever a live DNSP envelope entity is configured (blank ==
-    # the exact same flat static value as before this issue, at every
-    # period -- byte-identical behaviour for any install that hasn't
-    # touched the new field). See resolve_envelope_limit_kw()'s own
-    # docstring for the fallback/unit-scaling/log-once behaviour. The
-    # static scalars are kept alongside the resolved arrays -- compute_
-    # cost_band()'s own read-only #630 diagnostic (below) takes a single
-    # flat limit for its whole window by design (out of this issue's own
-    # scope to change), so it keeps reading the plain configured value,
-    # not the live envelope.
-    static_import_limit_kw = float(cfg["solver_grid_max_import_kw"])
-    static_export_limit_kw = float(cfg["solver_grid_max_export_kw"])
-    import_limit_kw = resolve_envelope_limit_kw(
-        cfg.get("solver_envelope_import_limit_entity"),
-        static_import_limit_kw,
-        grid_times,
+    _limits = _limits_phase(
+        cfg=cfg,
+        grid_times=grid_times,
+        has_price_forecast_array=has_price_forecast_array,
+        n_periods=n_periods,
+        spot_import_raw=spot_import_raw,
     )
-    export_limit_kw = resolve_envelope_limit_kw(
-        cfg.get("solver_envelope_export_limit_entity"),
-        static_export_limit_kw,
-        grid_times,
-    )
+    capacity_kwh = _limits.capacity_kwh
+    charge_cost = _limits.charge_cost
+    discharge_cost_arr = _limits.discharge_cost_arr
+    export_limit_kw = _limits.export_limit_kw
+    import_limit_kw = _limits.import_limit_kw
+    import_price = _limits.import_price
+    initial_pct = _limits.initial_pct
+    max_charge_kw = _limits.max_charge_kw
+    max_discharge_kw = _limits.max_discharge_kw
+    max_pct = _limits.max_pct
+    min_pct = _limits.min_pct
+    salvage_value = _limits.salvage_value
+    static_export_limit_kw = _limits.static_export_limit_kw
+    static_import_limit_kw = _limits.static_import_limit_kw
 
     # The unclamped spot rate is the base export_price, and the P2P premium
     # goes through export_bonus_price. Nothing is clamped: network.py's
