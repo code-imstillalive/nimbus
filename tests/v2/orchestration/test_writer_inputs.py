@@ -840,28 +840,6 @@ BLOCKS = {
 }
 
 
-def test_the_access_token_comes_from_the_environment_then_its_file(
-    monkeypatch, tmp_path
-):
-    for name in ("SUPERVISOR_TOKEN", "HA_TOKEN"):
-        monkeypatch.delenv(name, raising=False)
-    token_file = tmp_path / "token"
-    monkeypatch.setattr(sw, "TOKEN_PATH", str(token_file))
-
-    def fresh():
-        monkeypatch.setattr(sw, "_TOKEN_LOADED", False)
-        monkeypatch.setattr(sw, "_TOKEN", None)
-        return sw._load_token()
-
-    assert fresh() is None  # no environment, no file
-    token_file.write_text("from-file\n", encoding="utf-8")
-    assert fresh() == "from-file"
-    monkeypatch.setenv("HA_TOKEN", "from-env")
-    assert fresh() == "from-env"
-    token_file.write_text("changed", encoding="utf-8")
-    assert sw._load_token() == "from-env"  # read once, then kept
-
-
 # --- a price event the household arms to test the plan (#1213) ------------------------------
 
 EVENT_DAY = datetime(2026, 9, 26, tzinfo=UTC)

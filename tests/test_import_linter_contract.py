@@ -63,7 +63,8 @@ _REPO_ROOT = os.path.dirname(_HERE)
 # `unmatched_ignore_imports_alerting` at its default. Seven were the
 # plan's own original late imports; nimbus issue #1301 (spec 001) added
 # the eighth (`solver_shared -> solver_writer`) for `_NATIVE_HASS`/
-# `HA_BASE`/`_load_token()` staying behind in `solver_writer.py`.
+# `HA_BASE`/`_load_token()` staying behind in `solver_writer.py`; #2289
+# item 5 (B.2b) removed those and that exception.
 #
 # nimbus issue #768 added the ninth: `solver_inputs.controllable_load_history`
 # reaches back through the same deferred, by-module seam as its five
@@ -92,7 +93,7 @@ _REPO_ROOT = os.path.dirname(_HERE)
 # which is Phase 7b's job (`ha_bridge`) and not any earlier phase's. When a
 # future phase fixes one for real, lower this along with the pyproject.toml
 # entry it counts.
-_EXPECTED_IGNORED_IMPORT_COUNT = 15
+_EXPECTED_IGNORED_IMPORT_COUNT = 14
 
 
 def _run_lint_imports() -> subprocess.CompletedProcess[str]:

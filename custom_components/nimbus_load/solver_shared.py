@@ -73,15 +73,10 @@ holder whose identity never changes and whose `hass` attribute is mutated,
 so any module can import it at module scope and read `NATIVE.hass` at call
 time. `solver_writer` re-exports it, so `solver_writer.NATIVE is NATIVE`.
 
-**`HA_BASE`/`_load_token()` still stay behind** in `solver_writer.py`,
-reached here via the deferred, by-MODULE `_solver_writer()` seam
-`solver_inputs/*.py`/`solver_publish.py` also use (see either module's own
-`_solver_writer()` docstring for the "relocating a function also relocates
-who its internal callers resolve" story, nimbus issue #861):
-`tests/v2/orchestration/test_import_and_token_laziness.py` source-scans
-`solver_writer.py` itself for the literal `open(TOKEN_PATH` call site inside
-a function literally named `_load_token()` -- moving that body would break a
-real, existing, unedited test.
+**Native only** (#2289 item 5): every read and write goes through
+`NATIVE.hass`. The REST transport, `HA_BASE` and `_load_token()` are gone;
+with no `hass` attached, a read fails or comes back empty and a post is
+dropped.
 
 **Two private companions moved alongside their one real caller**, neither
 literally named in spec 001's own 19-name interface list because neither
@@ -118,7 +113,6 @@ import logging
 import math
 import os
 import urllib.error
-import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -142,27 +136,6 @@ except ImportError:  # pragma: no cover - standalone/cron path
     from power_units import power_scale_to_kw  # type: ignore[no-redef]
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _solver_writer():
-    """The `solver_writer` module, imported late and by MODULE (never by
-    name) -- see `solver_publish.py`'s own `_solver_writer()` for the full
-    reasoning, and nimbus issue #861 for the concrete failure that makes
-    it load-bearing: relocating a function also relocates who its
-    internal callers resolve, escaping every `patch.object(solver_writer,
-    ...)` in the suite and turning a mocked call into a live HTTP
-    request.
-
-    Used here only for the names spec 001 documents as staying behind in
-    `solver_writer.py` -- `HA_BASE` and `_load_token()` -- never for a name
-    this module itself owns. (`_NATIVE_HASS` was the third until #1437
-    replaced it with `NATIVE` below.)
-    """
-    try:
-        from . import solver_writer
-    except ImportError:  # pragma: no cover - standalone/cron path
-        import solver_writer
-    return solver_writer
 
 
 class _NativeContext:
@@ -525,7 +498,6 @@ def _native_http_error(entity_id: str, code: int, msg: str) -> urllib.error.HTTP
 
 
 def ha_get(entity_id: str) -> dict:
-    sw = _solver_writer()
     if NATIVE.hass is not None:
         # hass.states.get() is a plain, synchronous, in-memory dict
         # lookup (HA's own state machine) -- real, established practice
@@ -553,12 +525,10 @@ def ha_get(entity_id: str) -> dict:
         if isinstance(changed, datetime):
             out["last_changed"] = changed.isoformat()
         return out
-    req = urllib.request.Request(
-        f"{sw.HA_BASE}/api/states/{entity_id}",
-        headers={"Authorization": f"Bearer {sw._load_token()}"},
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read())
+    # Native only (#2289 item 5): no hass means Home Assistant is not
+    # attached yet. The same error type a missing entity raises, so every
+    # caller's existing handling applies.
+    raise _native_http_error(entity_id, 503, "Home Assistant is not attached")
 
 
 # nimbus issue #944: the recorder's own per-state attribute cap
@@ -795,7 +765,6 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> bool:
     entity is mid-setup/unload, see below); True otherwise. A caller that
     remembers "already published" must not remember a dropped post
     (#1634: the no-record reason was dropped at startup and never re-sent)."""
-    sw = _solver_writer()
     _LAST_POSTED[entity_id] = (state, attributes)
     _LAST_POSTED_AT[entity_id] = datetime.now(UTC)
     if NATIVE.hass is not None:
@@ -895,20 +864,9 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> bool:
             )
         )
         return True
-    _warn_if_attrs_exceed_recorder_cap(entity_id, attributes)
-    body = json.dumps({"state": state, "attributes": attributes}).encode("utf-8")
-    req = urllib.request.Request(
-        f"{sw.HA_BASE}/api/states/{entity_id}",
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {sw._load_token()}",
-            "Content-Type": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        resp.read()
-    return True
+    # Native only (#2289 item 5): with Home Assistant not attached there
+    # is nowhere to post; the post is dropped, as a skipped one is.
+    return False
 
 
 # Real, live household automation design (config/automations.yaml):
@@ -1402,7 +1360,6 @@ def fetch_entity_went_unavailable(
 
     Only the raw states can separate them, so this reads them unfiltered.
     """
-    sw = _solver_writer()
     raw: list[str] = []
     if NATIVE.hass is not None:
         try:
@@ -1416,24 +1373,8 @@ def fetch_entity_went_unavailable(
             )
             return None
     else:
-        url = (
-            f"{sw.HA_BASE}/api/history/period/"
-            f"{after.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
-            f"?filter_entity_id={entity_id}"
-            f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
-        )
-        req = urllib.request.Request(
-            url, headers={"Authorization": f"Bearer {sw._load_token()}"}
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read())
-        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
-            return None
-        for p in data[0] if data and data[0] else []:
-            when = parse_iso(p.get("last_changed")) if p.get("last_changed") else None
-            if when is not None and when > after:
-                raw.append(p.get("state"))
+        # Native only (#2289 item 5): no hass, nothing known.
+        return None
     for state in raw:
         try:
             float(state)
@@ -1455,7 +1396,6 @@ def fetch_entity_history_range(
     never crash" discipline as every other real-data fetch in this
     file.
     """
-    sw = _solver_writer()
     if NATIVE.hass is not None:
         try:
             states = native_state_changes(entity_id, start, end, no_attributes=True)
@@ -1477,32 +1417,9 @@ def fetch_entity_history_range(
                 continue
             out.append((s.last_changed.astimezone(LOCAL_TZ), v))
         return sorted(out, key=lambda x: x[0])
-    url = (
-        f"{sw.HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
-        f"?filter_entity_id={entity_id}"
-        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
-    )
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {sw._load_token()}"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
-        return []
-    if not data or not data[0]:
-        return []
-    out = []
-    for p in data[0]:
-        state = p.get("state")
-        if state in (None, "unknown", "unavailable"):
-            continue
-        try:
-            v = float(state)
-        except (TypeError, ValueError):
-            continue
-        out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
-    return sorted(out, key=lambda x: x[0])
+    # Native only (#2289 item 5): no hass means Home Assistant is not
+    # attached, so there is no history to read.
+    return []
 
 
 def fetch_entity_attribute_history_range(
@@ -1529,7 +1446,6 @@ def fetch_entity_attribute_history_range(
     ValueError, or returning None -- is skipped. The scorer passes a
     timestamp parser to read a price source's refresh stamps.
     """
-    sw = _solver_writer()
     if NATIVE.hass is not None:
         try:
             states = native_state_changes(entity_id, start, end, no_attributes=False)
@@ -1555,34 +1471,9 @@ def fetch_entity_attribute_history_range(
                 continue
             out.append((s.last_changed.astimezone(LOCAL_TZ), v))
         return sorted(out, key=lambda x: x[0])
-    url = (
-        f"{sw.HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
-        f"?filter_entity_id={entity_id}"
-        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
-    )
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {sw._load_token()}"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
-        return []
-    if not data or not data[0]:
-        return []
-    out = []
-    for p in data[0]:
-        raw = (p.get("attributes") or {}).get(attribute)
-        if raw is None:
-            continue
-        try:
-            v = convert(raw)
-        except (TypeError, ValueError):
-            continue
-        if v is None:
-            continue
-        out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
-    return sorted(out, key=lambda x: x[0])
+    # Native only (#2289 item 5): no hass means Home Assistant is not
+    # attached, so there is no history to read.
+    return []
 
 
 def resample_history_nearest(

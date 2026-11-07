@@ -8,11 +8,9 @@ standalone cron deployment it started as, which talked to HA over its REST
 API, is retired (nimbus #2289 item 5, B.2a, 7 Nov 2026), and so is the
 Supervisor add-on (#357).
 
-The urllib branches that remain in ha_get(), ha_post_state(),
-fetch_price_history() and the history readers are the stub test suite's
-transport (tests patch urlopen onto golden.fake_ha.FakeHA). No install
-reaches them, because native mode always has hass. Replacing that transport
-with an in-process fake, and then deleting the branches, is B.2b.
+Every read and write goes through the injected hass (solver_shared.NATIVE);
+the REST transport is gone (#2289 item 5, B.2b). The stub test suite runs
+the same native code against tests/native_transport.py.
 
 Observation and dispatch both go through Home Assistant: the plan is
 published as sensors, and controllable loads are commanded through HA
@@ -31,7 +29,6 @@ import re
 import statistics
 import sys
 import urllib.error
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -468,10 +465,6 @@ except ImportError:
         compute_quality_report,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
     )
 
-# The test transport's base URL (see the module docstring): tests set HA_BASE
-# to golden.fake_ha's address. No install uses it.
-HA_BASE = os.environ.get("HA_BASE", "http://localhost:8123")
-TOKEN_PATH = os.environ.get("HA_TOKEN_PATH")
 # Plan-to-plan stability state, read by load_previous_plan() and written by
 # save_plan_state(): two solves minutes apart must not flip strategy on a thin
 # margin (2026-08-16). Native mode points it at hass.config.path().
@@ -954,41 +947,8 @@ def scheduled_salvage_value_rate(cfg: dict, hour: int) -> float:
     return default_rate
 
 
-# The test transport's bearer token: the HA_TOKEN env var, else the file at
-# HA_TOKEN_PATH. Resolved lazily (nimbus #349), never at import.
-_TOKEN: str | None = None
-_TOKEN_LOADED = False
-
-
-def _load_token() -> str | None:
-    """Lazily resolves the REST-mode bearer token (nimbus issue #349,
-    Mark Purcell): the original module-level TOKEN resolution above ran
-    UNCONDITIONALLY at import time -- a real blocking file read
-    (TOKEN_PATH) on the event loop the moment this module is first
-    imported natively (sensor.py's own async_setup_entry). Only ever
-    called from the REST-mode branches below (ha_get()/ha_post_state()/
-    fetch_price_history()) -- native mode's own NATIVE.hass seam skips
-    every one of those entirely, so a native install now never touches
-    this file/env lookup at all, not even once. Cached (resolved once
-    per process, same as the original module-level TOKEN) since the
-    token itself never changes mid-run.
-    """
-    global _TOKEN, _TOKEN_LOADED
-    if _TOKEN_LOADED:
-        return _TOKEN
-    _TOKEN_LOADED = True
-    _TOKEN = os.environ.get("HA_TOKEN")
-    if not _TOKEN and TOKEN_PATH:
-        try:
-            with open(TOKEN_PATH, "r", encoding="utf-8") as f:
-                _TOKEN = f.read().strip()
-        except OSError:
-            _TOKEN = None
-    return _TOKEN
-
-
-# The native seam: NATIVE.hass is None in standalone REST mode (the default)
-# and the injected hass once set_native_hass() runs. Only ha_get(),
+# The native seam: NATIVE.hass is None until set_native_hass() runs, and the
+# injected hass after. Only ha_get(),
 # ha_post_state() and fetch_price_history() branch on it; everything else
 # calls them by name. NATIVE's identity never changes (nimbus #1437; see
 # solver_shared.NATIVE).
@@ -1314,18 +1274,7 @@ def ha_call_service(domain: str, service: str, data: dict) -> None:
             functools.partial(NATIVE.hass.services.async_call, domain, service, data)
         )
         return
-    body = json.dumps(data).encode("utf-8")
-    req = urllib.request.Request(
-        f"{HA_BASE}/api/services/{domain}/{service}",
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {_load_token()}",
-            "Content-Type": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        resp.read()
+    # Native only (#2289 item 5): no hass, nothing to call.
 
 
 def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict | None:
@@ -1384,26 +1333,8 @@ def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict
                 exc_info=True,
             )
             return None
-    body = json.dumps(data).encode("utf-8")
-    req = urllib.request.Request(
-        f"{HA_BASE}/api/services/{domain}/{service}?return_response",
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {_load_token()}",
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            payload = json.loads(resp.read())
-    except (
-        urllib.error.HTTPError,
-        urllib.error.URLError,
-        json.JSONDecodeError,
-    ):
-        return None
-    return payload.get("service_response")
+    # Native only (#2289 item 5): no hass, no response.
+    return None
 
 
 def _fetch_weather_hourly_forecast(entity_id: str) -> list[dict] | None:
@@ -5954,40 +5885,9 @@ def fetch_entity_power_history_kw(
             v *= scale
             out.append((s.last_changed.astimezone(LOCAL_TZ), v))
         return sorted(out, key=lambda x: x[0])
-    # REST fallback: no `&minimal_response`, so each point keeps its own
-    # attributes dict (the whole point of this function).
-    url = (
-        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
-        f"?filter_entity_id={entity_id}"
-        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
-    )
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {_load_token()}"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
-        return []
-    if not data or not data[0]:
-        return []
-    out = []
-    for p in data[0]:
-        state = p.get("state")
-        if state in (None, "unknown", "unavailable"):
-            continue
-        try:
-            v = float(state)
-        except (TypeError, ValueError):
-            continue
-        scale = power_scale_or_none(  # nimbus #1570, #1643
-            (p.get("attributes") or {}).get("unit_of_measurement")
-        )
-        if scale is None:
-            continue  # not a power unit: no reading, not kW
-        v *= scale
-        out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
-    return sorted(out, key=lambda x: x[0])
+    # Native only (#2289 item 5): no hass means Home Assistant is not
+    # attached, so there is no history to read.
+    return []
 
 
 def fetch_entity_state_history_range(
@@ -6029,28 +5929,9 @@ def fetch_entity_state_history_range(
                 continue
             out.append((s.last_changed.astimezone(LOCAL_TZ), s.state))
         return sorted(out, key=lambda x: x[0])
-    url = (
-        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
-        f"?filter_entity_id={entity_id}"
-        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
-    )
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {_load_token()}"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
-        return []
-    if not data or not data[0]:
-        return []
-    out = []
-    for p in data[0]:
-        state = p.get("state")
-        if state in (None, "unknown", "unavailable"):
-            continue
-        out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), state))
-    return sorted(out, key=lambda x: x[0])
+    # Native only (#2289 item 5): no hass means Home Assistant is not
+    # attached, so there is no history to read.
+    return []
 
 
 # nimbus issue #493 (Signals 4/7 of #489, item 1 -- Mark Purcell's own

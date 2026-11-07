@@ -10,8 +10,6 @@ import sys
 import types
 import unittest
 
-import solver_writer
-
 
 class TestSensorPyImportsOffTheEventLoop(unittest.TestCase):
     def test_sensor_py_imports_solver_writer_via_the_import_executor(self):
@@ -94,51 +92,3 @@ class TestSolverWriterRelativeImportsResolveCleanly(unittest.TestCase):
                     del sys.modules[k]
             sys.modules.update(saved_modules)
             sys.path[:] = saved_path
-
-
-class TestTokenIsLazilyResolved(unittest.TestCase):
-    def setUp(self):
-        solver_writer._TOKEN = None
-        solver_writer._TOKEN_LOADED = False
-
-    def tearDown(self):
-        solver_writer._TOKEN = None
-        solver_writer._TOKEN_LOADED = False
-
-    def test_no_module_level_code_reads_token_path_directly(self):
-        """The real regression this issue is about: `TOKEN_PATH` (the
-        module-level constant) must never be passed to `open()` outside
-        `_load_token()` -- a source-scan, not a reload/re-import trick,
-        since reload() would just re-run the module's OWN top-level
-        `TOKEN_PATH = os.environ.get(...)` line and defeat any monkey-
-        patched sentinel before `_load_token()` ever runs."""
-        solver_writer_py = os.path.join(
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                )
-            ),
-            "custom_components",
-            "nimbus_load",
-            "solver_writer.py",
-        )
-        with open(solver_writer_py, encoding="utf-8") as f:
-            src = f.read()
-        open_calls_on_token_path = src.count("open(TOKEN_PATH")
-        self.assertEqual(
-            open_calls_on_token_path,
-            1,
-            "TOKEN_PATH must be opened in exactly one place: inside "
-            "_load_token(), never at module level",
-        )
-        # The one real call site must be inside _load_token(), not some
-        # other, newly-added module-level statement -- confirmed by
-        # position: it must appear strictly after that function's own
-        # def line.
-        def_index = src.index("def _load_token()")
-        open_index = src.index("open(TOKEN_PATH")
-        self.assertGreater(
-            open_index,
-            def_index,
-            "the real open(TOKEN_PATH) call must live inside _load_token()",
-        )
