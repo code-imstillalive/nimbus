@@ -10,14 +10,14 @@ schedule and energy-balance files.
 from __future__ import annotations
 
 import logging
-import urllib.request
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import solver_writer as sw
-from golden.fake_ha import BASE, FakeHA
+from golden.fake_ha import FakeHA
+from native_transport import use_native_fake
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)
 
@@ -25,11 +25,9 @@ T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)
 @pytest.fixture
 def ha(monkeypatch):
     fake = FakeHA(states={})
-    monkeypatch.setattr(sw, "HA_BASE", BASE)
-    monkeypatch.setattr(sw, "_load_token", lambda: "test")
-    monkeypatch.setattr(sw.NATIVE, "hass", None)
-    monkeypatch.setattr(urllib.request, "urlopen", fake.urlopen)
-    return fake
+    hass = use_native_fake(monkeypatch, sw, fake)
+    yield fake
+    hass.close()
 
 
 def _grid(n, minutes=30):
