@@ -14,7 +14,7 @@ import json
 import re
 import sys
 import types
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -70,10 +70,11 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders(
         failed_streak={"count": 5, "since": "2026-09-20T06:00:00+00:00"},
         availability_mismatches=[("p1", "Car", "sensor.c", ("Charge",), "Charging")],
         tabs_card_missing=True,
+        unavailable_entities=[("sensor.soc", "- Nimbus: Battery SoC", "09 Nov 06:00")],
     )
     infeasible = sh._plan_failing_issue({"count": 5, "status": "infeasible"})
     every.append(infeasible)
-    assert len({i.kind for i in every}) == 15
+    assert len({i.kind for i in every}) == 16
     for issue in every:
         words = set(re.findall(r"\{(\w+)\}", json.dumps(ISSUES[issue.kind])))
         assert words == set(issue.placeholders), issue.kind
@@ -228,6 +229,66 @@ def repairs(monkeypatch):
     )
     hass = SimpleNamespace(data={})
     return hass, entry, raised, deleted
+
+
+def test_a_chosen_entity_silent_past_the_grace_is_reported_once_per_entity():
+    """#2436 (Mark Purcell, on #2392): an entity chosen in the wizard that has
+    read unavailable or unknown, or not existed, for an hour is a Repair,
+    one per entity, naming every setting that uses it. A restart's race to
+    first state never trips it, and an availability entity, whose
+    `unavailable` can be a real answer, is left out."""
+    avail = const.CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY
+    parts = [
+        (
+            "Nimbus",
+            {
+                "solver_battery_soc_sensor": "sensor.soc",
+                "solver_price_comparison_sensors": ["sensor.buy", "sensor.gone"],
+                "solver_charge_by_hour": "16.5",  # a number is never an entity
+                "solver_window_start": "06:00",
+                "solver_note": "weather.home",  # no such domain on this install
+            },
+        ),
+        ("Car", {avail: "binary_sensor.car_home", "load_sensor": "sensor.soc"}),
+    ]
+    chosen = sh.configured_entities(parts, {"sensor", "binary_sensor"})
+    assert chosen == {
+        "sensor.soc": [
+            ("Nimbus", "solver_battery_soc_sensor"),
+            ("Car", "load_sensor"),
+        ],
+        "sensor.buy": [("Nimbus", "solver_price_comparison_sensors")],
+        "sensor.gone": [("Nimbus", "solver_price_comparison_sensors")],
+    }
+
+    up = T0 - timedelta(hours=3)
+    states = {
+        "sensor.soc": ("unavailable", T0 - timedelta(hours=2)),
+        "sensor.buy": ("0.31", T0 - timedelta(hours=2)),
+    }
+    out = sh.unavailable_too_long(chosen, states.get, T0, up, label=str.upper)
+    assert [(e, where) for e, where, _since in out] == [
+        ("sensor.gone", "- Nimbus: SOLVER_PRICE_COMPARISON_SENSORS"),
+        (
+            "sensor.soc",
+            "- Nimbus: SOLVER_BATTERY_SOC_SENSOR\n- Car: LOAD_SENSOR",
+        ),
+    ]
+    # Silence counts from the later of its last change and the hub's start.
+    assert (
+        sh.unavailable_too_long(chosen, states.get, T0, T0 - timedelta(minutes=59))
+        == []
+    )
+    states["sensor.soc"] = ("unknown", T0 - timedelta(minutes=30))
+    assert [e for e, *_ in sh.unavailable_too_long(chosen, states.get, T0, up)] == [
+        "sensor.gone"
+    ]
+
+    issues = _health(unavailable_entities=out)
+    assert [(i.key, i.placeholders["entity"]) for i in issues] == [
+        ("configured_entity_unavailable_sensor.gone", "sensor.gone"),
+        ("configured_entity_unavailable_sensor.soc", "sensor.soc"),
+    ]
 
 
 def test_live_settings_are_read_from_the_number_entities(monkeypatch):

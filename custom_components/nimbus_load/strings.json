@@ -1031,6 +1031,10 @@
     "tabs_card_missing": {
       "title": "Nimbus: your dashboard has no \"Check for updates\" button",
       "description": "Your Nimbus dashboard has no **Nimbus Tabs** card, so a new release's changed tabs (a new setting on the Solver tab, a new Power Flow layout) can't reach it. Tabs pasted before version 0.94.507 don't have it, and Nimbus never edits your dashboard itself.\n\nAdd it once: open the Nimbus dashboard, **Edit dashboard → + Add card**, search **nimbus**, pick **Nimbus Tabs** and save. Then press **Check for updates** on it. This message clears itself once the card is on a dashboard."
+    },
+    "configured_entity_unavailable": {
+      "title": "Nimbus: {entity} is not reporting",
+      "description": "`{entity}` has read unavailable or unknown, or has not existed, since {since}. Nimbus uses it for:\n{where}\n\nIf the device was removed or renamed, choose its replacement in those settings. If its integration has stopped, restart or repair that integration. This message clears itself once `{entity}` reports a value again."
     }
   },
   "exceptions": {
