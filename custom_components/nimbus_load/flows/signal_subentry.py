@@ -55,6 +55,7 @@ from . import (
     async_part_of_hint,
     find_subentry_sharing_source_sensor,
     form_action_placeholders,
+    missing_entity_errors,
     part_of_field,
     part_of_parents,
     without_invalid_part_of,
@@ -158,6 +159,16 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
             # a Load and/or Power Signal subentry pointed at the SAME
             # source sensor as an existing one collides in sensor.py's
             # object_id_from_source() entity_id namespace.
+            missing = missing_entity_errors(
+                self.hass, _schema(user_input, parents), user_input
+            )
+            if missing:
+                return self.async_show_form(
+                    description_placeholders=form_action_placeholders(self),
+                    step_id="user",
+                    data_schema=_schema(user_input, parents),
+                    errors=missing,
+                )
             conflict = find_subentry_sharing_source_sensor(
                 self._get_entry(),
                 user_input[CONF_LOAD_SENSOR],

@@ -42,9 +42,20 @@ class Number:
         self.set_to = value
 
 
+def _known_sensors():
+    """Every sensor this file's pages submit, present as on a real install:
+    a wizard step refuses an entity id that doesn't exist (#2392)."""
+    return {
+        eid: SimpleNamespace(state="0.3", attributes={})
+        for eid in (*BATTERY.values(), *GRID.values(), *SOURCES.values())
+        + ("sensor.event", "sensor.kept")
+        if isinstance(eid, str) and "." in eid
+    }
+
+
 class Hass:
     def __init__(self, states=None):
-        self._states = dict(states or {})
+        self._states = _known_sensors() if states is None else dict(states)
         self.states = SimpleNamespace(
             get=self._states.get, async_all=lambda domain=None: []
         )
