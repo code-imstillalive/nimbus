@@ -1,0 +1,61 @@
+{
+  "entity": {
+    "sensor": {
+      "device_readiness": {
+        "default": "mdi:list-status"
+      }
+    },
+    "select": {
+      "pricing_source": {
+        "default": "mdi:cash-sync"
+      },
+      "device_setup_mode": {
+        "default": "mdi:file-tree"
+      }
+    }
+  },
+  "services": {
+    "retrain": {
+      "service": "mdi:brain"
+    },
+    "solve_now": {
+      "service": "mdi:play-circle-outline"
+    },
+    "compute_quality_report": {
+      "service": "mdi:clipboard-check-outline"
+    },
+    "rescore_history": {
+      "service": "mdi:history"
+    },
+    "flex_telemetry_record": {
+      "service": "mdi:record-rec"
+    },
+    "get_stochastic_summary": {
+      "service": "mdi:chart-bell-curve"
+    },
+    "replay_price_offsets": {
+      "service": "mdi:replay"
+    },
+    "export_decision_inputs": {
+      "service": "mdi:export"
+    },
+    "get_dashboard": {
+      "service": "mdi:view-dashboard"
+    },
+    "device_contract_preview": {
+      "service": "mdi:file-eye-outline"
+    },
+    "device_contract_set_mode": {
+      "service": "mdi:file-cog-outline"
+    },
+    "device_contract_discover": {
+      "service": "mdi:magnify-scan"
+    },
+    "device_contract_confirm": {
+      "service": "mdi:file-check-outline"
+    },
+    "set_controllable_load": {
+      "service": "mdi:tune-variant"
+    }
+  }
+}

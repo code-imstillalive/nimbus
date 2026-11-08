@@ -290,8 +290,12 @@ rules:
       `exceptions` section. The English message is still passed as the
       exception's own text, so logs read the same.
   icon-translations:
-    status: todo
-    comment: No icons.json; entities rely on device_class defaults.
+    status: done
+    comment: >-
+      icons.json holds every service's icon and the three entities that had
+      one in code (by translation key); no entity sets _attr_icon. Others use
+      their device_class defaults. A test keeps icons.json and services.yaml
+      in step.
   reconfiguration-flow:
     status: done
     comment: >-
