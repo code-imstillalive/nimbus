@@ -107,12 +107,13 @@ def missing_entity_errors(
                 ):
                     errors[name] = "entity_not_found"
                     break
-                if state is None or state.state in ("unavailable", "unknown"):
+                reading = getattr(state, "state", None)
+                if state is None or reading in ("unavailable", "unknown"):
                     _LOGGER.warning(
                         "Nimbus: %s is %s right now; it is saved, and Nimbus "
                         "will use it once it reports",
                         entity_id,
-                        "not reporting" if state is None else state.state,
+                        "not reporting" if state is None else reading,
                     )
 
     walk(getattr(schema, "schema", {}), user_input)
