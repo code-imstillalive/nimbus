@@ -172,3 +172,61 @@ def test_dc_r02_f06_a_renamed_entity_is_the_same_source_and_says_so():
     assert not refusals and changed == [("grid", "power")]
     new_grid = next(d for d in document["devices"] if d["id"] == "grid")
     assert new_grid["bindings"]["power"]["source"]["entity_id"] == "sensor.grid_power_2"
+
+
+def test_dc_r02_f06_confirming_a_rename_or_a_new_device_applies_only_what_was_offered():
+    """#2393: `apply_confirmation`'s rename and new-device paths had no test.
+    A confirmed rename re-points the stored binding; a new battery needs its
+    capacity; a choice that was never offered, or for a device the document
+    does not have, is refused, and any refusal leaves the document as stored."""
+    prefs = copy.deepcopy(PREFS)
+    prefs["energy_sources"][1]["stat_rate"] = "sensor.battery_power_renamed"
+    regs = {**REGS, "sensor.battery_power_renamed": "r_bat"}
+    regs.pop("sensor.bat_power")
+    stored = _stored()
+    r = dd.rediscover(
+        stored, _propose(prefs, regs), present_registry_ids=frozenset(regs.values())
+    )
+    rename = {"kind": "renamed", "device": "battery", "role": "power"}
+    document, refusals, changed = dd.apply_confirmation(
+        stored, r, [{**rename, "entity_id": "sensor.battery_power_renamed"}]
+    )
+    assert (refusals, changed) == ([], [("battery", "power")])
+    battery = next(d for d in document["devices"] if d["id"] == "battery")
+    assert (
+        battery["bindings"]["power"]["source"]["entity_id"]
+        == "sensor.battery_power_renamed"
+    )
+
+    document, refusals, changed = dd.apply_confirmation(
+        stored,
+        r,
+        [
+            {**rename, "entity_id": "sensor.battery_power_renamed"},
+            {**rename, "entity_id": "sensor.somewhere_else"},
+            {**rename, "device": "battery_9", "entity_id": "sensor.x"},
+        ],
+    )
+    assert [x["reason"] for x in refusals] == [dd.R_NOT_OFFERED, dd.R_UNKNOWN_DEVICE]
+    assert (document, changed) == (stored, [])
+
+    # A battery the stored document lacks is offered as a new device.
+    without = copy.deepcopy(stored)
+    without["devices"] = [d for d in without["devices"] if d["id"] != "battery"]
+    r = dd.rediscover(without, _propose())
+    new = {"kind": "new_device", "device": "battery"}
+    _, refusals, _ = dd.apply_confirmation(without, r, [new])
+    assert [x["reason"] for x in refusals] == [dd.R_CAPACITY_NEEDED]
+    _, refusals, _ = dd.apply_confirmation(without, r, [{**new, "device": "spa"}])
+    assert [x["reason"] for x in refusals] == [dd.R_NOT_OFFERED]
+
+    capacity = {"value": 13.5, "unit": "kWh", "basis": "usable"}
+    document, refusals, changed = dd.apply_confirmation(
+        without, r, [{**new, "capacity": capacity}]
+    )
+    assert refusals == []
+    battery = next(d for d in document["devices"] if d["id"] == "battery")
+    assert battery["capacity"] == capacity
+    assert battery["bindings"]
+    assert all(b["provenance"]["confirmed"] for b in battery["bindings"].values())
+    assert sorted(changed) == sorted(("battery", role) for role in battery["bindings"])
