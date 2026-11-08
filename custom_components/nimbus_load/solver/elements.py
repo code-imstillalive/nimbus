@@ -19,6 +19,7 @@ proved out for the Forecaster.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -157,8 +158,8 @@ class GridConfig:
     # completely unchanged -- network.py resolves either shape to a real
     # per-period array once, at the top of build_plan(), so nothing
     # downstream needs to know which shape a given caller passed.
-    import_limit_kw: float | NDArray[np.float64]
-    export_limit_kw: float | NDArray[np.float64]
+    import_limit_kw: float | Sequence[float] | NDArray[np.float64]
+    export_limit_kw: float | Sequence[float] | NDArray[np.float64]
     # min_export_kwh (2026-08-17, direct response to real regret/EPR
     # analysis needing it -- see network.py's own docstring, "MINIMUM
     # TOTAL EXPORT COMMITMENT"): a real household running a P2P-style

@@ -46,8 +46,9 @@ import re
 import unittest
 from pathlib import Path
 
+from tests._changelog import changelog_text
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
 _MANIFEST = _REPO_ROOT / "custom_components" / "nimbus_load" / "manifest.json"
 
 # First release this session personally deployed, verified, and can
@@ -182,7 +183,7 @@ def _in_flight_version() -> tuple[int, ...]:
 
 
 def _sections() -> dict[tuple[int, ...], str]:
-    text = _CHANGELOG.read_text(encoding="utf-8")
+    text = changelog_text()
     out: dict[tuple[int, ...], str] = {}
     matches = list(_SECTION_RE.finditer(text))
     for i, m in enumerate(matches):
