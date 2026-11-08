@@ -572,6 +572,21 @@ def install_ha_stubs() -> None:
         # this, and a test asserts call.data using the same literal key.
         ATTR_ENTITY_ID="entity_id",
     )
+
+    def _ha_error_init(
+        self: Exception,
+        *args: object,
+        translation_domain: str | None = None,
+        translation_key: str | None = None,
+        translation_placeholders: dict[str, str] | None = None,
+    ) -> None:
+        # Real HA's errors take these keywords (#2392, exception
+        # translations); the message stays the first argument.
+        Exception.__init__(self, *args)
+        self.translation_domain = translation_domain
+        self.translation_key = translation_key
+        self.translation_placeholders = translation_placeholders
+
     module(
         "homeassistant.exceptions",
         # Real HA raises this from a service handler to surface a clean,
@@ -579,7 +594,9 @@ def install_ha_stubs() -> None:
         # services.py's own unresolved-entity_id path raises it. A plain
         # Exception subclass is enough for a test to assert "the right
         # exception type, with the right message" via pytest.raises.
-        ServiceValidationError=type("ServiceValidationError", (Exception,), {}),
+        ServiceValidationError=type(
+            "ServiceValidationError", (Exception,), {"__init__": _ha_error_init}
+        ),
         # nimbus issue #809: services.py's own set_controllable_load
         # handler raises this for a genuine runtime failure (no hub
         # configured yet) rather than a call-shape problem
@@ -589,7 +606,9 @@ def install_ha_stubs() -> None:
         # exist; added here anyway so a test file that wants to assert
         # on it directly (as opposed to just exercising the function
         # that raises it) doesn't have to invent its own stand-in.
-        HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
+        HomeAssistantError=type(
+            "HomeAssistantError", (Exception,), {"__init__": _ha_error_init}
+        ),
     )
     module(
         "homeassistant.helpers.config_validation",
