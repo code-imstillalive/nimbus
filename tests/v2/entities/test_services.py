@@ -555,3 +555,54 @@ def _set(hass, **data):
             SimpleNamespace(data=data)
         )
     )
+
+
+def test_the_offset_replay_reads_the_history_file_and_rebuilds_only_the_weighted_blend(
+    monkeypatch, tmp_path
+):
+    """#1786 (Mark Purcell, 1 Nov 2026), #2393: the replay service reads this
+    install's stored price error history and changes nothing. An unreadable
+    file is an answer, not a failure; the rebuilt blend uses only the sources
+    the published blend weights at each lead."""
+    import json
+
+    monkeypatch.delenv("NIMBUS_SOLVER_PRICE_ERROR_HISTORY_PATH", raising=False)
+    plan = SimpleNamespace(
+        attributes={
+            "price_consolidation": {
+                "import": {"weights": {"1-4 h": {"primary": 1.0}}},
+                "export": {},
+            }
+        }
+    )
+    hass = _hass(states={"sensor.nimbus_solver_battery_forecast": plan})
+    hass.config = SimpleNamespace(path=lambda name: str(tmp_path / name))
+
+    out = _call(hass, svc.SERVICE_REPLAY_PRICE_OFFSETS)
+    assert out["error"].startswith("price error history not readable")
+
+    # The history keeps one pair per half hour (`on_stride`), so the
+    # synthetic pairs sit on those kept intervals.
+    peh = importlib.import_module(
+        "custom_components.nimbus_load.solver_inputs.price_error_history"
+    )
+    keys = [k for k in range(1000, 2000) if peh.on_stride(k)][:12]
+    pairs = [[k, 0, 0.30, 0.28] for k in keys]
+    history = {
+        "samples": {
+            "import": {
+                "primary": {"1-4 h": {"normal": pairs}},
+                "secondary_3": {"1-4 h": {"normal": pairs}},
+            }
+        }
+    }
+    (tmp_path / "nimbus_solver_price_error_history.json").write_text(
+        json.dumps(history), encoding="utf-8"
+    )
+    out = _call(hass, svc.SERVICE_REPLAY_PRICE_OFFSETS)
+    assert out["blend_sources"] == {"import": {"1-4 h": ["primary"]}, "export": {}}
+    assert sorted(out["import"]["primary"]["1-4 h"]) == [
+        str(a) for a in sorted(out["alphas"])
+    ]
+    assert out["import"]["primary"]["1-4 h"][str(out["alphas"][0])]["n"] == 12
+    assert out["export"] == {"blend": {}, "blend_staleness": {}}
