@@ -570,3 +570,36 @@ def test_the_away_profile_is_built_once_off_the_forecast_and_a_failure_only_warn
     asyncio.run(coord._async_occupancy_bootstrap())
     assert coord._occupancy is None and coord._occupancy_bootstrapping is False
     assert "occupancy profile for House could not be built" in caplog.text
+
+
+def test_a_curtailment_inputs_own_forecast_is_read_forward_and_in_time_order(
+    tmp_path, recorder
+):
+    """#2393: a curtailment input that publishes a `forecast` attribute makes the
+    feature forward-looking: each entry is 1.0 (curtailed) or 0.0, read in time
+    order, and an entry it cannot read is skipped, not guessed. No input, or an
+    input with no state yet, is no forecast."""
+    hass = FakeHass(tmp_path)
+    coord = _coordinator(hass)
+    assert asyncio.run(coord._async_fetch_curtailment_forecast()) == []
+
+    coord.entry.options = {
+        **coord.entry.options,
+        const.CONF_CURTAILMENT_SENSOR: "switch.curtail",
+    }
+    assert asyncio.run(coord._async_fetch_curtailment_forecast()) == []
+
+    later, sooner = NOW + timedelta(hours=2), NOW + timedelta(hours=1)
+    hass._states["switch.curtail"] = _State(
+        state="off",
+        attributes={
+            "forecast": [
+                {"time": later.isoformat(), "value": False},
+                {"time": sooner.isoformat(), "value": True},
+                {"time": "not a time", "value": True},
+                {"value": True},
+            ]
+        },
+    )
+    out = asyncio.run(coord._async_fetch_curtailment_forecast())
+    assert [(t.astimezone(UTC), v) for t, v in out] == [(sooner, 1.0), (later, 0.0)]
