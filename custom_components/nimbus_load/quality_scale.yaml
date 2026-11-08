@@ -239,7 +239,7 @@ rules:
     status: done
     comment: >-
       docs/what-nimbus-provides.md: every entity kind (sensor, number, switch,
-      select, time) with examples and links, and all 13 actions; every
+      select, time) with examples and links, and all 14 actions; every
       setting is in configuration-reference.md.
   docs-troubleshooting:
     status: done

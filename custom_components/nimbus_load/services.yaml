@@ -95,3 +95,20 @@ device_contract_confirm:
       required: true
       selector:
         object:
+
+set_controllable_load:
+  fields:
+    controllable_load_name:
+      required: true
+      selector:
+        text:
+    controllable_load_kind:
+      selector:
+        select:
+          options:
+            - sheddable
+            - deferrable
+            - thermal
+    subentry_id:
+      selector:
+        text:
