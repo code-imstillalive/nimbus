@@ -212,7 +212,12 @@ rules:
     comment: >-
       ML forecaster integration reading local Home Assistant sensors; no
       physical device or network service to discover.
-  docs-data-update: todo
+  docs-data-update:
+    status: done
+    comment: >-
+      docs/how-nimbus-updates.md: the plan every 5 minutes (30 s after each
+      5-minute mark) plus price-change and P2P-block triggers, load forecasts
+      every 2 minutes, the daily retrain, the daily reports and setup health.
   docs-examples:
     status: done
     comment: >-
