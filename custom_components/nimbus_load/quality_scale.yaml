@@ -289,12 +289,14 @@ rules:
       and no-input-shows-form both covered by
       tests/test_flows_*_subentry.py.
   repair-issues:
-    status: todo
+    status: done
     comment: >-
-      No ir.async_create_issue anywhere. Real candidates: source sensor
-      deleted after subentry created, model .pkl unreadable/incompatible,
-      insufficient training data at first setup -- all currently silent
-      log lines rather than an actionable Repair.
+      Repairs are raised where the household has to act: a new install whose
+      setup failed (__init__.py), device setup drift, a stated unit that
+      disagrees and an older setup to update (device_contract_ha.py), a setup
+      field that is blocked (setup_builder.py), and setup health problems
+      such as a dashboard with Nimbus cards but no Tabs card
+      (setup_health.py). Each has its own translation key.
   stale-devices:
     status: done
     comment: >-
@@ -333,11 +335,9 @@ rules:
   strict-typing:
     status: todo
     comment: >-
-      py.typed marker exists. A real, advisory-only mypy CI job exists
-      (ci.yml's typecheck step, `mypy ... || true`) -- deliberately not a
-      hard gate yet, given ~33 real findings across the tree were never
-      triaged. No [tool.mypy] strict config in pyproject.toml. Genuine
-      remaining work, sized at roughly a day per the original issue's own
-      estimate: triage the 33 findings, add a strict mypy config, flip the
-      CI job from advisory to blocking, and audit solver/ml/flows -- none
-      of which was in the original spot-check.
+      py.typed marker exists. Since 8 Nov 2026 (#2289 item 9) a blocking CI
+      job, "Type Check (mypy, solver+ml)", covers every module that does not
+      import Home Assistant: solver/, ml/ and 60 entries in all, with zero
+      findings. The modules that import Home Assistant (entities, flows,
+      coordinator) are still in the advisory whole-package job, so the rule
+      is not yet met.
