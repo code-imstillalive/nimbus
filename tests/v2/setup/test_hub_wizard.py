@@ -133,7 +133,16 @@ SOURCES = {
 
 def test_the_solver_pages_save_once_at_the_end_with_every_answer(world, monkeypatch):
     # test_the_solver_pages_save_once_at_the_end_with_every_answer
-    hass = Hass()
+    # Every sensor the pages are given exists, as on a real install: a wizard
+    # step refuses an entity id that doesn't (#2392 test-before-configure).
+    hass = Hass(
+        {
+            eid: SimpleNamespace(state="0.3", attributes={})
+            for eid in (*BATTERY.values(), *GRID.values(), *SOURCES.values())
+            + ("sensor.event",)
+            if isinstance(eid, str) and "." in eid
+        }
+    )
     flow = _flow(
         {"other": 1, "solver_import_price_sensor_2": "sensor.old_secondary"}, hass
     )
