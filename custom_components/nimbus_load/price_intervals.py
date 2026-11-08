@@ -38,7 +38,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import pairwise
-from typing import Any
+from typing import Any, TypeGuard
 
 try:
     from .solver_shared import parse_iso
@@ -60,7 +60,7 @@ AEMO_NEM_FORECAST_KEY = "current_30min_forecast"
 _AEMO_ROW_KEYS = ("start_time", "end_time", "price")
 
 
-def is_aemo_nem_rows(rows: Any) -> bool:
+def is_aemo_nem_rows(rows: Any) -> TypeGuard[list[Any]]:
     """True when `rows` is AEMO NEM Data's forecast shape: a non-empty list
     whose dict rows carry `start_time`, `end_time` and `price`."""
     if not isinstance(rows, list) or not rows:
@@ -70,7 +70,7 @@ def is_aemo_nem_rows(rows: Any) -> bool:
     )
 
 
-def aemo_nem_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
+def aemo_nem_intervals(rows: Iterable[Any] | None) -> list[PriceInterval]:
     """AEMO NEM Data `forecast` rows -> ordered, non-overlapping intervals."""
     parsed: list[PriceInterval] = []
     for row in rows or []:
@@ -118,7 +118,7 @@ BASIS_WHOLESALE = "wholesale"
 BASIS_TARIFF = "tariff"
 
 
-def is_pd7day_rows(rows: Any) -> bool:
+def is_pd7day_rows(rows: Any) -> TypeGuard[list[Any]]:
     """True for NEM PD7DAY's forecast shape: rows carrying `time` and
     `nemtime`."""
     if not isinstance(rows, list) or not rows:
@@ -177,7 +177,7 @@ def _ordered(parsed: list[PriceInterval]) -> list[PriceInterval]:
 # which there is no price (a gap, DC-006's "a price held past its end").
 
 
-def _generic_points(rows: Iterable[Any]) -> list[tuple[datetime, float]]:
+def _generic_points(rows: Iterable[Any] | None) -> list[tuple[datetime, float]]:
     points: list[tuple[datetime, float]] = []
     for row in rows or []:
         if not isinstance(row, dict):

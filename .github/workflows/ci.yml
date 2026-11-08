@@ -255,6 +255,7 @@ jobs:
             custom_components/nimbus_load/sensor_discovery.py \
             custom_components/nimbus_load/sensor_stochastic.py \
             custom_components/nimbus_load/site_limit.py \
+            custom_components/nimbus_load/solver_plan.py \
             custom_components/nimbus_load/solver_publish.py \
             custom_components/nimbus_load/solver_tab.py \
             custom_components/nimbus_load/thermal_forecast.py \
@@ -266,10 +267,12 @@ jobs:
             custom_components/nimbus_load/solver_inputs/loss_factors.py \
             custom_components/nimbus_load/solver_inputs/p2p.py \
             custom_components/nimbus_load/solver_inputs/price_blend.py \
+            custom_components/nimbus_load/solver_inputs/price_consolidation.py \
             custom_components/nimbus_load/solver_inputs/price_error_history.py \
             custom_components/nimbus_load/solver_inputs/price_freshness.py \
             custom_components/nimbus_load/solver_inputs/price_offset_replay.py \
             custom_components/nimbus_load/solver_inputs/prices.py \
+            custom_components/nimbus_load/solver_inputs/rrp_crosscheck.py \
             custom_components/nimbus_load/solver_inputs/sign_convention.py \
             custom_components/nimbus_load/solver_inputs/solar.py \
             custom_components/nimbus_load/solver_inputs/solar_quantiles.py \

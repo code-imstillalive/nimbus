@@ -111,7 +111,7 @@ def _pd7day_points(rows: list, now: datetime) -> dict[int, float]:
     for row in rows:
         if not isinstance(row, dict):
             continue
-        raw = row["raw_value"] if "raw_value" in row else row.get("spot_raw")
+        raw: Any = row["raw_value"] if "raw_value" in row else row.get("spot_raw")
         try:
             start = price_intervals.parse_iso(row["time"])
             end = price_intervals.parse_iso(row["nemtime"])
