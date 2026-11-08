@@ -250,7 +250,6 @@ class NimbusPricingSourceSelect(SelectEntity):
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
     _attr_should_poll = False
-    _attr_icon = "mdi:cash-sync"
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, sw_version: str | None
@@ -370,7 +369,6 @@ class NimbusDeviceSetupModeSelect(SelectEntity):
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
     _attr_should_poll = False
-    _attr_icon = "mdi:file-tree"
 
     def __init__(self, entry: ConfigEntry, sw_version: str | None) -> None:
         self._entry = entry

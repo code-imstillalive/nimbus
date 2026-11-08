@@ -102,3 +102,31 @@ def test_every_entity_name_is_a_translation():
     import entity_translations
 
     assert entity_translations.check() == []
+
+
+def test_icons_are_translations_for_every_service_and_named_entity():
+    # test_icons_are_translations_for_every_service_and_named_entity
+    # HA quality scale `icon-translations` (#2392): icons live in icons.json,
+    # keyed by the same translation keys as strings.json; every service has
+    # one; no entity sets `_attr_icon` in code.
+    import re
+
+    pkg = _STRINGS_PATH.parent
+    icons = json.loads((pkg / "icons.json").read_text(encoding="utf-8"))
+    strings = json.loads(_STRINGS_PATH.read_text(encoding="utf-8"))
+    services = re.findall(
+        r"^([a-z_]+):",
+        (pkg / "services.yaml").read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    assert sorted(icons["services"]) == sorted(services)
+    for platform, keys in icons["entity"].items():
+        for key in keys:
+            assert key in strings["entity"][platform], f"{platform}.{key}"
+    left = [
+        f"{f.name}:{i}"
+        for f in pkg.rglob("*.py")
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
+        if re.search(r"\b_attr_icon\s*[:=]", line)
+    ]
+    assert left == []

@@ -24,7 +24,6 @@ _REFRESH = timedelta(minutes=5)
 class NimbusDeviceReadinessSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_icon = "mdi:list-status"
     # Every function's detail is an attribute; history needs only the count.
     _unrecorded_attributes = frozenset({"functions"})
 
