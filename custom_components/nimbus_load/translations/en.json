@@ -1014,5 +1014,67 @@
       "title": "Nimbus: your dashboard has no \"Check for updates\" button",
       "description": "Your Nimbus dashboard has no **Nimbus Tabs** card, so a new release's changed tabs (a new setting on the Solver tab, a new Power Flow layout) can't reach it. Tabs pasted before version 0.94.507 don't have it, and Nimbus never edits your dashboard itself.\n\nAdd it once: open the Nimbus dashboard, **Edit dashboard → + Add card**, search **nimbus**, pick **Nimbus Tabs** and save. Then press **Check for updates** on it. This message clears itself once the card is on a dashboard."
     }
+  },
+  "exceptions": {
+    "pricing_source_not_detected": {
+      "message": "Nimbus does not detect {option} on this install"
+    },
+    "pricing_source_not_switched": {
+      "message": "Pricing not switched to {option}; nothing changed. {problems}"
+    },
+    "device_setup_mode_not_changed": {
+      "message": "Device setup mode not changed to {option}: {reason}."
+    },
+    "retrain_unknown_entities": {
+      "message": "Not a Nimbus load/power-signal entity, or not found: {entities}"
+    },
+    "quality_report_end_not_after_start": {
+      "message": "nimbus_load.compute_quality_report: end ({end}) must be strictly after start ({start})"
+    },
+    "quality_report_end_in_future": {
+      "message": "nimbus_load.compute_quality_report: end ({end}) must not be in the future (now is {now})"
+    },
+    "quality_report_scoring_failed": {
+      "message": "nimbus_load.compute_quality_report: scoring failed for window [{start}, {end}]: {error}"
+    },
+    "quality_report_cannot_score": {
+      "message": "nimbus_load.compute_quality_report: cannot score window [{start}, {end}] -- check that the solar/battery/load power sensors are configured, real recorder history exists for this window, and (with allow_partial=False) the window is at least 24 hours long"
+    },
+    "controllable_load_subentry_not_found": {
+      "message": "nimbus_load.set_controllable_load: no controllable_load subentry with subentry_id {subentry_id}"
+    },
+    "controllable_load_name_ambiguous": {
+      "message": "nimbus_load.set_controllable_load: {count} existing controllable_load subentries are titled {name} -- pass subentry_id to disambiguate which one to update ({subentry_ids})"
+    },
+    "rescore_date_not_iso": {
+      "message": "nimbus_load.rescore_history: date {date} is not an ISO date (YYYY-MM-DD)"
+    },
+    "rescore_date_out_of_range": {
+      "message": "nimbus_load.rescore_history: date {date} is {back} day(s) back; only a complete past day within the last 30 can be re-scored (a day still in progress has no full-day score yet, and 30 is the service's own MILP ceiling)"
+    },
+    "rescore_invalid": {
+      "message": "nimbus_load.rescore_history: {error}"
+    },
+    "rescore_failed": {
+      "message": "nimbus_load.rescore_history: rescoring {what} failed: {error}"
+    },
+    "export_needs_one_hub": {
+      "message": "nimbus_load.export_decision_inputs: needs exactly one Nimbus hub"
+    },
+    "export_invalid": {
+      "message": "nimbus_load.export_decision_inputs: {error}"
+    },
+    "service_needs_one_hub": {
+      "message": "nimbus_load.{service}: needs exactly one Nimbus hub"
+    },
+    "controllable_load_no_hub": {
+      "message": "nimbus_load.set_controllable_load: no Nimbus hub is configured yet -- set up the Nimbus integration first"
+    },
+    "controllable_load_name_required": {
+      "message": "nimbus_load.set_controllable_load: 'controllable_load_name' is required"
+    },
+    "controllable_load_kind_required": {
+      "message": "nimbus_load.set_controllable_load: 'controllable_load_kind' is required when creating a new Controllable Load (one of 'sheddable', 'deferrable', 'thermal'). It is optional when updating an existing load, which keeps the kind it already has."
+    }
   }
 }

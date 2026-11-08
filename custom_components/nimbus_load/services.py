@@ -422,7 +422,12 @@ async def _async_handle_retrain(hass: HomeAssistant, call: ServiceCall) -> None:
     if unresolved:
         raise ServiceValidationError(
             f"Not a Nimbus load/power-signal entity, or not found: "
-            f"{', '.join(unresolved)}"
+            f"{', '.join(unresolved)}",
+            translation_domain=DOMAIN,
+            translation_key="retrain_unknown_entities",
+            translation_placeholders={
+                "entities": ", ".join(unresolved),
+            },
         )
 
     await _retrain_all(targets)
@@ -568,13 +573,25 @@ async def _async_handle_compute_quality_report(
     if end <= start:
         raise ServiceValidationError(
             f"nimbus_load.compute_quality_report: end ({end.isoformat()}) "
-            f"must be strictly after start ({start.isoformat()})"
+            f"must be strictly after start ({start.isoformat()})",
+            translation_domain=DOMAIN,
+            translation_key="quality_report_end_not_after_start",
+            translation_placeholders={
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            },
         )
     now = dt_util.now()
     if end > now:
         raise ServiceValidationError(
             f"nimbus_load.compute_quality_report: end ({end.isoformat()}) "
-            f"must not be in the future (now is {now.isoformat()})"
+            f"must not be in the future (now is {now.isoformat()})",
+            translation_domain=DOMAIN,
+            translation_key="quality_report_end_in_future",
+            translation_placeholders={
+                "end": end.isoformat(),
+                "now": now.isoformat(),
+            },
         )
 
     def _blocking() -> dict | None:
@@ -603,7 +620,14 @@ async def _async_handle_compute_quality_report(
             except Exception as e:
                 raise HomeAssistantError(
                     f"nimbus_load.compute_quality_report: scoring failed for "
-                    f"window [{start.isoformat()}, {end.isoformat()}]: {e}"
+                    f"window [{start.isoformat()}, {end.isoformat()}]: {e}",
+                    translation_domain=DOMAIN,
+                    translation_key="quality_report_scoring_failed",
+                    translation_placeholders={
+                        "start": start.isoformat(),
+                        "end": end.isoformat(),
+                        "error": str(e),
+                    },
                 ) from e
             if result is not None:
                 shared["cache"][key] = (dt_util.utcnow().timestamp(), result)
@@ -616,7 +640,13 @@ async def _async_handle_compute_quality_report(
             f"[{start.isoformat()}, {end.isoformat()}] -- check that the "
             f"solar/battery/load power sensors are configured, real recorder "
             f"history exists for this window, and (with allow_partial=False) "
-            f"the window is at least 24 hours long"
+            f"the window is at least 24 hours long",
+            translation_domain=DOMAIN,
+            translation_key="quality_report_cannot_score",
+            translation_placeholders={
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            },
         )
 
     window_hours = round((end - start).total_seconds() / 3600.0, 4)
@@ -651,7 +681,12 @@ def _find_controllable_load_subentry(
         ):
             raise ServiceValidationError(
                 f"nimbus_load.set_controllable_load: no controllable_load "
-                f"subentry with subentry_id {subentry_id!r}"
+                f"subentry with subentry_id {subentry_id!r}",
+                translation_domain=DOMAIN,
+                translation_key="controllable_load_subentry_not_found",
+                translation_placeholders={
+                    "subentry_id": repr(subentry_id),
+                },
             )
         return candidate
 
@@ -665,7 +700,14 @@ def _find_controllable_load_subentry(
             f"nimbus_load.set_controllable_load: {len(matches)} existing "
             f"controllable_load subentries are titled {name!r} -- pass "
             f"subentry_id to disambiguate which one to update "
-            f"({', '.join(s.subentry_id for s in matches)})"
+            f"({', '.join(s.subentry_id for s in matches)})",
+            translation_domain=DOMAIN,
+            translation_key="controllable_load_name_ambiguous",
+            translation_placeholders={
+                "count": str(len(matches)),
+                "name": repr(name),
+                "subentry_ids": ", ".join(s.subentry_id for s in matches),
+            },
         )
     return matches[0] if matches else None
 
@@ -703,7 +745,12 @@ async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) 
         except ValueError as e:
             raise ServiceValidationError(
                 f"nimbus_load.rescore_history: date {date_str!r} is not an ISO "
-                f"date (YYYY-MM-DD)"
+                f"date (YYYY-MM-DD)",
+                translation_domain=DOMAIN,
+                translation_key="rescore_date_not_iso",
+                translation_placeholders={
+                    "date": repr(date_str),
+                },
             ) from e
         back = (dt_util.now().date() - target).days
         if not 1 <= back <= 30:
@@ -711,7 +758,13 @@ async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) 
                 f"nimbus_load.rescore_history: date {date_str!r} is {back} day(s) "
                 f"back; only a complete past day within the last 30 can be "
                 f"re-scored (a day still in progress has no full-day score yet, "
-                f"and 30 is the service's own MILP ceiling)"
+                f"and 30 is the service's own MILP ceiling)",
+                translation_domain=DOMAIN,
+                translation_key="rescore_date_out_of_range",
+                translation_placeholders={
+                    "date": repr(date_str),
+                    "back": str(back),
+                },
             )
         days = back
         only_dates = {date_str}
@@ -731,12 +784,25 @@ async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) 
         # Shape errors (days out of range) are the caller's, not a failure
         # of the scorer -- surfaced as a validation error so the UI says
         # what to change rather than reporting an internal fault.
-        raise ServiceValidationError(f"nimbus_load.rescore_history: {e}") from e
+        raise ServiceValidationError(
+            f"nimbus_load.rescore_history: {e}",
+            translation_domain=DOMAIN,
+            translation_key="rescore_invalid",
+            translation_placeholders={
+                "error": str(e),
+            },
+        ) from e
     except Exception as e:
         raise HomeAssistantError(
             "nimbus_load.rescore_history: rescoring "
             + (f"{date_str}" if date_str else f"the last {days} day(s)")
-            + f" failed: {e}"
+            + f" failed: {e}",
+            translation_domain=DOMAIN,
+            translation_key="rescore_failed",
+            translation_placeholders={
+                "what": (f"{date_str}" if date_str else f"the last {days} day(s)"),
+                "error": str(e),
+            },
         ) from e
 
 
@@ -756,7 +822,9 @@ async def _async_handle_export_decision_inputs(
     entries = hass.config_entries.async_entries(DOMAIN)
     if len(entries) != 1:
         raise ServiceValidationError(
-            "nimbus_load.export_decision_inputs: needs exactly one Nimbus hub"
+            "nimbus_load.export_decision_inputs: needs exactly one Nimbus hub",
+            translation_domain=DOMAIN,
+            translation_key="export_needs_one_hub",
         )
     start = dt_util.as_utc(call.data["start"])
     end = dt_util.as_utc(call.data["end"])
@@ -765,14 +833,26 @@ async def _async_handle_export_decision_inputs(
             hass, entries[0].entry_id, start, end, list(call.data["kinds"])
         )
     except ValueError as e:
-        raise ServiceValidationError(f"nimbus_load.export_decision_inputs: {e}") from e
+        raise ServiceValidationError(
+            f"nimbus_load.export_decision_inputs: {e}",
+            translation_domain=DOMAIN,
+            translation_key="export_invalid",
+            translation_placeholders={
+                "error": str(e),
+            },
+        ) from e
 
 
 def _single_hub(hass: HomeAssistant, service: str) -> ConfigEntry:
     entries = hass.config_entries.async_entries(DOMAIN)
     if len(entries) != 1:
         raise ServiceValidationError(
-            f"nimbus_load.{service}: needs exactly one Nimbus hub"
+            f"nimbus_load.{service}: needs exactly one Nimbus hub",
+            translation_domain=DOMAIN,
+            translation_key="service_needs_one_hub",
+            translation_placeholders={
+                "service": service,
+            },
         )
     return entries[0]
 
@@ -902,7 +982,9 @@ async def _async_handle_set_controllable_load(
     if not entries:
         raise HomeAssistantError(
             "nimbus_load.set_controllable_load: no Nimbus hub is configured "
-            "yet -- set up the Nimbus integration first"
+            "yet -- set up the Nimbus integration first",
+            translation_domain=DOMAIN,
+            translation_key="controllable_load_no_hub",
         )
     entry = entries[0]
 
@@ -911,7 +993,9 @@ async def _async_handle_set_controllable_load(
     name = data.get(CONF_CONTROLLABLE_LOAD_NAME)
     if not name:
         raise ServiceValidationError(
-            "nimbus_load.set_controllable_load: 'controllable_load_name' is required"
+            "nimbus_load.set_controllable_load: 'controllable_load_name' is required",
+            translation_domain=DOMAIN,
+            translation_key="controllable_load_name_required",
         )
 
     existing = _find_controllable_load_subentry(
@@ -927,7 +1011,9 @@ async def _async_handle_set_controllable_load(
             "nimbus_load.set_controllable_load: 'controllable_load_kind' is "
             "required when creating a new Controllable Load (one of "
             "'sheddable', 'deferrable', 'thermal'). It is optional when "
-            "updating an existing load, which keeps the kind it already has."
+            "updating an existing load, which keeps the kind it already has.",
+            translation_domain=DOMAIN,
+            translation_key="controllable_load_kind_required",
         )
 
     if existing is not None:

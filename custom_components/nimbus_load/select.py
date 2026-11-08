@@ -305,12 +305,25 @@ class NimbusPricingSourceSelect(SelectEntity):
         self._profiles = pricing_source.detected_profiles(self.hass)
         profile = self._profiles.get(option)
         if profile is None:
-            raise HomeAssistantError(f"Nimbus does not detect {option} on this install")
+            raise HomeAssistantError(
+                f"Nimbus does not detect {option} on this install",
+                translation_domain=DOMAIN,
+                translation_key="pricing_source_not_detected",
+                translation_placeholders={
+                    "option": option,
+                },
+            )
         problems = pricing_source.problems(self.hass, profile)
         if problems:
             raise HomeAssistantError(
                 f"Pricing not switched to {option}; nothing changed. "
-                + "; ".join(problems)
+                + "; ".join(problems),
+                translation_domain=DOMAIN,
+                translation_key="pricing_source_not_switched",
+                translation_placeholders={
+                    "option": option,
+                    "problems": "; ".join(problems),
+                },
             )
         # Both directions in one options write. The hub's update listener
         # reloads it, which runs a fresh solve on the new prices.
@@ -457,5 +470,11 @@ class NimbusDeviceSetupModeSelect(SelectEntity):
                 sensors=", ".join(result.get("sensors") or ()),
             )
             raise HomeAssistantError(
-                f"Device setup mode not changed to {option}: {reason}."
+                f"Device setup mode not changed to {option}: {reason}.",
+                translation_domain=DOMAIN,
+                translation_key="device_setup_mode_not_changed",
+                translation_placeholders={
+                    "option": option,
+                    "reason": reason,
+                },
             )

@@ -296,10 +296,13 @@ rules:
       English, not routed through _attr_translation_key + an entity: block
       in strings.json. Real, mechanical, not yet done.
   exception-translations:
-    status: todo
+    status: done
     comment: >-
-      No translation_key on any user-facing HomeAssistantError/
-      ServiceValidationError raised from config_flow.py's own validation.
+      Every user-facing HomeAssistantError and ServiceValidationError (20,
+      in services.py and select.py) carries translation_domain, a
+      translation_key and its placeholders, with the text in strings.json's
+      `exceptions` section. The English message is still passed as the
+      exception's own text, so logs read the same.
   icon-translations:
     status: todo
     comment: No icons.json; entities rely on device_class defaults.
