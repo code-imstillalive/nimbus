@@ -266,7 +266,9 @@ def test_a_chosen_entity_silent_past_the_grace_is_reported_once_per_entity():
         "sensor.soc": ("unavailable", T0 - timedelta(hours=2)),
         "sensor.buy": ("0.31", T0 - timedelta(hours=2)),
     }
-    out = sh.unavailable_too_long(chosen, states.get, T0, up, label=str.upper)
+    out = sh.unavailable_too_long(
+        chosen, states.get, T0, up, label=lambda _part, key: key.upper()
+    )
     assert [(e, where) for e, where, _since in out] == [
         ("sensor.gone", "- Nimbus: SOLVER_PRICE_COMPARISON_SENSORS"),
         (
@@ -283,6 +285,13 @@ def test_a_chosen_entity_silent_past_the_grace_is_reported_once_per_entity():
     assert [e for e, *_ in sh.unavailable_too_long(chosen, states.get, T0, up)] == [
         "sensor.gone"
     ]
+
+    # A setting is named as its own part's form words it (Mark Purcell, #2437
+    # review): the same key reads differently on a Load and a Power Signal,
+    # and the form's required-field marker is not part of the name.
+    labels = sh._field_labels()
+    assert labels[("load", "load_sensor")] == "Power sensor to learn from"
+    assert labels[("power_signal", "load_sensor")] == "Sensor to forecast"
 
     issues = _health(unavailable_entities=out)
     assert [(i.key, i.placeholders["entity"]) for i in issues] == [

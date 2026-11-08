@@ -672,14 +672,15 @@ def unavailable_too_long(
     read_state: Any,
     now: datetime,
     hub_since: datetime,
-    label: Any = str,
+    label: Any = lambda _part, key: key,
     when: Any = str,
 ) -> list[tuple[str, str, str]]:
     """(entity, where it is used, since when) for each chosen entity that has
     read `unavailable` or `unknown`, or has not existed, for at least
     `UNAVAILABLE_GRACE` (#2436). `read_state(entity_id)` is (state,
     last_changed) or None. Silence is counted from the later of its last
-    change and the hub's start, so a restart never trips it."""
+    change and the hub's start, so a restart never trips it. `label(part,
+    key)` is how the setting is named in that part's own form."""
     out = []
     for entity_id, uses in sorted(chosen.items()):
         reading = read_state(entity_id)
@@ -692,21 +693,27 @@ def unavailable_too_long(
             since = max(changed, hub_since)
         if now - since < UNAVAILABLE_GRACE:
             continue
-        where = "\n".join(f"- {part}: {label(key)}" for part, key in uses)
+        where = "\n".join(f"- {part}: {label(part, key)}" for part, key in uses)
         out.append((entity_id, where, when(since)))
     return out
 
 
-_FIELD_LABELS: dict[str, str] | None = None
+_FIELD_LABELS: dict[tuple[str, str], str] | None = None
+# A label's leading marker (the wizard's "🔴" for a required field) is the
+# form's, not the setting's name.
+_LABEL_MARKER = re.compile(r"^[^\w(]+")
 
 
-def _field_labels() -> dict[str, str]:
-    """Each wizard field's label, from the shipped English translations, so a
-    Repair names a setting as the wizard does. Read once; blocking I/O, so
-    called from the executor."""
+def _field_labels() -> dict[tuple[str, str], str]:
+    """Each wizard field's label by (form, key), from the shipped English
+    translations, so a Repair names a setting as its own form does: the same
+    key can be worded differently on two kinds of part (`load_sensor` is "Power
+    sensor to learn from" on a Load, "Sensor to forecast" on a Power Signal;
+    Mark Purcell, #2437 review). The hub's forms are "hub"; a part's is its
+    subentry type. Read once; blocking I/O, so called from the executor."""
     global _FIELD_LABELS
     if _FIELD_LABELS is None:
-        labels: dict[str, str] = {}
+        labels: dict[tuple[str, str], str] = {}
         try:
             from pathlib import Path
 
@@ -716,18 +723,20 @@ def _field_labels() -> dict[str, str]:
                 )
             )
 
-            def walk(node: Any) -> None:
+            def walk(node: Any, form: str) -> None:
                 if isinstance(node, dict):
                     fields = node.get("data")
                     if isinstance(fields, dict):
                         for k, v in fields.items():
                             if isinstance(v, str):
-                                labels.setdefault(k, v)
+                                labels.setdefault((form, k), _LABEL_MARKER.sub("", v))
                     for child in node.values():
-                        walk(child)
+                        walk(child, form)
 
-            for section in ("config", "options", "config_subentries"):
-                walk(data.get(section))
+            for section in ("config", "options"):
+                walk(data.get(section), "hub")
+            for kind, node in (data.get("config_subentries") or {}).items():
+                walk(node, kind)
         except (OSError, ValueError):
             _LOGGER.debug("Nimbus: field labels unreadable", exc_info=True)
         _FIELD_LABELS = labels
@@ -742,7 +751,14 @@ async def _async_unavailable_entities(
     try:
         from homeassistant.util import dt as dt_util
 
-        parts = [(entry.title or "Nimbus", dict(entry.options))]
+        hub = entry.title or "Nimbus"
+        parts = [(hub, dict(entry.options))]
+        forms = {hub: "hub"}
+        for sub_id, sub in entry.subentries.items():
+            forms.setdefault(
+                getattr(sub, "title", None) or sub_id,
+                getattr(sub, "subentry_type", "hub"),
+            )
         parts += [
             (
                 getattr(sub, "title", None) or sub_id,
@@ -767,7 +783,10 @@ async def _async_unavailable_entities(
             read_state,
             now,
             state["since"],
-            label=lambda key: labels.get(key, key),
+            label=lambda part, key: (
+                labels.get((forms.get(part, "hub"), key))
+                or labels.get(("hub", key), key)
+            ),
             when=lambda t: dt_util.as_local(t).strftime("%d %b %H:%M"),
         )
     except Exception:  # a diagnostic never fails the refresh
