@@ -192,7 +192,7 @@ class NimbusSelect(SelectEntity, RestoreEntity):
         # fixed predictable name is correct and external readers
         # (solver_writer's own bridge read) depend on it.
         self.entity_id = f"select.nimbus_{key}"
-        self._attr_name = name
+        self._attr_translation_key = key
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Nimbus",
@@ -260,7 +260,7 @@ class NimbusPricingSourceSelect(SelectEntity):
         self._attr_options = [*self._profiles, pricing_source.MANUAL]
         self._attr_unique_id = f"{entry.entry_id}_pricing_source"
         self.entity_id = "select.nimbus_pricing_source"
-        self._attr_name = "Pricing Source"
+        self._attr_translation_key = "pricing_source"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Nimbus",
@@ -377,7 +377,7 @@ class NimbusDeviceSetupModeSelect(SelectEntity):
         self._attr_options = ["legacy", "shadow", "active"]
         self._attr_unique_id = f"{entry.entry_id}_device_setup_mode"
         self.entity_id = "select.nimbus_device_setup_mode"
-        self._attr_name = "Device Setup Mode"
+        self._attr_translation_key = "device_setup_mode"
         self._attr_current_option = None
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},

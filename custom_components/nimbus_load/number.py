@@ -1117,7 +1117,7 @@ class NimbusSolverNumber(_CurrencyUnitMixin, RestoreNumber, NumberEntity):
         # field, a fixed, predictable name is correct here, not an HA-derived
         # one from device+entity-name combination.
         self.entity_id = f"number.nimbus_{desc.key}"
-        self._attr_name = desc.name
+        self._attr_translation_key = desc.key
         self._attr_native_min_value = desc.min_value
         self._attr_native_max_value = desc.max_value
         self._attr_native_step = desc.step
@@ -1440,7 +1440,7 @@ class NimbusControllableLoadNumber(_CurrencyUnitMixin, RestoreNumber, NumberEnti
         self.entity_id = (
             f"number.nimbus_{_slug_for_entity_id(subentry.title)}_{desc.key}"
         )
-        self._attr_name = desc.name
+        self._attr_translation_key = desc.key
         self._attr_native_min_value = desc.min_value
         self._attr_native_max_value = desc.max_value
         self._attr_native_step = desc.step

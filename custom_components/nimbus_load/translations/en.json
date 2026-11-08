@@ -1094,5 +1094,740 @@
     "controllable_load_kind_required": {
       "message": "nimbus_load.set_controllable_load: 'controllable_load_kind' is required when creating a new Controllable Load (one of 'sheddable', 'deferrable', 'thermal'). It is optional when updating an existing load, which keeps the kind it already has."
     }
+  },
+  "entity": {
+    "number": {
+      "controllable_load_max_activations_per_day": {
+        "name": "Max Activations Per Day"
+      },
+      "controllable_load_min_hold_minutes": {
+        "name": "Min Hold Minutes"
+      },
+      "deferrable_deadline_hour": {
+        "name": "Deadline Hour"
+      },
+      "deferrable_earliest_hour": {
+        "name": "Earliest Hour"
+      },
+      "deferrable_max_power_kw": {
+        "name": "Max Power"
+      },
+      "deferrable_shortfall_price": {
+        "name": "Shortfall Price"
+      },
+      "deferrable_target_kwh": {
+        "name": "Target"
+      },
+      "solve_on_price_change_debounce_s": {
+        "name": "Solve on Price Change Debounce"
+      },
+      "solver_aemo_p5min_disagreement_threshold_dollars": {
+        "name": "AEMO P5MIN Disagreement Threshold"
+      },
+      "solver_battery_capacity_kwh": {
+        "name": "Battery Capacity"
+      },
+      "solver_battery_charge_earliness_budget_kw": {
+        "name": "Battery Charge Earliness Weight"
+      },
+      "solver_battery_max_soc_percent": {
+        "name": "Battery Max SoC"
+      },
+      "solver_battery_min_soc_percent": {
+        "name": "Battery Min SoC"
+      },
+      "solver_battery_reserve_percent": {
+        "name": "Battery Reserve"
+      },
+      "solver_battery_reserve_release_price": {
+        "name": "Battery Reserve Release Price"
+      },
+      "solver_battery_sell_margin": {
+        "name": "Battery Sell Margin"
+      },
+      "solver_battery_soh_percent": {
+        "name": "Battery State of Health"
+      },
+      "solver_charge_by_percent": {
+        "name": "Charge To"
+      },
+      "solver_charge_cost": {
+        "name": "Charge Cost"
+      },
+      "solver_charge_power_at_full_percent": {
+        "name": "Charge Power at Full"
+      },
+      "solver_charge_taper_start_percent": {
+        "name": "Charge Taper Start"
+      },
+      "solver_degradation_cost_per_kwh": {
+        "name": "Battery Degradation Cost"
+      },
+      "solver_discharge_cost": {
+        "name": "Discharge Cost"
+      },
+      "solver_efficiency_percent": {
+        "name": "Round-Trip Efficiency"
+      },
+      "solver_export_floor_price": {
+        "name": "Don't Sell Below"
+      },
+      "solver_export_price_risk_aversion": {
+        "name": "Export Price Risk Aversion"
+      },
+      "solver_fixed_daily_charge": {
+        "name": "Fixed Daily Charge"
+      },
+      "solver_flat_fee_rate": {
+        "name": "Flat Fee Rate (e.g. Certificates)"
+      },
+      "solver_grid_max_export_kw": {
+        "name": "Grid Max Export"
+      },
+      "solver_grid_max_import_kw": {
+        "name": "Grid Max Import"
+      },
+      "solver_import_price_risk_aversion": {
+        "name": "Import Price Risk Aversion"
+      },
+      "solver_intraplan_smoothness_weight_kw": {
+        "name": "Intra-Plan Smoothness Weight"
+      },
+      "solver_inverter_self_consumption_kw": {
+        "name": "Inverter Self-Consumption"
+      },
+      "solver_max_charge_kw": {
+        "name": "Max Charge Power"
+      },
+      "solver_max_discharge_kw": {
+        "name": "Max Discharge Power"
+      },
+      "solver_network_fee_1_end_hour": {
+        "name": "Network Fee Block 1 End Hour"
+      },
+      "solver_network_fee_1_rate": {
+        "name": "Network Fee Block 1 Rate"
+      },
+      "solver_network_fee_1_start_hour": {
+        "name": "Network Fee Block 1 Start Hour"
+      },
+      "solver_network_fee_2_end_hour": {
+        "name": "Network Fee Block 2 End Hour"
+      },
+      "solver_network_fee_2_rate": {
+        "name": "Network Fee Block 2 Rate"
+      },
+      "solver_network_fee_2_start_hour": {
+        "name": "Network Fee Block 2 Start Hour"
+      },
+      "solver_network_fee_3_end_hour": {
+        "name": "Network Fee Block 3 End Hour"
+      },
+      "solver_network_fee_3_rate": {
+        "name": "Network Fee Block 3 Rate"
+      },
+      "solver_network_fee_3_start_hour": {
+        "name": "Network Fee Block 3 Start Hour"
+      },
+      "solver_network_fee_default_rate": {
+        "name": "Network Fee Default Rate"
+      },
+      "solver_p2p_block_1_rate_kw": {
+        "name": "P2P Block 1 Rate"
+      },
+      "solver_p2p_block_2_rate_kw": {
+        "name": "P2P Block 2 Rate"
+      },
+      "solver_p2p_block_3_rate_kw": {
+        "name": "P2P Block 3 Rate"
+      },
+      "solver_p2p_block_lead_time_minutes": {
+        "name": "P2P Block Lead Time"
+      },
+      "solver_p2p_bonus_price": {
+        "name": "P2P Bonus Price"
+      },
+      "solver_p2p_bonus_volume_kwh": {
+        "name": "P2P Bonus Volume"
+      },
+      "solver_p5min_false_spike_threshold_mwh": {
+        "name": "P5MIN False Spike Threshold"
+      },
+      "solver_period0_hysteresis": {
+        "name": "Direction Change Margin"
+      },
+      "solver_post_window_self_consume_hours": {
+        "name": "Post-Window Self-Consume Hours"
+      },
+      "solver_price_spike_discharge_kw": {
+        "name": "Price Spike Discharge Rate"
+      },
+      "solver_price_spike_threshold": {
+        "name": "Price Spike Threshold"
+      },
+      "solver_proximal_weight_kw": {
+        "name": "Cross-Solve Proximal Weight"
+      },
+      "solver_risk_aversion": {
+        "name": "Risk Aversion"
+      },
+      "solver_salvage_value": {
+        "name": "Salvage Value"
+      },
+      "solver_site_import_limit_kw": {
+        "name": "Site Import Limit"
+      },
+      "solver_soc_discrepancy_max_threshold_pct": {
+        "name": "SoC Discrepancy Max Threshold"
+      },
+      "solver_soc_discrepancy_mean_threshold_pct": {
+        "name": "SoC Discrepancy Mean Threshold"
+      },
+      "solver_solar_running_low_confirm_minutes": {
+        "name": "Solar Running Low Confirm"
+      },
+      "solver_solar_running_low_min_p50_kw": {
+        "name": "Solar Running Low Minimum P50"
+      },
+      "solver_solar_running_low_off_percent": {
+        "name": "Solar Running Low Off Above"
+      },
+      "solver_solar_running_low_on_percent": {
+        "name": "Solar Running Low On Below"
+      },
+      "solver_stochastic_drive_budget_seconds": {
+        "name": "Stochastic Drive Time Limit"
+      },
+      "solver_stochastic_shadow_interval_minutes": {
+        "name": "Stochastic Check Every"
+      },
+      "solver_stochastic_stage1_minutes": {
+        "name": "Stochastic Commit Window"
+      },
+      "solver_stochastic_tail_weight": {
+        "name": "Stochastic Low High Day Weight"
+      }
+    },
+    "select": {
+      "device_setup_mode": {
+        "name": "Device Setup Mode"
+      },
+      "household_mode": {
+        "name": "Household Mode"
+      },
+      "pricing_source": {
+        "name": "Pricing Source"
+      },
+      "solver_load_forecast_source_policy": {
+        "name": "Load Forecast Source Policy"
+      }
+    },
+    "sensor": {
+      "ac_bus_losses_kwh": {
+        "name": "Solver AC Bus Losses"
+      },
+      "achieved_below_floor_kwh": {
+        "name": "Quality Achieved Below SoC Floor"
+      },
+      "achieved_energy_in_kwh": {
+        "name": "Quality Achieved Energy In"
+      },
+      "achieved_energy_out_kwh": {
+        "name": "Quality Achieved Energy Out"
+      },
+      "aemo_5_minute_pre_dispatch": {
+        "name": "AEMO 5-Minute Pre-dispatch"
+      },
+      "battery_allowed_charge": {
+        "name": "Battery Allowed Charge"
+      },
+      "best_candidate_cost": {
+        "name": "Backtest Best Candidate Cost"
+      },
+      "binding_constraint_now": {
+        "name": "Solver Binding Constraint"
+      },
+      "binding_constraint_shadow_price": {
+        "name": "Solver Binding Constraint Shadow Price"
+      },
+      "charge_efficiency": {
+        "name": "Solver Charge Efficiency"
+      },
+      "commanded_state": {
+        "name": "Commanded State"
+      },
+      "configured_efficiency_percent": {
+        "name": "Backtest Configured Efficiency"
+      },
+      "cost_avoided_today": {
+        "name": "Cost Avoided Today"
+      },
+      "cost_band_lower": {
+        "name": "Solver Cost Band Lower"
+      },
+      "cost_band_upper": {
+        "name": "Solver Cost Band Upper"
+      },
+      "cost_band_width": {
+        "name": "Solver Cost Band Width"
+      },
+      "cost_breakdown_charge_fee": {
+        "name": "Solver Cost Breakdown Charge Fee"
+      },
+      "cost_breakdown_degradation": {
+        "name": "Solver Cost Breakdown Degradation"
+      },
+      "cost_breakdown_discharge_fee": {
+        "name": "Solver Cost Breakdown Discharge Fee"
+      },
+      "cost_breakdown_grid_net": {
+        "name": "Solver Cost Breakdown Grid Net"
+      },
+      "cost_breakdown_terminal_value_credit": {
+        "name": "Solver Cost Breakdown Terminal Value Credit"
+      },
+      "cost_today": {
+        "name": "Cost Today"
+      },
+      "counterfactual_soc": {
+        "name": "Counterfactual SoC"
+      },
+      "current_battery_kw": {
+        "name": "Solver Current Battery Power"
+      },
+      "current_bonus_price": {
+        "name": "Solver Current Bonus Price"
+      },
+      "current_dispatch_direction": {
+        "name": "Solver Current Dispatch Direction"
+      },
+      "current_dispatch_hold": {
+        "name": "Solver Current Dispatch Hold"
+      },
+      "current_dispatch_solar_charge": {
+        "name": "Solver Current Dispatch Solar Charge"
+      },
+      "current_export_bonus_kw": {
+        "name": "Solver Current Export Bonus Flow"
+      },
+      "current_export_price": {
+        "name": "Solver Current Export Price"
+      },
+      "current_flow_battery_cost_basis": {
+        "name": "Solver Current Battery Cost Basis"
+      },
+      "current_flow_battery_to_grid_kw": {
+        "name": "Solver Current Flow Battery to Grid"
+      },
+      "current_flow_battery_to_load_kw": {
+        "name": "Solver Current Flow Battery to Load"
+      },
+      "current_flow_grid_to_battery_kw": {
+        "name": "Solver Current Flow Grid to Battery"
+      },
+      "current_flow_grid_to_load_kw": {
+        "name": "Solver Current Flow Grid to Load"
+      },
+      "current_flow_pv_to_battery_kw": {
+        "name": "Solver Current Flow PV to Battery"
+      },
+      "current_flow_pv_to_grid_kw": {
+        "name": "Solver Current Flow PV to Grid"
+      },
+      "current_flow_pv_to_load_kw": {
+        "name": "Solver Current Flow PV to Load"
+      },
+      "current_grid_export_kw": {
+        "name": "Solver Current Grid Export"
+      },
+      "current_grid_import_kw": {
+        "name": "Solver Current Grid Import"
+      },
+      "current_import_price": {
+        "name": "Solver Current Import Price"
+      },
+      "current_load_kw": {
+        "name": "Solver Current Load"
+      },
+      "current_net_cost": {
+        "name": "Solver Current Net Cost"
+      },
+      "current_savings_battery": {
+        "name": "Solver Current Savings Battery"
+      },
+      "current_savings_combined": {
+        "name": "Solver Current Savings Combined"
+      },
+      "current_savings_interaction": {
+        "name": "Solver Current Savings Interaction"
+      },
+      "current_savings_pv": {
+        "name": "Solver Current Savings PV"
+      },
+      "current_soc_pct": {
+        "name": "Solver Current SoC"
+      },
+      "current_solar_kw": {
+        "name": "Solver Current Solar"
+      },
+      "degradation_cost_per_kwh": {
+        "name": "Solver Degradation Cost"
+      },
+      "delivered_today": {
+        "name": "Delivered Today"
+      },
+      "device_readiness": {
+        "name": "Device Readiness"
+      },
+      "discharge_efficiency": {
+        "name": "Solver Discharge Efficiency"
+      },
+      "efficiency_backtest": {
+        "name": "Efficiency Backtest"
+      },
+      "energy_shadow_price_now": {
+        "name": "Solver Energy Shadow Price (Now)"
+      },
+      "envelope_curtailment_kwh": {
+        "name": "Flex Envelope Curtailment"
+      },
+      "envelope_export_limit_kw": {
+        "name": "Solver Envelope Export Limit"
+      },
+      "envelope_import_limit_kw": {
+        "name": "Solver Envelope Import Limit"
+      },
+      "epr": {
+        "name": "Quality EPR"
+      },
+      "epr_denominator_reason": {
+        "name": "Quality EPR Denominator Reason"
+      },
+      "epr_reason": {
+        "name": "Quality EPR Reason"
+      },
+      "epr_reliable": {
+        "name": "Quality EPR Reliable"
+      },
+      "equivalent_full_cycles": {
+        "name": "Solver Equivalent Full Cycles"
+      },
+      "export_price_risk_aversion": {
+        "name": "Solver Export Price Risk Aversion"
+      },
+      "export_price_risk_effect_now": {
+        "name": "Solver Export Price Risk Effect (Now)"
+      },
+      "fleet_achieved_energy_in_kwh": {
+        "name": "Quality Fleet Achieved Energy In"
+      },
+      "fleet_achieved_energy_out_kwh": {
+        "name": "Quality Fleet Achieved Energy Out"
+      },
+      "flex_available_down_kw": {
+        "name": "Flex Available Down"
+      },
+      "flex_available_up_kw": {
+        "name": "Flex Available Up"
+      },
+      "flex_report": {
+        "name": "Flex Report"
+      },
+      "flex_signals": {
+        "name": "Flex Signals"
+      },
+      "flex_telemetry": {
+        "name": "Flex Telemetry"
+      },
+      "forced_export_cost": {
+        "name": "Flex Forced Export Cost"
+      },
+      "forced_import_cost": {
+        "name": "Flex Forced Import Cost"
+      },
+      "forecast": {
+        "name": "Forecast"
+      },
+      "grid_export_headroom_kw": {
+        "name": "Flex Grid Export Headroom"
+      },
+      "grid_export_headroom_kwh": {
+        "name": "Flex Grid Export Headroom"
+      },
+      "grid_import_headroom_kw": {
+        "name": "Flex Grid Import Headroom"
+      },
+      "grid_import_headroom_kwh": {
+        "name": "Flex Grid Import Headroom"
+      },
+      "health_report": {
+        "name": "Health Report"
+      },
+      "horizon_hours": {
+        "name": "Solver Horizon"
+      },
+      "household_load_total_forecast": {
+        "name": "Household Load Total Forecast"
+      },
+      "import_price_risk_aversion": {
+        "name": "Solver Import Price Risk Aversion"
+      },
+      "import_price_risk_effect_now": {
+        "name": "Solver Import Price Risk Effect (Now)"
+      },
+      "j_ach": {
+        "name": "Quality J_ach (achieved cost)"
+      },
+      "j_ref": {
+        "name": "Quality J_ref (reference cost)"
+      },
+      "j_star": {
+        "name": "Quality J_star (oracle cost)"
+      },
+      "load_forecast_coverage_hours": {
+        "name": "Solver Load Forecast Coverage"
+      },
+      "load_headroom_down_kwh": {
+        "name": "Flex Load Headroom Down"
+      },
+      "load_headroom_up_kwh": {
+        "name": "Flex Load Headroom Up"
+      },
+      "load_summed_now_kw": {
+        "name": "Solver Load Summed (Now)"
+      },
+      "load_whole_house_cross_check_now_kw": {
+        "name": "Solver Load Whole-House Cross-Check (Now)"
+      },
+      "load_whole_house_live_now_kw": {
+        "name": "Solver Load Whole House Live (Now)"
+      },
+      "lp_status": {
+        "name": "Solver LP Status"
+      },
+      "mirror_humidity_forecast": {
+        "name": "Mirror Humidity Forecast"
+      },
+      "mirror_temperature_forecast": {
+        "name": "Mirror Temperature Forecast"
+      },
+      "n_clamped_periods": {
+        "name": "Solver Clamped Periods"
+      },
+      "n_periods": {
+        "name": "Solver Plan Periods"
+      },
+      "next_end": {
+        "name": "Next End"
+      },
+      "next_start": {
+        "name": "Next Start"
+      },
+      "nimbus_only_soc_close_pct": {
+        "name": "Counterfactual Nimbus-only SoC Close"
+      },
+      "offer_curve": {
+        "name": "Offer Curve"
+      },
+      "offered_down_kwh": {
+        "name": "Flex Offered Down"
+      },
+      "offered_up_kwh": {
+        "name": "Flex Offered Up"
+      },
+      "p2p_match_fraction": {
+        "name": "Solver P2P Match Fraction"
+      },
+      "p2p_recent_avg_volume_kwh": {
+        "name": "Solver P2P Recent Average Volume"
+      },
+      "p2p_volume_cap_shadow_price": {
+        "name": "Solver P2P Volume Cap Shadow Price"
+      },
+      "planned_cost": {
+        "name": "Planned Cost"
+      },
+      "planned_duration": {
+        "name": "Planned Duration"
+      },
+      "planned_energy": {
+        "name": "Planned Energy"
+      },
+      "planned_today": {
+        "name": "Planned Today"
+      },
+      "real_soc_anchor_pct": {
+        "name": "Counterfactual Real SoC Anchor"
+      },
+      "real_soc_close_pct": {
+        "name": "Counterfactual Real SoC Close"
+      },
+      "realised_down_kwh": {
+        "name": "Flex Realised Down"
+      },
+      "realised_up_kwh": {
+        "name": "Flex Realised Up"
+      },
+      "regret_dollars": {
+        "name": "Quality Regret"
+      },
+      "risk_aversion": {
+        "name": "Solver Risk Aversion"
+      },
+      "salvage_value": {
+        "name": "Solver Salvage Value"
+      },
+      "soc_discrepancy_max_pct": {
+        "name": "Quality SoC Discrepancy Max"
+      },
+      "soc_discrepancy_mean_pct": {
+        "name": "Quality SoC Discrepancy Mean"
+      },
+      "soc_discrepancy_reason": {
+        "name": "Quality SoC Discrepancy Reason"
+      },
+      "soc_discrepancy_reliable": {
+        "name": "Quality SoC Discrepancy Reliable"
+      },
+      "solar_delivery_ratio": {
+        "name": "Solver Solar Delivery Ratio"
+      },
+      "solar_delivery_sample_count": {
+        "name": "Solver Solar Delivery Sample Count"
+      },
+      "solar_risk_effect_now_kw": {
+        "name": "Solver Solar Risk Effect (Now)"
+      },
+      "solve_seconds": {
+        "name": "Solver Solve Duration"
+      },
+      "solver_battery_forecast": {
+        "name": "Solver Battery Forecast"
+      },
+      "solver_config": {
+        "name": "Solver Config"
+      },
+      "solver_dispatch_dry_run": {
+        "name": "Solver Dispatch (Dry Run)"
+      },
+      "solver_price_response_latency": {
+        "name": "Solver Price Response Latency"
+      },
+      "solver_quality_report": {
+        "name": "Solver Quality Report"
+      },
+      "status": {
+        "name": "Status"
+      },
+      "target_today": {
+        "name": "Target Today"
+      },
+      "temperature_forecast": {
+        "name": "Temperature Forecast"
+      },
+      "theoretical_maximum_yield": {
+        "name": "Quality Theoretical Maximum Yield"
+      },
+      "topology_config": {
+        "name": "Topology Config"
+      },
+      "total_charge_kwh": {
+        "name": "Solver Total Charge Energy"
+      },
+      "total_cost": {
+        "name": "Solver Total Cost"
+      },
+      "total_cost_with_fixed_costs": {
+        "name": "Solver Total Cost (with fixed costs)"
+      },
+      "total_discharge_kwh": {
+        "name": "Solver Total Discharge Energy"
+      },
+      "total_throughput_kwh": {
+        "name": "Solver Total Throughput Energy"
+      },
+      "tracking_cost": {
+        "name": "Quality Tracking Cost"
+      },
+      "tracking_fidelity": {
+        "name": "Quality Tracking Fidelity"
+      },
+      "value_captured": {
+        "name": "Quality Value Captured"
+      },
+      "worst_candidate_cost": {
+        "name": "Backtest Worst Candidate Cost"
+      }
+    },
+    "switch": {
+      "solve_on_price_change": {
+        "name": "Solve on Price Change"
+      },
+      "solver_auto_include_known_solar": {
+        "name": "Auto-Include Known Solar Integrations"
+      },
+      "solver_calibrated_objective_enabled": {
+        "name": "Calibrated Objective Enabled"
+      },
+      "solver_dispatch_dry_run": {
+        "name": "Dispatch Dry Run"
+      },
+      "solver_flex_signals_enabled": {
+        "name": "Flex Signals Enabled"
+      },
+      "solver_grid_meter_positive_is_import": {
+        "name": "Grid Meter Positive Is Import"
+      },
+      "solver_nowcast_measurement_enabled": {
+        "name": "Nowcast Measurement"
+      },
+      "solver_offer_curve_enabled": {
+        "name": "Offer Curve Enabled"
+      },
+      "solver_price_consolidation_live": {
+        "name": "Price Consolidation Live"
+      },
+      "solver_price_event_enabled": {
+        "name": "Price Event Simulation Armed"
+      },
+      "solver_price_spike_override_armed": {
+        "name": "Price Spike Override Armed"
+      },
+      "solver_score_controllable_loads_enabled": {
+        "name": "Score Controllable Loads"
+      },
+      "solver_stochastic_dispatch": {
+        "name": "Stochastic Dispatch"
+      }
+    },
+    "time": {
+      "solver_battery_reserve_end_hour": {
+        "name": "Battery Reserve Until"
+      },
+      "solver_battery_reserve_start_hour": {
+        "name": "Battery Reserve From"
+      },
+      "solver_charge_by_hour": {
+        "name": "Charge By"
+      },
+      "solver_p2p_block_1_end_hour": {
+        "name": "P2P Block 1 Until"
+      },
+      "solver_p2p_block_1_start_hour": {
+        "name": "P2P Block 1 From"
+      },
+      "solver_p2p_block_2_end_hour": {
+        "name": "P2P Block 2 Until"
+      },
+      "solver_p2p_block_2_start_hour": {
+        "name": "P2P Block 2 From"
+      },
+      "solver_p2p_block_3_end_hour": {
+        "name": "P2P Block 3 Until"
+      },
+      "solver_p2p_block_3_start_hour": {
+        "name": "P2P Block 3 From"
+      }
+    }
   }
 }

@@ -142,7 +142,7 @@ class NimbusSolverTime(RestoreEntity, TimeEntity):
         self._number_store = number_store
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self.entity_id = f"time.nimbus_{key}"
-        self._attr_name = name
+        self._attr_translation_key = key
         self._attr_native_value = hours_to_time(TIME_DEFAULTS.get(key, 0.0))
         # The P2P block times sit on the "Nimbus P2P" sub-device beside the
         # block rates (number.py, nimbus #465), where they always were.

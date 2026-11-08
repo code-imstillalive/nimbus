@@ -274,12 +274,13 @@ rules:
       sensors the Topology card reads). A guard test checks the set against
       the tab and card sources.
   entity-translations:
-    status: todo
+    status: done
     comment: >-
-      strings.json/translations/en.json cover config-flow strings only.
-      Entity names (e.g. "Battery Capacity" in number.py) are hardcoded
-      English, not routed through _attr_translation_key + an entity: block
-      in strings.json. Real, mechanical, not yet done.
+      Every entity name is in strings.json under entity.<platform>.<key>.name
+      and the entity carries _attr_translation_key (no _attr_name is left).
+      The English text is the name each entity had before, so entity ids
+      derived from a name are unchanged. scripts/entity_translations.py
+      reads the names from the code's own tables; a test keeps them in step.
   exception-translations:
     status: done
     comment: >-
