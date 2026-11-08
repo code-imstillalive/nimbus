@@ -836,6 +836,24 @@
     "get_dashboard": {
       "name": "Get the Nimbus dashboard",
       "description": "Returns this install's Nimbus dashboard (Forecaster, Solver, Topology, Control Panel, Regret and Help tabs) as a dashboard configuration, with the Solver and Help tabs filled in with this install's entities. Copy it into a dashboard's raw configuration editor. Nimbus never creates or changes a dashboard itself. Writes nothing."
+    },
+    "set_controllable_load": {
+      "name": "Set controllable load",
+      "description": "Creates or updates one Controllable Load in a single call, the same as its setup form, for scripts and automations. Without a subentry ID it updates the load with this exact name, or creates one. Any other field of the Controllable Load form can be passed by name in YAML. Changes your settings, so only an administrator can run it.",
+      "fields": {
+        "controllable_load_name": {
+          "name": "Name",
+          "description": "The load's name. An existing load with exactly this name is updated; otherwise a new one is created."
+        },
+        "controllable_load_kind": {
+          "name": "Kind",
+          "description": "sheddable, deferrable or thermal. Required when creating a load; an update keeps the kind it has."
+        },
+        "subentry_id": {
+          "name": "Subentry ID",
+          "description": "Updates this exact load. Use it when two loads share a name."
+        }
+      }
     }
   },
   "issues": {

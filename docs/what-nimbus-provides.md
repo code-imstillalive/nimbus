@@ -61,5 +61,8 @@ return data show it there.
 | `nimbus_load.device_contract_preview` | Shows what moving to device setup would change, without changing anything |
 | `nimbus_load.device_contract_confirm` | Saves what you accepted from discovery |
 | `nimbus_load.device_contract_set_mode` | Switches device setup between legacy, shadow and active |
+| `nimbus_load.set_controllable_load` | Creates or updates a Controllable Load in one call, for scripts and automations |
 
+Three of them change your settings, so only an administrator can run them:
+`set_controllable_load`, `device_contract_set_mode` and `device_contract_confirm`.
 Each action's fields are described in Developer tools when you pick it.
