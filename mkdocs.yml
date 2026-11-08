@@ -66,6 +66,7 @@ nav:
       - Controllable loads: controllable-loads.md
       - Entities: entities.md
       - How often it updates: how-nimbus-updates.md
+      - Known limitations: known-limitations.md
   - Going live: going-live.md
   - Safety features: safety.md
   - Troubleshooting: troubleshooting.md
