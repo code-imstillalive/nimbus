@@ -145,6 +145,33 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
     )
     assert only_b["import"]["blend"]["1-4 h"]["0.05"]["fair_mae"] == 0.0
 
+    # test_staleness_discounts_a_source_that_is_rarely_scored (#1786, Mark
+    # Purcell, 2 Nov): "none" is today's blend exactly; a source scored only
+    # every 20th pair keeps its old, good error between scores, and both
+    # candidate fixes give it less of the blend than today does.
+    sparse = {
+        "import": {
+            "a": {"4-24 h": _cells([0.02] * 400)},
+            "c": {
+                "4-24 h": {
+                    "normal": [
+                        [k, 0, 0.10, 0.10]
+                        for k in keys[:400]
+                        if keys.index(k) % 20 == 0
+                    ]
+                }
+            },
+        }
+    }
+    stale = por.replay(sparse)["import"]
+    today_blend = stale["blend"]["4-24 h"]["0.05"]
+    by_mode = stale["blend_staleness"]["4-24 h"]
+    assert by_mode["none"]["fair_mae"] == today_blend["fair_mae"]
+    for candidate in ("inflate 0.05", "uniform 6"):
+        assert (
+            by_mode[candidate]["mean_share"]["c"] < by_mode["none"]["mean_share"]["c"]
+        )
+
     # test_loo_band_coverage
     assert peh.loo_band_coverage([1] * 10, list(range(10))) == (None, None)
     # Day 2 sits wholly above days 1's band: every value graded "above".
