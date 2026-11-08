@@ -51,6 +51,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - What it's for: use-cases.md
   - Getting started: setup-guide.md
   - Price providers:
       - Choosing a provider: providers/index.md
