@@ -419,7 +419,9 @@ class DeviceSetupSteps:
         device = self._edit["device"]
         control = device.get("control") or {}
         errors: dict[str, str] = {}
-        if user_input is not None and "authorise" in user_input:
+        if user_input is not None and user_input.get("authorise"):
+            # Only when granting control: revoking must always go through at
+            # once, whatever state the device is in (#2392).
             errors = missing_entity_errors(self.hass, _ENTITY_FIELD, user_input)
         if not errors and user_input is not None and "authorise" in user_input:
             result = await device_contract_ha.async_set_control(
