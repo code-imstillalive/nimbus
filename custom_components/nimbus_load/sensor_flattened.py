@@ -181,6 +181,54 @@ class FlattenedAttrSpec:
     solved_at: bool = False
 
 
+#: #2392 entity-disabled-by-default (Mark Purcell, 8 Nov 2026): a
+#: DIAGNOSTIC entity starts disabled on a new install, except these,
+#: which Nimbus's own tabs and cards display. Existing installs keep
+#: what their entity registry already has.
+#: tests/v2/entities/test_diagnostic_disabled_by_default.py checks this
+#: set against the tab and card sources.
+SHOWN_ON_DASHBOARD: frozenset[str] = frozenset(
+    {
+        "achieved_energy_in_kwh",
+        "achieved_energy_out_kwh",
+        "binding_constraint_now",
+        "cost_band_upper",
+        "cost_breakdown_charge_fee",
+        "cost_breakdown_degradation",
+        "cost_breakdown_discharge_fee",
+        "cost_breakdown_grid_net",
+        "cost_breakdown_terminal_value_credit",
+        "discharge_efficiency",
+        "epr_reliable",
+        "export_price_risk_aversion",
+        "export_price_risk_effect_now",
+        "import_price_risk_aversion",
+        "import_price_risk_effect_now",
+        "lp_status",
+        "nimbus_only_soc_close_pct",
+        "real_soc_close_pct",
+        "regret_dollars",
+        "risk_aversion",
+        "salvage_value",
+        "soc_discrepancy_max_pct",
+        "soc_discrepancy_mean_pct",
+        "soc_discrepancy_reliable",
+        "solar_risk_effect_now_kw",
+        "solve_seconds",
+        "theoretical_maximum_yield",
+        "value_captured",
+    }
+)
+
+
+def enabled_by_default(spec: FlattenedAttrSpec) -> bool:
+    """False for a DIAGNOSTIC entity no tab or card displays."""
+    return (
+        spec.entity_category != EntityCategory.DIAGNOSTIC
+        or spec.entity_id_suffix in SHOWN_ON_DASHBOARD
+    )
+
+
 # ---------------------------------------------------------------------------
 # Family A: top-level scalar attributes
 # ---------------------------------------------------------------------------
@@ -998,6 +1046,7 @@ class _FlattenedAttributeSensor(SensorEntity):
         self.entity_id = f"sensor.nimbus_solver_{spec.entity_id_suffix}"
         self._attr_name = spec.name
         self._attr_entity_category = spec.entity_category
+        self._attr_entity_registry_enabled_default = enabled_by_default(spec)
         self._attr_device_class = spec.device_class
         self._attr_state_class = spec.state_class
         # nimbus #1253: NOT set for the currency sentinels -- the property

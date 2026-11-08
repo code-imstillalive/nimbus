@@ -1935,6 +1935,7 @@ class _NimbusControllableLoadScheduleSensorBase(
     # sensor_flattened.py's own Quality sub-device already established
     # for its one primary field (epr_pct) among many diagnostic ones.
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
     _ENTITY_ID_SUFFIX = ""  # overridden per subclass below
     _UNIQUE_ID_SUFFIX = ""  # overridden per subclass below
 
@@ -2123,6 +2124,8 @@ class NimbusControllableLoadDeliveredTodaySensor(
     _attr_name = "Delivered Today"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _ENTITY_ID_SUFFIX = "delivered_today"
+    # Read by the Topology card (#2392): stays enabled by default.
+    _attr_entity_registry_enabled_default = True
     _UNIQUE_ID_SUFFIX = "delivered_today"
 
     def _extract_value(self, view: load_run_state.ScheduleView) -> object:
@@ -2142,6 +2145,8 @@ class NimbusControllableLoadTargetTodaySensor(
     _attr_name = "Target Today"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _ENTITY_ID_SUFFIX = "target_today"
+    # Read by the Topology card (#2392): stays enabled by default.
+    _attr_entity_registry_enabled_default = True
     _UNIQUE_ID_SUFFIX = "target_today"
 
     def _extract_value(self, view: load_run_state.ScheduleView) -> object:
@@ -2244,6 +2249,8 @@ class NimbusControllableLoadStatusSensor(_NimbusControllableLoadScheduleSensorBa
     # default back to None.
     _attr_entity_category = None
     _ENTITY_ID_SUFFIX = "status"
+    # Read by the Topology card (#2392): stays enabled by default.
+    _attr_entity_registry_enabled_default = True
     _UNIQUE_ID_SUFFIX = "status"
 
     def _extract_value(self, view: load_run_state.ScheduleView) -> object:
@@ -4642,6 +4649,7 @@ class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
     _attr_native_unit_of_measurement = None
     _attr_suggested_display_precision = 2
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
     # Same "no forecast array on this parent" reasoning as
     # NimbusSolverQualityReportSensor above.
     _unrecorded_attributes = frozenset()
