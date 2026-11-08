@@ -172,3 +172,31 @@ def _evening_day():
 
 
 T0 = datetime(2026, 9, 20, 0, 0, tzinfo=UTC)
+
+
+def test_an_impossible_day_fails_loudly_for_the_benchmark_and_is_no_score_live():
+    """#937, #919, #2393: a day no plan can meet (here the first hour held at
+    30 kW of discharge from a battery that can give 10 kW, as #2127's
+    infeasible pin) raises for the benchmark, which wants to know, but a live quality
+    report publishes no score for it rather than taking the report down
+    (the #366/#373 "degrade, never wedge" rule)."""
+    import dataclasses
+
+    _solver_lp._lex_calibration_failed_until = 0.0
+    day = _evening_day()
+    day["battery"] = dataclasses.replace(day["battery"], period0_pin_net_kw=30.0)
+    with pytest.raises(RuntimeError, match="Oracle solve failed"):
+        _with_load(day, day["load_real_kw"])
+    assert (
+        compute_load_nowcast_skill(
+            periods=day["periods"],
+            grid=day["grid"],
+            battery=day["battery"],
+            solar_real_kw=day["solar_real_kw"],
+            load_real_kw=day["load_real_kw"],
+            load_nowcast_kw=day["load_real_kw"],
+            load_persistence_kw=day["load_persistence_kw"],
+            n_periods_measured=24,
+        )
+        is None
+    )
