@@ -151,7 +151,9 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
     # candidate fixes give it less of the blend than today does.
     sparse = {
         "import": {
-            "a": {"4-24 h": _cells([0.02] * 400)},
+            # a noisy every-pair source no offset can learn away, and a perfect
+            # one scored only every 20th pair: today it dominates on a stale score
+            "a": {"4-24 h": _cells([0.02, -0.02] * 200)},
             "c": {
                 "4-24 h": {
                     "normal": [
