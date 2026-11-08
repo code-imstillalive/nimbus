@@ -235,7 +235,12 @@ rules:
   docs-supported-devices:
     status: exempt
     comment: Not device-based.
-  docs-supported-functions: todo
+  docs-supported-functions:
+    status: done
+    comment: >-
+      docs/what-nimbus-provides.md: every entity kind (sensor, number, switch,
+      select, time) with examples and links, and all 13 actions; every
+      setting is in configuration-reference.md.
   docs-troubleshooting:
     status: done
     comment: >-

@@ -65,6 +65,7 @@ nav:
       - Every setting: configuration-reference.md
       - Dashboards and cards: dashboards.md
       - Controllable loads: controllable-loads.md
+      - What Nimbus provides: what-nimbus-provides.md
       - Entities: entities.md
       - How often it updates: how-nimbus-updates.md
       - Known limitations: known-limitations.md
