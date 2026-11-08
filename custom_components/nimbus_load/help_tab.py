@@ -218,6 +218,21 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.101.0",
+        "8 Nov 2026",
+        (
+            (
+                "**Setup** refuses an entity that does not exist; one that "
+                "is not reporting yet is still accepted."
+            ),
+            "Errors read in plain words.",
+            (
+                "New installs start with diagnostic entities switched off, "
+                "except those Nimbus's own tabs show."
+            ),
+        ),
+    ),
+    (
         "0.100.1",
         "8 Nov 2026",
         (
