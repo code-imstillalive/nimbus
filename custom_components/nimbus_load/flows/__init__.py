@@ -100,11 +100,7 @@ def missing_entity_errors(
                 if not isinstance(entity_id, str) or not entity_id:
                     continue
                 state = hass.states.get(entity_id)
-                if (
-                    state is None
-                    and registry.async_get(entity_id) is None
-                    and entity_id.startswith("planted.")
-                ):
+                if state is None and registry.async_get(entity_id) is None:
                     errors[name] = "entity_not_found"
                     break
                 reading = getattr(state, "state", None)
