@@ -284,12 +284,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # #269 (Mark): a failed weather.get_forecasts (often the restart race) no longer
         # trains on zero temperature.
         # Mitigation A: serve the last good forecast, keyed by entity_id so a
-        # reconfigured sensor never inherits the old one's values.
-        self._temp_forecast_cache: list[tuple[datetime, float]] = []
-        self._temp_forecast_cache_entity: str | None = None
+        # reconfigured sensor never inherits the old one's values. Kept in
+        # hass.data (`_temp_forecast_cache_store`), so it outlives an entry
+        # reload (#2442).
         # Mitigation B: warn on every success->failure, INFO on recovery, so a chronic
         # failure days later is still loud. None = never fetched.
         self._last_temp_forecast_ok: bool | None = None
+        # #2442: a first fetch that comes back empty is asked again before it
+        # warns; True once one has.
+        self._temp_forecast_empty_once = False
 
     # -- config accessors -- only the load sensor is per-subentry (the one
     # thing that's genuinely different for each load). Everything else
@@ -1642,19 +1645,34 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # ever reads from it -- never both in the same call, so a cached
         # value can't get overwritten with the empty result that's about
         # to be replaced by it.
+        cache = self._temp_forecast_cache_store()
         if out:
-            self._temp_forecast_cache = out
-            self._temp_forecast_cache_entity = entity_id
+            cache[entity_id] = out
         cached: list[tuple[datetime, float]] = []
-        if not out and self._temp_forecast_cache_entity == entity_id:
+        if not out:
             now = dt_util.utcnow()
-            cached = [pair for pair in self._temp_forecast_cache if pair[0] >= now]
+            cached = [pair for pair in cache.get(entity_id, []) if pair[0] >= now]
         effective = out or cached
 
         # #269 B: warn on success->failure, INFO on recovery. Unlike the sketch, a first
         # fetch that fails still warns, so a never-working sensor is visible.
         now_ok = bool(effective)
         was_ok = self._last_temp_forecast_ok
+        if (
+            was_ok is None
+            and not now_ok
+            and not getattr(self, "_temp_forecast_empty_once", False)
+        ):
+            # #2442 (Mark Purcell): the first fetch of a new coordinator (a
+            # restart or any entry reload) can meet a weather integration that
+            # has not answered yet. Ask once more before calling it dead weight.
+            self._temp_forecast_empty_once = True
+            _LOGGER.debug(
+                "temperature_forecast_sensor '%s' gave no forecast on its first "
+                "fetch; asking again next cycle before warning",
+                entity_id,
+            )
+            return effective
         if was_ok is None:
             if not now_ok:
                 _LOGGER.warning(
@@ -1684,6 +1702,17 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         self._last_temp_forecast_ok = now_ok
         return effective
+
+    def _temp_forecast_cache_store(self) -> dict[str, list[tuple[datetime, float]]]:
+        """#2442 (Mark Purcell): the last good forecast per entity_id, in
+        hass.data so it outlives an entry reload (each reload builds new
+        coordinators, and the first fetch after one met an empty cache) and is
+        shared by every load reading the same entity. A hass without a data
+        dict keeps it on this coordinator."""
+        data = getattr(self.hass, "data", None)
+        if isinstance(data, dict):
+            return data.setdefault(DOMAIN, {}).setdefault("temp_forecast_cache", {})
+        return self.__dict__.setdefault("_temp_forecast_cache_local", {})
 
     async def _async_fetch_weather_forecast_via_service(
         self, entity_id: str
