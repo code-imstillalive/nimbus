@@ -17,6 +17,14 @@ comparison and the count parser, against known inputs, before counting. So
 an inverted comparison or a broken regex fails CI at once, not silently
 (Mark Purcell's review of #2149).
 
+**A parametrised test counts once** (#2393: Mark Purcell's decision, 8 Nov
+2026; household, the same day: "yes it is ok... if Mark agrees"). One test
+run over several inputs is one behaviour, so it takes one place under the
+ceiling, not one per input. The headroom this recovers goes first to the
+modules below 95% coverage (#2392 `test-coverage`), each new test named for
+one behaviour and never folded with an unrelated check. The raw number of
+collected cases is printed beside it.
+
 Fail-once proof (CI run 40648457824, branch `diag/2149-fail-once`):
 `sed -i 's/^CEILING = 1020$/CEILING = 1000/' .github/scripts/check_test_count.py`
 and run the pytest job: it fails at this step with "over the ceiling of 1000
@@ -37,6 +45,15 @@ RUNS = (
 )
 
 _COLLECTED = re.compile(r"(\d+) tests? collected")
+_PARAMS = re.compile(r"\[.*\]$")
+
+
+def test_ids(listing: str) -> set[str]:
+    """The distinct tests in a `--collect-only -q` listing: each parametrised
+    test once, its `[...]` case suffix dropped."""
+    return {
+        _PARAMS.sub("", line.strip()) for line in listing.splitlines() if "::" in line
+    }
 
 
 def over(total: int, ceiling: int) -> bool:
@@ -52,11 +69,20 @@ def _self_check() -> None:
         problems.append("the count parser misreads '981 tests collected'")
     if _COLLECTED.findall("1 test collected in 0.10s") != ["1"]:
         problems.append("the count parser misreads '1 test collected'")
+    listing = [
+        "tests/a.py::test_x[1-on]",
+        "tests/a.py::test_x[2-off]",
+        "tests/a.py::Cls::test_y",
+        "tests/b.py::test_z[a[b]]",
+        "3 tests collected in 0.10s",
+    ]
+    if len(test_ids("\n".join(listing))) != 3:
+        problems.append("a parametrised test is not counted once")
     if problems:
         raise SystemExit("check_test_count.py is broken: " + "; ".join(problems))
 
 
-def collected(args: list[str]) -> int:
+def collected(args: list[str]) -> tuple[int, int]:
     out = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", *args],
         capture_output=True,
@@ -67,14 +93,17 @@ def collected(args: list[str]) -> int:
     if out.returncode != 0 or not found:
         print(out.stdout[-2000:], out.stderr[-2000:], sep="\n")
         raise SystemExit(f"could not count the tests in {' '.join(args)}")
-    return int(found[-1])
+    return len(test_ids(out.stdout)), int(found[-1])
 
 
 def main() -> int:
     _self_check()
-    counts = [collected(args) for args in RUNS]
-    total = sum(counts)
-    print(f"tests collected: {counts[0]} stub + {counts[1]} real HA = {total}")
+    (stub, stub_cases), (real, real_cases) = (collected(args) for args in RUNS)
+    total = stub + real
+    print(
+        f"tests (a parametrised test counted once): {stub} stub + {real} "
+        f"real HA = {total}; cases collected: {stub_cases + real_cases}"
+    )
     if over(total, CEILING):
         print(
             f"over the ceiling of {CEILING} by {total - CEILING}: add the new "
