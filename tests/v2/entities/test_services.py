@@ -581,7 +581,13 @@ def test_the_offset_replay_reads_the_history_file_and_rebuilds_only_the_weighted
     out = _call(hass, svc.SERVICE_REPLAY_PRICE_OFFSETS)
     assert out["error"].startswith("price error history not readable")
 
-    pairs = [[1000 + 6 * i, 0, 0.30, 0.28] for i in range(12)]
+    # The history keeps one pair per half hour (`on_stride`), so the
+    # synthetic pairs sit on those kept intervals.
+    peh = importlib.import_module(
+        "custom_components.nimbus_load.solver_inputs.price_error_history"
+    )
+    keys = [k for k in range(1000, 2000) if peh.on_stride(k)][:12]
+    pairs = [[k, 0, 0.30, 0.28] for k in keys]
     history = {
         "samples": {
             "import": {
