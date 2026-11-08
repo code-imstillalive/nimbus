@@ -305,6 +305,48 @@ def test_dc_r03_model_output_carries_its_coverage_and_training_state() -> None:
     )
 
 
+def test_dc_r03_a_model_output_value_is_read_scaled_or_refused() -> None:
+    """A model publishing one value, not intervals (#2393): scaled to the
+    canonical unit and stamped with its own computed_at. No output, a unit
+    of another dimension or a value that is not a number is missing, never
+    a guess."""
+    doc = _doc(
+        _device(
+            "load_house",
+            "load",
+            demand_forecast=_binding(
+                {"kind": "model_output", "model": "m", "target": "load_house.power"}
+            ),
+        )
+    )
+    out = {"unit": "W", "training_state": "trained", "value": 1500}
+    got = _resolve(
+        doc,
+        "load_house",
+        "demand_forecast",
+        Recorder(models={"m": {**out, "computed_at": "2026-10-05T16:59:00+10:00"}}),
+    )
+    assert (got.value, got.unit, got.state) == (1.5, "kW", db.VALID)
+    assert got.observed_at == T("2026-10-05T16:59:00+10:00")
+    assert got.provenance["training_state"] == "trained"
+
+    for models, reason in (
+        ({}, "no_model_output"),
+        ({"m": {**out, "unit": "A"}}, "unit_not_power"),
+        ({"m": {**out, "value": "soon"}}, "not_numeric"),
+    ):
+        got = _resolve(doc, "load_house", "demand_forecast", Recorder(models=models))
+        assert (got.value, got.reason) == (None, reason)
+
+
+def test_dc_r03_temperature_and_percent_take_only_their_exact_unit() -> None:
+    assert db.unit_scale("temperature", "°C") == (1.0, "°C", None)
+    assert db.unit_scale("temperature", "°F") == (None, None, "unit_not_temperature")
+    assert db.unit_scale("percent", "%") == (1.0, "%", None)
+    assert db.unit_scale("percent", "kWh") == (None, None, "unit_not_percent")
+    assert db.unit_scale("fraction", None) == (1.0, None, None)
+
+
 # --- DC-R04 / F09: the five states ---------------------------------------------
 
 
