@@ -192,6 +192,7 @@ SHOWN_ON_DASHBOARD: frozenset[str] = frozenset(
         "achieved_energy_in_kwh",
         "achieved_energy_out_kwh",
         "binding_constraint_now",
+        "cost_band_lower",
         "cost_band_upper",
         "cost_breakdown_charge_fee",
         "cost_breakdown_degradation",

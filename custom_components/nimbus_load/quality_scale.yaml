@@ -275,12 +275,13 @@ rules:
       switch.py's one entity has no applicable SwitchDeviceClass (those
       model a physical switch/outlet, not a config toggle) -- N/A.
   entity-disabled-by-default:
-    status: todo
+    status: done
     comment: >-
-      Real candidates named in the original checklist (Export/Import Price
-      Risk Aversion, and similar advanced tuning knobs) are not yet
-      _attr_entity_registry_enabled_default = False. Would reduce default
-      dashboard noise for most users; not yet built.
+      Mark Purcell, 8 Nov 2026 (#2392): a DIAGNOSTIC entity starts disabled
+      on a new install, except those Nimbus's own tabs and cards display
+      (sensor_flattened.SHOWN_ON_DASHBOARD, and the controllable-load
+      sensors the Topology card reads). A guard test checks the set against
+      the tab and card sources.
   entity-translations:
     status: todo
     comment: >-
