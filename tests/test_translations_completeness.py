@@ -90,3 +90,15 @@ def test_compute_quality_report_service_has_a_translation():
         "-- config_subentries's own strings.json-fallback support is less "
         "reliable than config/options (see this repo's own CLAUDE.md)"
     )
+
+
+def test_every_entity_name_is_a_translation():
+    # test_every_entity_name_is_a_translation
+    # HA quality scale `entity-translations` (#2392): no entity sets
+    # `_attr_name`; each carries `_attr_translation_key`, and strings.json's
+    # `entity` block holds exactly the names the code's tables give, in both
+    # files. scripts/entity_translations.py --write brings it back in step.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import entity_translations
+
+    assert entity_translations.check() == []
