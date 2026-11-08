@@ -18,6 +18,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The Set controllable load action** is described like the other actions (#2400).
 - Docs: what Nimbus provides, what people use it for, how often it updates, and its known limitations (#2396–#2399).
 - Internal: a read-only replay that compares staleness weightings for the price blend (#2405, for #1786, reviewed by Mark Purcell); the test cap counts a parametrised test once (#2406).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at e19f0c28** (`release/0.101.0`, installed untagged through Home Assistant's marketplace and restarted at 18:51 AEST, 8 Nov; read through 18:54).
+  - 123 of the 127 Nimbus entities carrying a version read 0.101.0; the other four are the daily reports.
+  - None of the 388 Nimbus entities unavailable; plan `optimal` (solved 18:53); all 62 Solver numbers kept their values over the restart.
+  - Help's What's New shows 0.101.0. No Repairs at all. Log: no Nimbus ERROR.
+  - Existing install unchanged by #2403: the same 388 Nimbus entities are present and none was disabled, as Home Assistant applies "disabled by default" only to entities created for the first time.
+  - Not seen live: the wizard refusing a mistyped entity (#2404). It is covered by the real Home Assistant test on CI (three cases), not exercised on devhub.
+- Consumer check: no setting, entity or card is moved or renamed. New installs get the 57 diagnostic entities Nimbus's own tabs do not show switched off; existing installs keep every entity as it is. Error messages change wording only.
 
 ## [0.100.1] - 2026-11-08
 
