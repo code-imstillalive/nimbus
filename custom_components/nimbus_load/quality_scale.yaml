@@ -225,7 +225,13 @@ rules:
       (blueprints/automation/nimbus/battery_dispatch.yaml and
       site_import_guard.yaml) with worked inverter actions, and
       docs/dashboards.md has the Lovelace card examples.
-  docs-known-limitations: todo
+  docs-known-limitations:
+    status: done
+    comment: >-
+      docs/known-limitations.md: no battery control by itself (dry-run
+      dispatcher only), history needed before a forecast, one hub, Australian
+      built-in providers, daily retrain, Regret cards solving on open, and the
+      Home Assistant and Python requirements.
   docs-supported-devices:
     status: exempt
     comment: Not device-based.
