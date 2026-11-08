@@ -45,6 +45,13 @@ Conditions (stage 2):
   whole-house cross-check field is blank, so no load gets the Forecaster's
   whole-house fixes (#6, #7). Since #1994 that field is the only way the
   Forecaster knows which load is the whole house.
+- **a chosen entity that stopped reporting** (#2436, Mark Purcell): an entity
+  picked in the wizard, on the hub or a part, that has read `unavailable` or
+  `unknown`, or has not existed, for `UNAVAILABLE_GRACE`. The wizard accepts
+  such an entity at submit (#2392: it may be racing to its first state after
+  a restart); still silent an hour on, it is a removed or renamed device or a
+  stopped integration. An availability entity is left out: `unavailable` can
+  be its real answer (#2014).
 - **no Nimbus Tabs card** (household, 6 Nov 2026): a dashboard in the UI's
   own storage shows Nimbus cards but none has the Tabs card, the one with
   "Check for updates", so a release's changed tabs never reach it. Tabs
@@ -60,6 +67,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -67,6 +75,7 @@ from typing import Any
 
 try:
     from .const import (
+        CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
         CONF_SOLVER_BATTERY_CAPACITY_KWH,
         CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
         CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
@@ -85,6 +94,7 @@ try:
     )
 except ImportError:  # pragma: no cover - standalone path
     from const import (  # type: ignore[no-redef]
+        CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
         CONF_SOLVER_BATTERY_CAPACITY_KWH,
         CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
         CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
@@ -124,6 +134,15 @@ KIND_TABS_CARD_MISSING = "tabs_card_missing"
 KIND_AVAILABILITY_MISMATCH = "availability_states_never_match"
 KIND_PLACEHOLDER_SETTINGS = "placeholder_settings"
 KIND_CONTRADICTORY_SETTINGS = "contradictory_settings"
+KIND_ENTITY_UNAVAILABLE = "configured_entity_unavailable"
+#: How long a chosen entity may stay silent before it is reported (#2436):
+#: well past a restart's race to first state.
+UNAVAILABLE_GRACE = timedelta(hours=1)
+# Home Assistant's own entity id shape (core.valid_entity_id).
+_ENTITY_ID = re.compile(r"^(?!.+__)(?!_)[\da-z_]+(?<!_)\.(?!_)[\da-z_]+(?<!_)$")
+#: Settings whose entity can read `unavailable` as its real answer: an EV
+#: away from home (#2014 reports a list that never matches instead).
+_UNAVAILABLE_IS_AN_ANSWER = frozenset({CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY})
 # Nimbus could not make a plan for PLAN_FAILING_AFTER cycles in a row
 # (household, 22 Oct 2026): the solver gave up, or proved no plan meets the
 # settings. One Repair, worded by which; it clears on the next good plan.
@@ -186,6 +205,7 @@ def evaluate_health(
     failed_streak: Mapping[str, Any] | None = None,
     availability_mismatches: Iterable[tuple[str, str, str, tuple[str, ...], str]] = (),
     tabs_card_missing: bool = False,
+    unavailable_entities: Iterable[tuple[str, str, str]] = (),
 ) -> list[HealthIssue]:
     """Every current setup gap. Pure.
 
@@ -200,8 +220,18 @@ def evaluate_health(
     participant name, availability entity, states it reported, the configured
     list) for each participant whose list matched none of them (#2014).
     `tabs_card_missing` is `tabs_card_missing()` of the stored dashboards.
+    `unavailable_entities` is `unavailable_too_long()`: (entity, where it is
+    used, since when) for each chosen entity silent past `UNAVAILABLE_GRACE`.
     """
     issues: list[HealthIssue] = []
+    for entity_id, where, since in unavailable_entities:
+        issues.append(
+            HealthIssue(
+                key=f"{KIND_ENTITY_UNAVAILABLE}_{entity_id}",
+                kind=KIND_ENTITY_UNAVAILABLE,
+                placeholders={"entity": entity_id, "where": where, "since": since},
+            )
+        )
     if tabs_card_missing:
         issues.append(
             HealthIssue(key=KIND_TABS_CARD_MISSING, kind=KIND_TABS_CARD_MISSING)
@@ -612,6 +642,158 @@ async def _async_dashboard_configs(hass: Any) -> list[Any]:
     return configs
 
 
+def configured_entities(
+    parts: Iterable[tuple[str, Mapping[str, Any]]], known_domains: Iterable[str]
+) -> dict[str, list[tuple[str, str]]]:
+    """Every entity the household chose (#2436): {entity_id: [(part, setting
+    key), ...]} from the hub's options and each part's data. A value counts
+    when it has Home Assistant's entity id shape and a domain this install
+    knows, so a number or a time never does and no field list is kept by
+    hand. Availability entities are left out (`_UNAVAILABLE_IS_AN_ANSWER`)."""
+    domains = set(known_domains)
+    out: dict[str, list[tuple[str, str]]] = {}
+    for part, values in parts:
+        for key, value in values.items():
+            if key in _UNAVAILABLE_IS_AN_ANSWER:
+                continue
+            for item in value if isinstance(value, (list, tuple)) else (value,):
+                if (
+                    isinstance(item, str)
+                    and _ENTITY_ID.match(item)
+                    and item.split(".", 1)[0] in domains
+                    and (part, key) not in out.get(item, [])
+                ):
+                    out.setdefault(item, []).append((part, key))
+    return out
+
+
+def unavailable_too_long(
+    chosen: Mapping[str, list[tuple[str, str]]],
+    read_state: Any,
+    now: datetime,
+    hub_since: datetime,
+    label: Any = lambda _part, key: key,
+    when: Any = str,
+) -> list[tuple[str, str, str]]:
+    """(entity, where it is used, since when) for each chosen entity that has
+    read `unavailable` or `unknown`, or has not existed, for at least
+    `UNAVAILABLE_GRACE` (#2436). `read_state(entity_id)` is (state,
+    last_changed) or None. Silence is counted from the later of its last
+    change and the hub's start, so a restart never trips it. `label(part,
+    key)` is how the setting is named in that part's own form."""
+    out = []
+    for entity_id, uses in sorted(chosen.items()):
+        reading = read_state(entity_id)
+        if reading is None:
+            since = hub_since
+        else:
+            value, changed = reading
+            if value not in ("unavailable", "unknown"):
+                continue
+            since = max(changed, hub_since)
+        if now - since < UNAVAILABLE_GRACE:
+            continue
+        where = "\n".join(f"- {part}: {label(part, key)}" for part, key in uses)
+        out.append((entity_id, where, when(since)))
+    return out
+
+
+_FIELD_LABELS: dict[tuple[str, str], str] | None = None
+# A label's leading marker (the wizard's "🔴" for a required field) is the
+# form's, not the setting's name.
+_LABEL_MARKER = re.compile(r"^[^\w(]+")
+
+
+def _field_labels() -> dict[tuple[str, str], str]:
+    """Each wizard field's label by (form, key), from the shipped English
+    translations, so a Repair names a setting as its own form does: the same
+    key can be worded differently on two kinds of part (`load_sensor` is "Power
+    sensor to learn from" on a Load, "Sensor to forecast" on a Power Signal;
+    Mark Purcell, #2437 review). The hub's forms are "hub"; a part's is its
+    subentry type. Read once; blocking I/O, so called from the executor."""
+    global _FIELD_LABELS
+    if _FIELD_LABELS is None:
+        labels: dict[tuple[str, str], str] = {}
+        try:
+            from pathlib import Path
+
+            data = json.loads(
+                (Path(__file__).parent / "translations" / "en.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            def walk(node: Any, form: str) -> None:
+                if isinstance(node, dict):
+                    fields = node.get("data")
+                    if isinstance(fields, dict):
+                        for k, v in fields.items():
+                            if isinstance(v, str):
+                                labels.setdefault((form, k), _LABEL_MARKER.sub("", v))
+                    for child in node.values():
+                        walk(child, form)
+
+            for section in ("config", "options"):
+                walk(data.get(section), "hub")
+            for kind, node in (data.get("config_subentries") or {}).items():
+                walk(node, kind)
+        except (OSError, ValueError):
+            _LOGGER.debug("Nimbus: field labels unreadable", exc_info=True)
+        _FIELD_LABELS = labels
+    return _FIELD_LABELS
+
+
+async def _async_unavailable_entities(
+    hass: Any, entry: Any, state: dict, now: datetime
+) -> list[tuple[str, str, str]]:
+    """`unavailable_too_long()` for this hub's chosen entities. Never raises:
+    an unreadable state machine leaves this check out of the cycle."""
+    try:
+        from homeassistant.util import dt as dt_util
+
+        hub = entry.title or "Nimbus"
+        parts = [(hub, dict(entry.options))]
+        forms = {hub: "hub"}
+        for sub_id, sub in entry.subentries.items():
+            forms.setdefault(
+                getattr(sub, "title", None) or sub_id,
+                getattr(sub, "subentry_type", "hub"),
+            )
+        parts += [
+            (
+                getattr(sub, "title", None) or sub_id,
+                dict(getattr(sub, "data", {}) or {}),
+            )
+            for sub_id, sub in entry.subentries.items()
+        ]
+        domains = {s.domain for s in hass.states.async_all()} | set(
+            hass.config.components
+        )
+        chosen = configured_entities(parts, domains)
+        if not chosen:
+            return []
+        labels = await hass.async_add_executor_job(_field_labels)
+
+        def read_state(entity_id: str) -> tuple[str, datetime] | None:
+            st = hass.states.get(entity_id)
+            return None if st is None else (st.state, st.last_changed)
+
+        return unavailable_too_long(
+            chosen,
+            read_state,
+            now,
+            state["since"],
+            label=lambda part, key: (
+                labels.get((forms.get(part, "hub"), key))
+                or labels.get(("hub", key), key)
+            ),
+            when=lambda t: dt_util.as_local(t).strftime("%d %b %H:%M"),
+        )
+    except Exception:  # a diagnostic never fails the refresh
+        _LOGGER.debug("Nimbus: chosen-entity check failed", exc_info=True)
+        return []
+
+
 def _issue_id(entry_id: str, key: str) -> str:
     return f"{entry_id}_{key}"
 
@@ -669,6 +851,9 @@ async def async_refresh_health(
                 hass, entry, state, now or datetime.now(UTC)
             ),
             tabs_card_missing=tabs_card_missing(await _async_dashboard_configs(hass)),
+            unavailable_entities=await _async_unavailable_entities(
+                hass, entry, state, now or datetime.now(UTC)
+            ),
         )
 
         current = set()
