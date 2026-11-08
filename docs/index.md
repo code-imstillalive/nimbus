@@ -8,6 +8,8 @@ hindsight, so you can see how good it was.
 
 It runs inside Home Assistant. There is no cloud service and no account.
 
+Not sure it fits your home? See [what people use it for](use-cases.md).
+
 ## Where to start
 
 1. **[Getting started](setup-guide.md)**: install with HACS, add the

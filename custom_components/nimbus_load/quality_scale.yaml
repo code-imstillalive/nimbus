@@ -241,7 +241,13 @@ rules:
     comment: >-
       docs/troubleshooting.md, published in the user docs: Repairs first,
       common problems, a one-step diagnostic check, and how to report one.
-  docs-use-cases: todo
+  docs-use-cases:
+    status: done
+    comment: >-
+      docs/use-cases.md: time-of-use and wholesale price shifting, selling
+      into a price spike, P2P export commitments, EV charged by departure,
+      controllable loads, load forecasting, and the daily hindsight score,
+      each linked to its setup page.
   dynamic-devices: done
   entity-category:
     status: done
