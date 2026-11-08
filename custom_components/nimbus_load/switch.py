@@ -394,7 +394,7 @@ class NimbusSolverSwitch(SwitchEntity, RestoreEntity):
         # own entity_id assignment in number.py -- one of these per hub
         # per field, a fixed, predictable name is correct here.
         self.entity_id = f"switch.nimbus_{key}"
-        self._attr_name = name
+        self._attr_translation_key = key
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Nimbus",

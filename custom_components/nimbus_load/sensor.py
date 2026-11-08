@@ -1454,7 +1454,7 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     """The published forecast for one load or power-signal subentry."""
 
     _attr_has_entity_name = True
-    _attr_name = "Forecast"
+    _attr_translation_key = "forecast"
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -1740,7 +1740,7 @@ class NimbusControllableLoadStateSensor(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Commanded State"
+    _attr_translation_key = "commanded_state"
     _attr_entity_category = None  # a real, actively-read data source
     # nimbus issue #625 (Mark Purcell, real finding: the recorder logs
     # "State attributes... exceed maximum size of 16384 bytes" every
@@ -2018,7 +2018,7 @@ class NimbusControllableLoadNextStartSensor(_NimbusControllableLoadScheduleSenso
     starts -- the first period in its own published plan_forecast (#581)
     above the on-threshold, at or after now."""
 
-    _attr_name = "Next Start"
+    _attr_translation_key = "next_start"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _ENTITY_ID_SUFFIX = "next_start"
     _UNIQUE_ID_SUFFIX = "next_start"
@@ -2030,7 +2030,7 @@ class NimbusControllableLoadNextStartSensor(_NimbusControllableLoadScheduleSenso
 class NimbusControllableLoadNextEndSensor(_NimbusControllableLoadScheduleSensorBase):
     """nimbus issue #590: when that same run ends."""
 
-    _attr_name = "Next End"
+    _attr_translation_key = "next_end"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _ENTITY_ID_SUFFIX = "next_end"
     _UNIQUE_ID_SUFFIX = "next_end"
@@ -2046,7 +2046,7 @@ class NimbusControllableLoadPlannedDurationSensor(
     hours -- summed over the tiered grid's own real (non-uniform) period
     lengths, not a flat period-count multiply."""
 
-    _attr_name = "Planned Duration"
+    _attr_translation_key = "planned_duration"
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.HOURS
     _ENTITY_ID_SUFFIX = "planned_duration"
@@ -2071,7 +2071,7 @@ class NimbusControllableLoadPlannedEnergySensor(
     re-optimizes, not a monotonically-accumulating real energy meter
     (delivered_today, below, is that; this isn't)."""
 
-    _attr_name = "Planned Energy"
+    _attr_translation_key = "planned_energy"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _ENTITY_ID_SUFFIX = "planned_energy"
     _UNIQUE_ID_SUFFIX = "planned_energy"
@@ -2095,7 +2095,7 @@ class NimbusControllableLoadPlannedTodaySensor(
     Energy above -- a forecast value that can legitimately jump around
     between solves, not a monotonically-accumulating real meter."""
 
-    _attr_name = "Planned Today"
+    _attr_translation_key = "planned_today"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _ENTITY_ID_SUFFIX = "planned_today"
     # Read by the Topology card (#2392): stays enabled by default.
@@ -2123,7 +2123,7 @@ class NimbusControllableLoadDeliveredTodaySensor(
     already established for this device's other churn-every-cycle
     fields."""
 
-    _attr_name = "Delivered Today"
+    _attr_translation_key = "delivered_today"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _ENTITY_ID_SUFFIX = "delivered_today"
     # Read by the Topology card (#2392): stays enabled by default.
@@ -2144,7 +2144,7 @@ class NimbusControllableLoadTargetTodaySensor(
     inventing a number here would misrepresent what the load is actually
     being asked to do."""
 
-    _attr_name = "Target Today"
+    _attr_translation_key = "target_today"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _ENTITY_ID_SUFFIX = "target_today"
     # Read by the Topology card (#2392): stays enabled by default.
@@ -2171,7 +2171,7 @@ class NimbusControllableLoadPlannedCostSensor(
     or the run's own window falls outside it -- an unpriced run is an
     honest "unknown," never a fabricated free run."""
 
-    _attr_name = "Planned Cost"
+    _attr_translation_key = "planned_cost"
     _attr_device_class = SensorDeviceClass.MONETARY
     _ENTITY_ID_SUFFIX = "planned_cost"
     _UNIQUE_ID_SUFFIX = "planned_cost"
@@ -2196,7 +2196,7 @@ class NimbusControllableLoadCostTodaySensor(_NimbusControllableLoadScheduleSenso
     delivered_today (#590): a same-day reset without a `last_reset`
     pairing is not what HA's own `total_increasing` statistics expect."""
 
-    _attr_name = "Cost Today"
+    _attr_translation_key = "cost_today"
     _attr_device_class = SensorDeviceClass.MONETARY
     _ENTITY_ID_SUFFIX = "cost_today"
     _UNIQUE_ID_SUFFIX = "cost_today"
@@ -2223,7 +2223,7 @@ class NimbusControllableLoadCostAvoidedTodaySensor(
     available yet this cycle -- an honest "unknown," never a fabricated
     saving."""
 
-    _attr_name = "Cost Avoided Today"
+    _attr_translation_key = "cost_avoided_today"
     _attr_device_class = SensorDeviceClass.MONETARY
     _ENTITY_ID_SUFFIX = "cost_avoided_today"
     _UNIQUE_ID_SUFFIX = "cost_avoided_today"
@@ -2244,7 +2244,7 @@ class NimbusControllableLoadStatusSensor(_NimbusControllableLoadScheduleSensorBa
     temperature suffix when a water_heater/climate done_entity is
     configured), "shed x kWh today" (sheddable), or "outside window"."""
 
-    _attr_name = "Status"
+    _attr_translation_key = "status"
     # nimbus issue #774: the one primary, undifferentiated answer on this
     # device page (alongside NimbusControllableLoadStateSensor's own
     # commanded_state) -- overrides the base class's own DIAGNOSTIC
@@ -2310,7 +2310,7 @@ class NimbusControllableLoadTemperatureForecastSensor(
     already guarantees."""
 
     _attr_has_entity_name = True
-    _attr_name = "Temperature Forecast"
+    _attr_translation_key = "temperature_forecast"
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     # nimbus issue #819: the key temperature answer, not a diagnostic --
@@ -2424,7 +2424,7 @@ class NimbusSolverConfigSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Solver Config"
+    _attr_translation_key = "solver_config"
     _attr_entity_category = None  # a real, actively-read data source, not a diagnostic
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
@@ -2819,7 +2819,7 @@ class NimbusTopologyConfigSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Topology Config"
+    _attr_translation_key = "topology_config"
     _attr_entity_category = None  # a real, actively-read data source, not a diagnostic
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
@@ -3161,7 +3161,7 @@ class NimbusHealthReportSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Health Report"
+    _attr_translation_key = "health_report"
     _attr_entity_category = None  # a real, actively-read data source, not a diagnostic
     # Kept out of the recorder: the recent error and warning lists and
     # per-subentry status are live diagnostics and pushed the row past the
@@ -3272,7 +3272,7 @@ class NimbusStatusSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Status"
+    _attr_translation_key = "status"
     _attr_entity_category = None  # the front-page answer, not a diagnostic
     # whats_new is the Help panel's release list (help_tab.WHATS_NEW): large
     # and fixed per release, so not recorded.
@@ -3419,7 +3419,7 @@ class NimbusSolverPriceResponseLatencySensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Solver Price Response Latency"
+    _attr_translation_key = "solver_price_response_latency"
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -4062,7 +4062,7 @@ class NimbusSolverBatteryForecastSensor(_NimbusSolverPushSensor):
     """
 
     _UNIQUE_ID_SUFFIX = "nimbus_solver_battery_forecast"
-    _attr_name = "Solver Battery Forecast"
+    _attr_translation_key = "solver_battery_forecast"
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         super().__init__(entry, sw_version)
@@ -4123,7 +4123,7 @@ class NimbusHouseholdLoadTotalForecastSensor(_NimbusSolverPushSensor):
     """
 
     _UNIQUE_ID_SUFFIX = "nimbus_household_load_total_forecast"
-    _attr_name = "Household Load Total Forecast"
+    _attr_translation_key = "household_load_total_forecast"
 
 
 class NimbusDispatchDryRunSensor(_NimbusSolverPushSensor):
@@ -4163,7 +4163,7 @@ class NimbusDispatchDryRunSensor(_NimbusSolverPushSensor):
     """
 
     _UNIQUE_ID_SUFFIX = "nimbus_solver_dispatch_dry_run"
-    _attr_name = "Solver Dispatch (Dry Run)"
+    _attr_translation_key = "solver_dispatch_dry_run"
 
 
 class NimbusOfferCurveSensor(_NimbusSolverPushSensor):
@@ -4195,7 +4195,7 @@ class NimbusOfferCurveSensor(_NimbusSolverPushSensor):
     """
 
     _UNIQUE_ID_SUFFIX = "nimbus_offer_curve"
-    _attr_name = "Offer Curve"
+    _attr_translation_key = "offer_curve"
 
 
 class NimbusMirrorTemperatureForecastSensor(_NimbusSolverPushSensor):
@@ -4219,7 +4219,7 @@ class NimbusMirrorTemperatureForecastSensor(_NimbusSolverPushSensor):
     """
 
     _UNIQUE_ID_SUFFIX = "nimbus_mirror_temperature_forecast"
-    _attr_name = "Mirror Temperature Forecast"
+    _attr_translation_key = "mirror_temperature_forecast"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_suggested_display_precision = 1
@@ -4232,7 +4232,7 @@ class NimbusMirrorHumidityForecastSensor(_NimbusSolverPushSensor):
     """
 
     _UNIQUE_ID_SUFFIX = "nimbus_mirror_humidity_forecast"
-    _attr_name = "Mirror Humidity Forecast"
+    _attr_translation_key = "mirror_humidity_forecast"
     _attr_device_class = SensorDeviceClass.HUMIDITY
     _attr_native_unit_of_measurement = "%"
     _attr_suggested_display_precision = 1
@@ -4282,7 +4282,7 @@ class NimbusSolverQualityReportSensor(_NimbusSolverPushSensor):
     # would otherwise blank the daily EPR / regret scorecard for up to 24 hours.
     _RESTORE_ACROSS_RESTART = True
     _UNIQUE_ID_SUFFIX = "nimbus_solver_quality_report"
-    _attr_name = "Solver Quality Report"
+    _attr_translation_key = "solver_quality_report"
     # EPR is a percentage, not one of HA's device-classed measurement types
     # (POWER/ENERGY/etc.), so device_class stays None -- same as the four
     # existing "% ratio without a matching device_class" flattened children
@@ -4399,7 +4399,7 @@ class NimbusFlexSignalsSensor(_NimbusSolverPushSensor):
     """
 
     _UNIQUE_ID_SUFFIX = "nimbus_flex_signals"
-    _attr_name = "Flex Signals"
+    _attr_translation_key = "flex_signals"
     # Same "no per-attribute recorder overflow" posture as the offer-
     # curve sensor -- battery_signals/load_signals are small JSON lists
     # (one entry per real battery/load, not a per-period series), so no
@@ -4467,7 +4467,7 @@ class NimbusFlexReportSensor(_NimbusSolverPushSensor):
     # would otherwise blank the daily flex report for up to 24 hours.
     _RESTORE_ACROSS_RESTART = True
     _UNIQUE_ID_SUFFIX = "nimbus_flex_report"
-    _attr_name = "Flex Report"
+    _attr_translation_key = "flex_report"
     # price_response_curve is a small per-price-band JSON list (typically
     # a handful of bands, not a per-period series) -- same "no unrecorded_
     # attributes override needed" posture as NimbusFlexSignalsSensor's own
@@ -4548,7 +4548,7 @@ class NimbusFlexTelemetrySensor(_NimbusSolverPushSensor):
     _STALE_AFTER_SECONDS = 2 * 5 * 60 + 60
 
     _UNIQUE_ID_SUFFIX = "nimbus_flex_telemetry"
-    _attr_name = "Flex Telemetry"
+    _attr_translation_key = "flex_telemetry"
     _attr_device_class = None
     _attr_state_class = None
     _attr_native_unit_of_measurement = None
@@ -4621,7 +4621,7 @@ class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
     # would otherwise blank the daily efficiency backtest for up to 24 hours.
     _RESTORE_ACROSS_RESTART = True
     _UNIQUE_ID_SUFFIX = "nimbus_efficiency_backtest"
-    _attr_name = "Efficiency Backtest"
+    _attr_translation_key = "efficiency_backtest"
     # nimbus issue #1232: the native state is `spread_dollars`, a CURRENCY
     # amount -- NOT a percentage.
     #
@@ -4739,7 +4739,7 @@ class NimbusCounterfactualSocSensor(_NimbusSolverPushSensor):
     # would otherwise blank the daily counterfactual SoC for up to 24 hours.
     _RESTORE_ACROSS_RESTART = True
     _UNIQUE_ID_SUFFIX = "nimbus_counterfactual_soc"
-    _attr_name = "Counterfactual SoC"
+    _attr_translation_key = "counterfactual_soc"
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "%"
@@ -4787,7 +4787,7 @@ class NimbusBatteryAllowedChargeSensor(SensorEntity):
     attributes, so a household can check the grid meter's sign."""
 
     _attr_has_entity_name = True
-    _attr_name = "Battery Allowed Charge"
+    _attr_translation_key = "battery_allowed_charge"
     _attr_should_poll = False
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT

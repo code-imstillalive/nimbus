@@ -45,7 +45,7 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     # test_battery_forecast_has_required_sensor_entity_class_attributes
     cls = sensor.NimbusSolverBatteryForecastSensor
     assert cls._attr_has_entity_name is True
-    assert cls._attr_name == "Solver Battery Forecast"
+    assert cls._attr_translation_key == "solver_battery_forecast"
     assert cls._attr_suggested_display_precision == 3
     # Why these are class attributes (#61): the unit comes from the
     # SensorEntity contract, not from an attrs dict. Same reasoning for
@@ -91,7 +91,7 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     # test_household_load_total_forecast_has_required_sensor_entity_class_attributes
     cls = sensor.NimbusHouseholdLoadTotalForecastSensor
     assert cls._attr_has_entity_name is True
-    assert cls._attr_name == "Household Load Total Forecast"
+    assert cls._attr_translation_key == "household_load_total_forecast"
     assert cls._attr_suggested_display_precision == 3
     assert cls._attr_native_unit_of_measurement == "kW"
     from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
@@ -117,7 +117,7 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     # test_quality_report_has_required_sensor_entity_class_attributes
     cls = sensor.NimbusSolverQualityReportSensor
     assert cls._attr_has_entity_name is True
-    assert cls._attr_name == "Solver Quality Report"
+    assert cls._attr_translation_key == "solver_quality_report"
     assert cls._attr_native_unit_of_measurement == "%"
     assert cls._attr_suggested_display_precision == 1
     # EPR is a percentage -- no matching HA device_class.
@@ -147,7 +147,7 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     # test_efficiency_backtest_has_required_sensor_entity_class_attributes
     cls = sensor.NimbusEfficiencyBacktestSensor
     assert cls._attr_has_entity_name is True
-    assert cls._attr_name == "Efficiency Backtest"
+    assert cls._attr_translation_key == "efficiency_backtest"
     # nimbus issue #1232: this asserted `== "%"`. The native state is
     # `spread_dollars`, a CURRENCY amount -- the old `"%"` came from a
     # docstring that wrongly described the state as the configured
@@ -178,7 +178,7 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     # test_counterfactual_soc_has_required_sensor_entity_class_attributes
     cls = sensor.NimbusCounterfactualSocSensor
     assert cls._attr_has_entity_name is True
-    assert cls._attr_name == "Counterfactual SoC"
+    assert cls._attr_translation_key == "counterfactual_soc"
     assert cls._attr_native_unit_of_measurement == "%"
     assert cls._attr_suggested_display_precision == 1
     from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass

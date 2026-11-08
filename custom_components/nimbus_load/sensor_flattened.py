@@ -1045,7 +1045,7 @@ class _FlattenedAttributeSensor(SensorEntity):
         self._sw_version = sw_version
         self._attr_unique_id = f"{entry.entry_id}_nimbus_solver_{spec.entity_id_suffix}"
         self.entity_id = f"sensor.nimbus_solver_{spec.entity_id_suffix}"
-        self._attr_name = spec.name
+        self._attr_translation_key = spec.entity_id_suffix
         self._attr_entity_category = spec.entity_category
         self._attr_entity_registry_enabled_default = enabled_by_default(spec)
         self._attr_device_class = spec.device_class
@@ -1187,7 +1187,7 @@ class _FlattenedAttributeSensor(SensorEntity):
         value = self._extract(attributes)
         if value is _SENTINEL_MISSING:
             return
-        self._state = _clamp_state_length(value, self.entity_id or self._attr_name)
+        self._state = _clamp_state_length(value, self.entity_id or self._spec.name)
         self._last_updated = time.monotonic()
         if self._spec.solved_at and attributes.get("generated_at") is not None:
             self._solved_at = str(attributes["generated_at"])
