@@ -23,6 +23,11 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.helpers import selector
 
+from . import missing_entity_errors
+
+#: The one entity field each device-setup step takes, for the #2392 check.
+_ENTITY_FIELD = vol.Schema({vol.Optional("entity_id"): selector.EntitySelector()})
+
 #: The difference kinds pre-ticked on Review (DC-007, the existing-install path).
 _PRE_TICKED = ("fill", "renamed", "new_device")
 
@@ -320,6 +325,8 @@ class DeviceSetupSteps:
         device = self._edit["device"]
         errors: dict[str, str] = {}
         if user_input is not None and "entity_id" in user_input:
+            errors = missing_entity_errors(self.hass, _ENTITY_FIELD, user_input)
+        if not errors and user_input is not None and "entity_id" in user_input:
             result = await device_contract_ha.async_set_source(
                 self.hass,
                 self.config_entry,
@@ -413,6 +420,8 @@ class DeviceSetupSteps:
         control = device.get("control") or {}
         errors: dict[str, str] = {}
         if user_input is not None and "authorise" in user_input:
+            errors = missing_entity_errors(self.hass, _ENTITY_FIELD, user_input)
+        if not errors and user_input is not None and "authorise" in user_input:
             result = await device_contract_ha.async_set_control(
                 self.hass,
                 self.config_entry,

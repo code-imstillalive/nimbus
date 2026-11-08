@@ -32,7 +32,7 @@ from ..const import (
     CONF_BATTERY_TOWER_VOLTAGE_SENSOR,
     SUBENTRY_TYPE_POWER_SOURCE,
 )
-from . import form_action_placeholders
+from . import form_action_placeholders, missing_entity_errors
 
 _TITLE_FALLBACK = "Battery Tower"
 
@@ -189,6 +189,15 @@ class NimbusBatteryTowerSubentryFlowHandler(ConfigSubentryFlow):
         entry = self._get_entry()
 
         if user_input is not None:
+            schema = _schema(user_input, entry, None)
+            missing = missing_entity_errors(self.hass, schema, user_input)
+            if missing:
+                return self.async_show_form(
+                    description_placeholders=form_action_placeholders(self),
+                    step_id="user",
+                    data_schema=schema,
+                    errors=missing,
+                )
             title = self._derive_title(user_input.get(CONF_BATTERY_TOWER_SOC_SENSOR))
             if subentry is not None:
                 return self.async_update_and_abort(

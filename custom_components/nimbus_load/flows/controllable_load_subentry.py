@@ -66,7 +66,7 @@ from ..const import (
     CONTROLLABLE_LOAD_KIND_SHEDDABLE,
     CONTROLLABLE_LOAD_KIND_THERMAL,
 )
-from . import form_action_placeholders
+from . import form_action_placeholders, missing_entity_errors
 
 # Matches DEFAULT_SHED_COST / DEFAULT_ADEQUACY_SHORTFALL_PRICE
 # (solver/elements.py) -- shown here as the wizard's own default so a
@@ -464,6 +464,15 @@ class NimbusControllableLoadSubentryFlowHandler(ConfigSubentryFlow):
         current_data = dict(subentry.data) if subentry is not None else {}
 
         if user_input is not None:
+            schema = _schema(user_input, self.hass.config.currency)
+            missing = missing_entity_errors(self.hass, schema, user_input)
+            if missing:
+                return self.async_show_form(
+                    description_placeholders=form_action_placeholders(self),
+                    step_id="user",
+                    data_schema=schema,
+                    errors=missing,
+                )
             title = user_input[CONF_CONTROLLABLE_LOAD_NAME]
             if subentry is not None:
                 return self.async_update_and_abort(

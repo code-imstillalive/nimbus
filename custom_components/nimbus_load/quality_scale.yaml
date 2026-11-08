@@ -84,23 +84,14 @@ rules:
       sensor.py/diagnostics.py -- confirmed via grep, no hass.data[DOMAIN]
       pattern remains.
   test-before-configure:
-    status: todo
+    status: done
     comment: >-
-      Hub creation (config_flow.py's async_step_user) has no external
-      connection/credential to test -- zero fields, purely local. The one
-      real optional dependency (highspy) is never imported at hub-creation
-      time by design (lazy, only on the Solver's first periodic solve) --
-      see test-before-setup below for how that failure mode is actually
-      handled. That part stays exempt-shaped. nimbus issue #361 (Mark
-      Purcell): the claim that subentry creation validates its own source
-      sensor exists was false -- load_subentry.py's _derive_title() calls
-      hass.states.get() only to build a friendly title, silently falling
-      back to the bare entity_id string when it returns None, and never
-      rejects the submission either way. Genuinely todo, not exempt --
-      deliberately not implemented alongside this correction, since
-      rejecting a not-yet-loaded-but-valid entity at wizard-submission time
-      (e.g. during HA startup) is a real design tradeoff worth its own pass,
-      not a one-line fix to rush in here.
+      Mark Purcell, 8 Nov 2026 (#2392): every wizard step that takes an
+      entity refuses one that is neither a current state nor in the entity
+      registry (`entity_not_found` on that field), and accepts one that
+      exists but is not reporting yet, with a warning in the log.
+      flows.missing_entity_errors() reads each step's own schema, sections
+      included. Hub creation itself takes no fields.
   test-before-setup:
     status: done
     comment: >-

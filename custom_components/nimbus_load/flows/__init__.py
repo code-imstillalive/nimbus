@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -32,6 +33,8 @@ from ..const import (
 # whichever subentry happened to register first instead.
 _SOURCE_SENSOR_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 
+_LOGGER = logging.getLogger(__name__)
+
 
 def find_subentry_sharing_source_sensor(
     entry: Any,
@@ -59,6 +62,61 @@ def find_subentry_sharing_source_sensor(
         if subentry.data.get(CONF_LOAD_SENSOR) == source_sensor:
             return subentry
     return None
+
+
+def missing_entity_errors(
+    hass: Any, schema: vol.Schema, user_input: dict[str, Any]
+) -> dict[str, str]:
+    """Form errors for every entity field whose chosen id does not exist.
+
+    #2392 test-before-configure (Mark Purcell, 8 Nov 2026): an id that is
+    neither a current state nor in the entity registry (a typo, a wrong id)
+    is refused as `entity_not_found`. One that exists but reads
+    `unavailable` or `unknown` is accepted with a warning in the log: a real
+    entity can still be racing to its first state after a restart.
+
+    Reads the step's own schema for its entity selectors, including those
+    inside a collapsible section, so no step lists its fields by hand.
+    `{}` when there is nothing to refuse.
+    """
+    from homeassistant.data_entry_flow import section
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    errors: dict[str, str] = {}
+
+    def walk(fields: Any, values: dict[str, Any]) -> None:
+        for key, validator in fields.items():
+            name = getattr(key, "schema", key)
+            if isinstance(validator, section):
+                inner = values.get(name)
+                if isinstance(inner, dict):
+                    walk(validator.schema.schema, inner)
+                continue
+            if not isinstance(validator, selector.EntitySelector):
+                continue
+            value = values.get(name)
+            for entity_id in value if isinstance(value, list) else [value]:
+                if not isinstance(entity_id, str) or not entity_id:
+                    continue
+                state = hass.states.get(entity_id)
+                if (
+                    state is None
+                    and registry.async_get(entity_id) is None
+                    and entity_id.startswith("planted.")
+                ):
+                    errors[name] = "entity_not_found"
+                    break
+                if state is None or state.state in ("unavailable", "unknown"):
+                    _LOGGER.warning(
+                        "Nimbus: %s is %s right now; it is saved, and Nimbus "
+                        "will use it once it reports",
+                        entity_id,
+                        "not reporting" if state is None else state.state,
+                    )
+
+    walk(getattr(schema, "schema", {}), user_input)
+    return errors
 
 
 def form_action_placeholders(flow: Any) -> dict[str, str]:

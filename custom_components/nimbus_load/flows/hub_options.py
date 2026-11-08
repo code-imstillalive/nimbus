@@ -145,7 +145,7 @@ from ..price_input_check import (
     frozen_price_field_errors,
     price_combination_errors,
 )
-from . import live_numbers
+from . import live_numbers, missing_entity_errors
 from .device_setup import DeviceSetupSteps
 
 # nimbus #1661: the two price fields the Grid step shows outside "Advanced".
@@ -1707,11 +1707,14 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
             # nimbus issue #1562: refuse an energy counter (Wh/kWh) in a
             # power field -- it cannot be read as kW, and before this it
             # was, silently. Shown back with what was entered.
-            errors = energy_unit_field_errors(
-                self.hass,
-                user_input,
-                [CONF_BATTERY_SENSOR, CONF_GRID_SENSOR, CONF_SOLAR_SENSOR],
-            )
+            errors = {
+                **energy_unit_field_errors(
+                    self.hass,
+                    user_input,
+                    [CONF_BATTERY_SENSOR, CONF_GRID_SENSOR, CONF_SOLAR_SENSOR],
+                ),
+                **missing_entity_errors(self.hass, _forecaster_schema({}), user_input),
+            }
             if errors:
                 return self.async_show_form(
                     step_id="forecaster",
@@ -1750,6 +1753,17 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
         options-flow save in this file -- see async_step_forecaster's
         own comment for why that matters."""
         if user_input is not None:
+            missing = missing_entity_errors(
+                self.hass, _switchboard_schema({}), user_input
+            )
+            if missing:
+                return self.async_show_form(
+                    step_id="switchboard",
+                    errors=missing,
+                    data_schema=_switchboard_schema(
+                        {**self.config_entry.options, **user_input}
+                    ),
+                )
             merged = dict(self.config_entry.options)
             for key in _SWITCHBOARD_SCHEMA_KEYS:
                 merged[key] = user_input.get(key)
@@ -1820,6 +1834,23 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
         if user_input is not None:
             # nimbus #1800: the battery numbers go to their live entities at
             # the end of the wizard, never into options.
+            missing = missing_entity_errors(
+                self.hass, _solver_battery_schema({}), user_input
+            )
+            if missing:
+                return self.async_show_form(
+                    step_id="solver_battery",
+                    errors=missing,
+                    data_schema=_solver_battery_schema(
+                        {**self.config_entry.options, **user_input}
+                    ).extend(
+                        live_numbers.schema_fields(
+                            self.hass,
+                            getattr(self.config_entry, "entry_id", None),
+                            "solver_battery",
+                        )
+                    ),
+                )
             self._pending_live_numbers().update(live_numbers.pop_values(user_input))
             self._absorb_step(_solver_battery_schema({}), user_input)
             return await self.async_step_solver_grid()
@@ -1875,6 +1906,16 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
             # wrong about -- a half-set loss-factor pair, or the same entity
             # doing double duty as a source's buy AND sell price.
             errors.update(price_combination_errors(self._solver_data))
+            errors.update(
+                missing_entity_errors(
+                    self.hass,
+                    _collapse_optionals_into_advanced(
+                        _solver_grid_schema({}),
+                        keep_visible=tuple(sorted(_GRID_VISIBLE_PRICE_FIELDS)),
+                    ),
+                    user_input,
+                )
+            )
             # A field inside the collapsed "Advanced" section has nowhere to
             # show a per-field error.
             errors = {
@@ -1925,7 +1966,14 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
     async def async_step_solver_sources(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
+        errors: dict[str, str] = {}
         if user_input is not None:
+            errors = missing_entity_errors(
+                self.hass,
+                _collapse_optionals_into_advanced(_solver_sources_schema({})),
+                user_input,
+            )
+        if user_input is not None and not errors:
             # nimbus #1067: the SAME wrapping as the form above -- the null
             # sweep walks this schema, so handing it the unwrapped version
             # would make it iterate top-level keys that are now nested and
@@ -1979,6 +2027,7 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
         # are the steps that actually own those fields.
         return self.async_show_form(
             step_id="solver_sources",
+            errors=errors,
             # nimbus #1067/#448: 2 required sources stay visible, the 14
             # optional ones collapse behind "Advanced". #1067 names this step
             # as the one with the most fields and "the highest chance of being

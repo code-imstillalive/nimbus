@@ -27,7 +27,7 @@ from ..const import (
     CONF_PV_STRING_POWER_SOURCE,
     SUBENTRY_TYPE_POWER_SOURCE,
 )
-from . import form_action_placeholders
+from . import form_action_placeholders, missing_entity_errors
 
 
 def _power_source_options(entry: Any) -> list[dict[str, str]]:
@@ -107,6 +107,15 @@ class NimbusPvStringSubentryFlowHandler(ConfigSubentryFlow):
         entry = self._get_entry()
 
         if user_input is not None:
+            schema = _schema(user_input, entry)
+            missing = missing_entity_errors(self.hass, schema, user_input)
+            if missing:
+                return self.async_show_form(
+                    description_placeholders=form_action_placeholders(self),
+                    step_id="user",
+                    data_schema=schema,
+                    errors=missing,
+                )
             title = self._derive_title(
                 user_input[CONF_PV_STRING_ENTITY], user_input.get(CONF_PV_STRING_LABEL)
             )

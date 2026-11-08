@@ -384,7 +384,8 @@
       "unknown_device": "That device is no longer in the device setup. Open Edit a source again.",
       "choose_shadow_first": "Move the device setup to shadow first (Device setup, Dry run).",
       "control_entity_needed": "Choose the entity Nimbus switches before allowing control.",
-      "site_postcode_invalid": "The site postcode is four digits, for example 4000."
+      "site_postcode_invalid": "The site postcode is four digits, for example 4000.",
+      "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list."
     },
     "abort": {
       "no_pricing_suggestions": "There are no pricing suggestions: every price field Nimbus can fill already has a value.",
@@ -427,7 +428,8 @@
       },
       "error": {
         "duplicate_source_sensor": "Another Load or Power Signal already uses this sensor. Pick a different one, or edit the existing entry instead of creating a duplicate.",
-        "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both."
+        "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both.",
+        "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list."
       }
     },
     "power_signal": {
@@ -455,7 +457,8 @@
       },
       "error": {
         "duplicate_source_sensor": "Another Load or Power Signal already uses this sensor. Pick a different one, or edit the existing entry instead of creating a duplicate.",
-        "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both."
+        "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both.",
+        "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list."
       }
     },
     "power_source": {
@@ -480,6 +483,9 @@
             "power_source_dc_sensor": "This specific inverter's own total DC power -- genuinely different from battery power, since it reflects real solar throughput regardless of what the battery is doing. Without it, a fully-charged inverter that's still actively producing solar can look falsely idle on the diagram."
           }
         }
+      },
+      "error": {
+        "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list."
       }
     },
     "pv_string": {
@@ -504,6 +510,9 @@
             "pv_string_power_source": "Which Power Source (inverter) this string physically feeds into, if any. Leave blank for a string wired independently of any inverter you've configured here (e.g. a separate optimizer/micro-inverter setup)."
           }
         }
+      },
+      "error": {
+        "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list."
       }
     },
     "battery_tower": {
@@ -532,6 +541,9 @@
             "battery_tower_power_source": "Which Power Source (inverter) this tower physically belongs to, if your system has more than one inverter/battery pairing. Leave blank if there's only one Power Source, or if this tower isn't tied to a specific inverter."
           }
         }
+      },
+      "error": {
+        "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list."
       }
     },
     "controllable_load": {
@@ -604,6 +616,9 @@
             "thermal_idle_decay_c_per_hour": "Optional override (°C lost per hour while idle) for the value Nimbus's own thermal-rate learner already derives from real recorder history. Leave blank to use the learned value."
           }
         }
+      },
+      "error": {
+        "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list."
       }
     },
     "battery_participant": {
@@ -668,6 +683,9 @@
             "battery_participant_asset_kind": "What Nimbus's flex telemetry reports this battery as. Automatic: a vehicle when a Departure hour or a Trip calendar is set, otherwise a stationary battery. Choose Vehicle or Stationary battery to override that."
           }
         }
+      },
+      "error": {
+        "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list."
       }
     }
   },
