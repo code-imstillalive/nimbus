@@ -15,6 +15,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The Solver's main program is split up** (#2289 item 6, reviewed by Mark Purcell). `solver_writer.py` goes from 8,786 lines at 0.100.0 to 4,231, the rest now in modules by job (inputs, prices, P2P, reports, publishing), and its main program is nine named steps in order: settings, inputs, price sources, price blend, limits, price arrays, battery, solve and publish (#2349, #2351–#2353, #2358, #2359, #2361, #2362, #2364, #2365, #2368, #2371, #2374–#2381). Every move is word for word; the regression scenarios show the same plans.
 - **Strict type checking** now covers every part of Nimbus that does not use Home Assistant itself, 60 modules in all (#2289 item 9: #2370, #2384–#2387, reviewed by Mark Purcell).
 - **Changelog**: releases before 0.95.0 move word for word into `docs/changelog/` (#2383).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at 1260be25** (`release/0.100.1`, installed untagged through Home Assistant's marketplace and restarted at 11:02 AEST, 8 Nov; read through 11:06).
+  - 123 of the 127 Nimbus entities carrying a version read 0.100.1; the other four are the daily reports.
+  - None of the 388 Nimbus entities unavailable. Plan `optimal` on the first solve after the restart (11:03) and on the next two (11:04, 11:05), all run by the nine-phase `main()`.
+  - All 62 Solver numbers present, with the same values as a read taken at 09:38 before the install.
+  - Help's What's New shows 0.100.1. No Repairs at all. Log: no Nimbus ERROR; the Nimbus WARNING lines are the test box's known ones (solver phase timing, flex-telemetry clamp, an implausible meter row, an empty temperature forecast), none from this release.
+  - Plans unchanged: checked by the 22 regression scenarios on CI for every part, not by comparing live plans, which move with prices from one solve to the next.
+- Consumer check: nothing a household sees changes. No setting, entity, attribute or card is added, moved or renamed; the one visible difference is the What's New line.
 
 ## [0.100.0] - 2026-11-07
 
