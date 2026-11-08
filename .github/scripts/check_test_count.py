@@ -45,7 +45,7 @@ RUNS = (
 )
 
 _COLLECTED = re.compile(r"(\d+) tests? collected")
-_PARAMS = re.compile(r"\[planted\]$")
+_PARAMS = re.compile(r"\[.*\]$")
 
 
 def test_ids(listing: str) -> set[str]:
