@@ -18,6 +18,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pytest
 
 # The repository root, for the package import; tests/ is already on the
@@ -510,3 +511,62 @@ def _site_coordinator(hass, **options):
         }
     )
     return coord
+
+
+def test_the_away_profile_is_built_once_off_the_forecast_and_a_failure_only_warns(
+    tmp_path, recorder, monkeypatch, caplog
+):
+    """#1847, #2393: with an occupancy entity set, the first forecast has no
+    away profile yet, so it is built once in the background from the same
+    history (a household two days away last week reads as away), and the
+    forecast is unchanged meanwhile. A profile that cannot be built only
+    warns: the forecast runs without it."""
+    person = "person.household"
+    away = (NOW - timedelta(days=7), NOW - timedelta(days=5))
+
+    def significant(hass, start, end, ids, **kw):
+        hass.history_reads.append((ids[0], start, end))
+        if ids[0] == person:
+            return {
+                person: [
+                    _State(state="home", attributes={}, last_changed=start),
+                    _State(state="not_home", attributes={}, last_changed=away[0]),
+                    _State(state="home", attributes={}, last_changed=away[1]),
+                ]
+            }
+        return {ids[0]: _history(ids[0], start, end, unit=hass.unit)}
+
+    monkeypatch.setattr(cm, "get_significant_states", significant)
+    hass = FakeHass(tmp_path)
+    started = []
+    hass.async_create_task = started.append
+    coord = _coordinator(hass)
+    coord.entry.options = {
+        **coord.entry.options,
+        const.CONF_OCCUPANCY_ENTITY: person,
+    }
+    times = [NOW + timedelta(hours=h) for h in range(3)]
+
+    assert coord._occupancy_adjust(times, [1.0, 2.0, 3.0])[0] == [1.0, 2.0, 3.0]
+    assert coord._occupancy_summary(times, np.zeros(3, bool)) == {"status": "building"}
+    (job,) = started
+    asyncio.run(job)
+    coord._occupancy_adjust(times, [1.0, 2.0, 3.0])
+    assert len(started) == 1  # built once, not on every forecast
+
+    occ = coord._occupancy
+    assert occ["entity_id"] == person
+    assert [v for _t, v in occ["events"]] == [1.0, 0.0, 1.0]
+    assert coord._occupancy_bootstrapping is False
+    summary = coord._occupancy_summary(times, np.zeros(3, bool))
+    assert summary["status"] in {"used", "not_kept"}
+
+    async def unreadable(*_a, **_k):
+        raise RuntimeError("recorder not ready")
+
+    coord._occupancy = None
+    coord._occupancy_bootstrapping = True
+    monkeypatch.setattr(coord, "_async_fetch_training_history", unreadable)
+    asyncio.run(coord._async_occupancy_bootstrap())
+    assert coord._occupancy is None and coord._occupancy_bootstrapping is False
+    assert "occupancy profile for House could not be built" in caplog.text
