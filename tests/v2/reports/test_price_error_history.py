@@ -133,7 +133,7 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
         }
     )
     assert out["import"]["blend"]["1-4 h"]["0.001"]["fair_mae"] < 0.01
-    assert out["export"] == {"blend": {}}
+    assert out["export"] == {"blend": {}, "blend_staleness": {}}
     only_b = por.replay(
         {
             "import": {
