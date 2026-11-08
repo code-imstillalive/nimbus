@@ -58,8 +58,15 @@ def _make_registry(entity_id_lookup: dict, existing_entities: set) -> MagicMock:
 def _run(hass, entry, registry) -> MagicMock:
     import custom_components.nimbus_load as nimbus_init
 
+    # Put the stub's own lookup back afterwards: left in place, this fake
+    # registry made every later wizard test on the same worker refuse its
+    # entities as `entity_not_found` (#2427's CI, 9 Nov 2026).
+    real_get = nimbus_init.er.async_get
     nimbus_init.er.async_get = MagicMock(return_value=registry)
-    asyncio.run(_async_rename_stale_forecast_entities(hass, entry))
+    try:
+        asyncio.run(_async_rename_stale_forecast_entities(hass, entry))
+    finally:
+        nimbus_init.er.async_get = real_get
     return registry
 
 
