@@ -524,6 +524,8 @@ def install_ha_stubs() -> None:
         SelectSelector=_StubSelectSelector,
         SelectSelectorConfig=_StubSelectorConfig,
         SelectSelectorMode=types.SimpleNamespace(DROPDOWN="dropdown", LIST="list"),
+        # A TypedDict in real HA, so a plain dict here (the new-install wizard's question options).
+        SelectOptionDict=dict,
         # Added 2026-08-28 (issue #256) -- same minimal stub pattern as the
         # other selectors above. flows/hub_options.py's own solver-grid
         # schema imports this at module level for the CONF_SOLVE_ON_PRICE_
