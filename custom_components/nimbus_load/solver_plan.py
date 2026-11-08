@@ -568,6 +568,7 @@ def _shadow_job(
     settings: dict[str, Any],
 ) -> None:
     """One shadow solve; never raises (it may run on its own thread)."""
+    reason: str | None
     try:
         result = stochastic_dispatch.build_stochastic_plan(
             build_kwargs,
@@ -682,6 +683,7 @@ def _run_drive(
             deterministic_seconds,
         )
     action = "this cycle publishes the deterministic plan"
+    reason: str | None
     try:
         result = stochastic_dispatch.build_stochastic_plan(
             build_kwargs,
@@ -705,7 +707,7 @@ def _run_drive(
     published = plan
     if reason is None and result.plan is not None:
         published = _with_deterministic_signals(result.plan, plan)
-    elif reason != "no_solar_band":
+    elif reason is not None and reason != "no_solar_band":
         _log_fallback_once(reason, action, result=result)
     _record_drive(result.solve_seconds, reason)
     summary = stochastic_dispatch.summary_attribute(
@@ -1794,11 +1796,7 @@ def assemble_and_solve_plan(
     # forces charge/discharge hedging to move together" reasoning) --
     # this writer only ever had the single-scalar version live for a
     # brief window before the split, never a real production concern.
-    risk_aversion = float(
-        cfg.get("solver_risk_aversion")
-        if cfg.get("solver_risk_aversion") is not None
-        else RISK_AVERSION
-    )
+    risk_aversion = _cfg_num(cfg, "solver_risk_aversion", RISK_AVERSION)
     import_price_risk_aversion = _cfg_num(cfg, "solver_import_price_risk_aversion", 0.0)
     export_price_risk_aversion = _cfg_num(cfg, "solver_export_price_risk_aversion", 0.0)
     proximal_weight = _cfg_num(
