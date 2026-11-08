@@ -4,6 +4,13 @@ Companion to `README.md` "What Nimbus publishes". Covers the sub-devices introdu
 
 Each sub-device is a HA device parented to the hub via `via_device`. The parent entity retains its full attribute payload for backwards compatibility; per-attribute flattened children are additive and let you graph, template, and script against first-class sensors without unpacking `state_attr`.
 
+!!! note "Diagnostic sensors start disabled on a new install"
+    A sensor in the **Diagnostic** category starts disabled on a new install,
+    unless a Nimbus tab or card shows it. To use one, open it from
+    the device page (Settings → Devices & services → Nimbus), choose
+    **Settings**, and turn on **Enabled**. An install that already had these
+    sensors keeps them as they were.
+
 ## Nimbus Quality
 
 Publishes the Efficiency Performance Ratio (EPR) and the cost decomposition behind it. Recomputed every solve tick.
