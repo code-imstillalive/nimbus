@@ -3828,6 +3828,177 @@ def _solve_phase(
     )
 
 
+def _publish_phase(
+    _assembly,
+    all_batteries,
+    capacity_kwh,
+    cfg,
+    charge_cost,
+    charge_discharge_efficiency,
+    discharge_cost_arr,
+    export_bonus_price,
+    export_limit_kw,
+    export_price,
+    export_price_risk_aversion,
+    export_price_source,
+    export_real_mask,
+    failed_load_entities,
+    fleet_capacity_kwh,
+    grid,
+    grid_times,
+    import_limit_kw,
+    import_price,
+    import_price_risk_aversion,
+    import_price_source,
+    import_real_mask,
+    initial_soc_kwh,
+    live_load_kw,
+    load_forecast_coverage_hours,
+    load_forecast_error,
+    load_forecast_source_decision,
+    load_forecast_source_used,
+    load_forecast_warnings,
+    load_kw,
+    load_lower_kw,
+    load_upper_kw,
+    match_fraction,
+    max_charge_kw,
+    max_discharge_kw,
+    n_clamped,
+    n_periods,
+    now,
+    p2p_recent_volume_kwh,
+    period_hours_arr,
+    plan,
+    previous_plan,
+    price_consolidation_result,
+    price_source_freshness,
+    price_spike_active,
+    risk_aversion,
+    rrp_crosscheck_result,
+    salvage_value,
+    solar_delivery,
+    solar_kw,
+    solar_quantile_result,
+    solve_started,
+    spot_export_source,
+    spot_import_source,
+    static_export_limit_kw,
+    static_import_limit_kw,
+    summed_18_now_kw,
+    tariff_attributed_cost_by_subentry,
+    whole_house_now_kw,
+) -> None:
+    """The publish: the commanded-state guard, publish_plan(), the offer curve and the flex signals and telemetry. Phase 9 of `main()`, moved verbatim (#2289 item 6 step 9)."""
+    # nimbus issue #484: the relay-chatter guard, run once per solve
+    # right after the plan exists -- needs the plan's own just-solved
+    # period-0 power per load, so it can't run any earlier than this.
+    apply_commanded_state_guard(
+        plan,
+        now,
+        grid_times,
+        period_hours_arr,
+        import_price,
+        tariff_attributed_cost_by_subentry=tariff_attributed_cost_by_subentry,
+        cfg=cfg,
+    )
+    solver_publish.publish_plan(
+        cfg=cfg,
+        now=now,
+        plan=plan,
+        previous_plan=previous_plan,
+        solve_started=solve_started,
+        period_hours_arr=period_hours_arr,
+        grid_times=grid_times,
+        n_periods=n_periods,
+        capacity_kwh=capacity_kwh,
+        fleet_capacity_kwh=fleet_capacity_kwh,
+        battery_capacity_by_name={b.name: b.capacity_kwh for b in all_batteries},
+        charge_discharge_efficiency=charge_discharge_efficiency,
+        grid=grid,
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+        static_import_limit_kw=static_import_limit_kw,
+        static_export_limit_kw=static_export_limit_kw,
+        max_charge_kw=max_charge_kw,
+        max_discharge_kw=max_discharge_kw,
+        charge_cost=charge_cost,
+        discharge_cost_arr=discharge_cost_arr,
+        salvage_value=salvage_value,
+        risk_aversion=risk_aversion,
+        import_price_risk_aversion=import_price_risk_aversion,
+        export_price_risk_aversion=export_price_risk_aversion,
+        import_price=import_price,
+        export_price=export_price,
+        spot_import_source=spot_import_source,
+        spot_export_source=spot_export_source,
+        import_price_source=import_price_source,
+        export_price_source=export_price_source,
+        export_bonus_price=export_bonus_price,
+        load_kw=load_kw,
+        solar_kw=solar_kw,
+        load_lower_kw=load_lower_kw,
+        load_upper_kw=load_upper_kw,
+        initial_soc_kwh=initial_soc_kwh,
+        match_fraction=match_fraction,
+        summed_18_now_kw=summed_18_now_kw,
+        whole_house_now_kw=whole_house_now_kw,
+        live_load_kw=live_load_kw,
+        load_forecast_coverage_hours=load_forecast_coverage_hours,
+        load_forecast_error=load_forecast_error,
+        load_forecast_source_used=load_forecast_source_used,
+        load_forecast_warnings=load_forecast_warnings,
+        failed_load_entities=failed_load_entities,
+        n_clamped=n_clamped,
+        solar_delivery=solar_delivery,
+        p2p_recent_volume_kwh=p2p_recent_volume_kwh,
+        price_spike_active=price_spike_active,
+        load_forecast_source_decision=load_forecast_source_decision,
+        import_price_provider_until=provider_forecast_until(
+            import_real_mask, grid_times
+        ),
+        export_price_provider_until=provider_forecast_until(
+            export_real_mask, grid_times
+        ),
+        price_source_freshness=price_source_freshness,
+        price_consolidation=price_consolidation_result,
+        rrp_crosscheck=rrp_crosscheck_result,
+        stochastic=_assembly.stochastic,
+        stochastic_paths=_assembly.stochastic_paths,
+        solar_quantiles=solar_quantile_result,
+    )
+    # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
+    # enabled was true above (plan.offer_curve_import stays None
+    # otherwise) -- see publish_offer_curve()'s own docstring. #2121: the
+    # curve is swept here, after the plan and its dispatch are published.
+    plan = solver_publish.sweep_offer_curve(plan, monotonic())
+    solver_publish.publish_offer_curve(plan)
+    # nimbus issue #496 (Signals 7/7 of #489): no-op unless flex_signals_
+    # enabled was true above (plan.grid_signals stays None otherwise) --
+    # see publish_flex_signals()'s own docstring.
+    solver_publish.publish_flex_signals(plan, hold_last=_assembly.flex_ranging_deferred)
+    # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
+    # schema-v2.0 record, one per completed 5-minute interval. Not gated on
+    # the flex-signals switch since #1640: the flexibility fields come from
+    # physical availability, so no ranging is needed. When no record can be
+    # built, the sensor carries the reason instead (#1635).
+    solver_publish.publish_flex_telemetry_record(
+        cfg,
+        plan,
+        now,
+        batteries=all_batteries,
+        import_price=float(import_price[0]),
+        export_price=float(export_price[0]),
+        import_limit_kw=float(np.asarray(import_limit_kw).ravel()[0]),
+        export_limit_kw=float(np.asarray(export_limit_kw).ravel()[0]),
+        period_hours=float(period_hours_arr[0]),
+        hold_last=_assembly.flex_ranging_deferred,
+        house_load_kw=_measured_house_load_kw(
+            load_kw, load_forecast_error, live_load_kw
+        ),
+    )
+
+
 def main() -> None:
     _settings = _settings_phase()
     cfg = _settings.cfg
@@ -3997,110 +4168,64 @@ def main() -> None:
     risk_aversion = _solve.risk_aversion
     solve_started = _solve.solve_started
     tariff_attributed_cost_by_subentry = _solve.tariff_attributed_cost_by_subentry
-    # nimbus issue #484: the relay-chatter guard, run once per solve
-    # right after the plan exists -- needs the plan's own just-solved
-    # period-0 power per load, so it can't run any earlier than this.
-    apply_commanded_state_guard(
-        plan,
-        now,
-        grid_times,
-        period_hours_arr,
-        import_price,
-        tariff_attributed_cost_by_subentry=tariff_attributed_cost_by_subentry,
-        cfg=cfg,
-    )
-    solver_publish.publish_plan(
-        cfg=cfg,
-        now=now,
-        plan=plan,
-        previous_plan=previous_plan,
-        solve_started=solve_started,
-        period_hours_arr=period_hours_arr,
-        grid_times=grid_times,
-        n_periods=n_periods,
+    _publish_phase(
+        _assembly=_assembly,
+        all_batteries=all_batteries,
         capacity_kwh=capacity_kwh,
-        fleet_capacity_kwh=fleet_capacity_kwh,
-        battery_capacity_by_name={b.name: b.capacity_kwh for b in all_batteries},
-        charge_discharge_efficiency=charge_discharge_efficiency,
-        grid=grid,
-        import_limit_kw=import_limit_kw,
-        export_limit_kw=export_limit_kw,
-        static_import_limit_kw=static_import_limit_kw,
-        static_export_limit_kw=static_export_limit_kw,
-        max_charge_kw=max_charge_kw,
-        max_discharge_kw=max_discharge_kw,
+        cfg=cfg,
         charge_cost=charge_cost,
+        charge_discharge_efficiency=charge_discharge_efficiency,
         discharge_cost_arr=discharge_cost_arr,
-        salvage_value=salvage_value,
-        risk_aversion=risk_aversion,
-        import_price_risk_aversion=import_price_risk_aversion,
-        export_price_risk_aversion=export_price_risk_aversion,
-        import_price=import_price,
-        export_price=export_price,
-        spot_import_source=spot_import_source,
-        spot_export_source=spot_export_source,
-        import_price_source=import_price_source,
-        export_price_source=export_price_source,
         export_bonus_price=export_bonus_price,
-        load_kw=load_kw,
-        solar_kw=solar_kw,
-        load_lower_kw=load_lower_kw,
-        load_upper_kw=load_upper_kw,
+        export_limit_kw=export_limit_kw,
+        export_price=export_price,
+        export_price_risk_aversion=export_price_risk_aversion,
+        export_price_source=export_price_source,
+        export_real_mask=export_real_mask,
+        failed_load_entities=failed_load_entities,
+        fleet_capacity_kwh=fleet_capacity_kwh,
+        grid=grid,
+        grid_times=grid_times,
+        import_limit_kw=import_limit_kw,
+        import_price=import_price,
+        import_price_risk_aversion=import_price_risk_aversion,
+        import_price_source=import_price_source,
+        import_real_mask=import_real_mask,
         initial_soc_kwh=initial_soc_kwh,
-        match_fraction=match_fraction,
-        summed_18_now_kw=summed_18_now_kw,
-        whole_house_now_kw=whole_house_now_kw,
         live_load_kw=live_load_kw,
         load_forecast_coverage_hours=load_forecast_coverage_hours,
         load_forecast_error=load_forecast_error,
+        load_forecast_source_decision=load_forecast_source_decision,
         load_forecast_source_used=load_forecast_source_used,
         load_forecast_warnings=load_forecast_warnings,
-        failed_load_entities=failed_load_entities,
+        load_kw=load_kw,
+        load_lower_kw=load_lower_kw,
+        load_upper_kw=load_upper_kw,
+        match_fraction=match_fraction,
+        max_charge_kw=max_charge_kw,
+        max_discharge_kw=max_discharge_kw,
         n_clamped=n_clamped,
-        solar_delivery=solar_delivery,
+        n_periods=n_periods,
+        now=now,
         p2p_recent_volume_kwh=p2p_recent_volume_kwh,
-        price_spike_active=price_spike_active,
-        load_forecast_source_decision=load_forecast_source_decision,
-        import_price_provider_until=provider_forecast_until(
-            import_real_mask, grid_times
-        ),
-        export_price_provider_until=provider_forecast_until(
-            export_real_mask, grid_times
-        ),
+        period_hours_arr=period_hours_arr,
+        plan=plan,
+        previous_plan=previous_plan,
+        price_consolidation_result=price_consolidation_result,
         price_source_freshness=price_source_freshness,
-        price_consolidation=price_consolidation_result,
-        rrp_crosscheck=rrp_crosscheck_result,
-        stochastic=_assembly.stochastic,
-        stochastic_paths=_assembly.stochastic_paths,
-        solar_quantiles=solar_quantile_result,
-    )
-    # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
-    # enabled was true above (plan.offer_curve_import stays None
-    # otherwise) -- see publish_offer_curve()'s own docstring. #2121: the
-    # curve is swept here, after the plan and its dispatch are published.
-    plan = solver_publish.sweep_offer_curve(plan, monotonic())
-    solver_publish.publish_offer_curve(plan)
-    # nimbus issue #496 (Signals 7/7 of #489): no-op unless flex_signals_
-    # enabled was true above (plan.grid_signals stays None otherwise) --
-    # see publish_flex_signals()'s own docstring.
-    solver_publish.publish_flex_signals(plan, hold_last=_assembly.flex_ranging_deferred)
-    # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
-    # schema-v2.0 record, one per completed 5-minute interval. Not gated on
-    # the flex-signals switch since #1640: the flexibility fields come from
-    # physical availability, so no ranging is needed. When no record can be
-    # built, the sensor carries the reason instead (#1635).
-    solver_publish.publish_flex_telemetry_record(
-        cfg,
-        plan,
-        now,
-        batteries=all_batteries,
-        import_price=float(import_price[0]),
-        export_price=float(export_price[0]),
-        import_limit_kw=float(np.asarray(import_limit_kw).ravel()[0]),
-        export_limit_kw=float(np.asarray(export_limit_kw).ravel()[0]),
-        period_hours=float(period_hours_arr[0]),
-        hold_last=_assembly.flex_ranging_deferred,
-        house_load_kw=_measured_house_load_kw(
-            load_kw, load_forecast_error, live_load_kw
-        ),
+        price_spike_active=price_spike_active,
+        risk_aversion=risk_aversion,
+        rrp_crosscheck_result=rrp_crosscheck_result,
+        salvage_value=salvage_value,
+        solar_delivery=solar_delivery,
+        solar_kw=solar_kw,
+        solar_quantile_result=solar_quantile_result,
+        solve_started=solve_started,
+        spot_export_source=spot_export_source,
+        spot_import_source=spot_import_source,
+        static_export_limit_kw=static_export_limit_kw,
+        static_import_limit_kw=static_import_limit_kw,
+        summed_18_now_kw=summed_18_now_kw,
+        tariff_attributed_cost_by_subentry=tariff_attributed_cost_by_subentry,
+        whole_house_now_kw=whole_house_now_kw,
     )
