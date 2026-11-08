@@ -2098,6 +2098,8 @@ class NimbusControllableLoadPlannedTodaySensor(
     _attr_name = "Planned Today"
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _ENTITY_ID_SUFFIX = "planned_today"
+    # Read by the Topology card (#2392): stays enabled by default.
+    _attr_entity_registry_enabled_default = True
     _UNIQUE_ID_SUFFIX = "planned_today"
 
     def _extract_value(self, view: load_run_state.ScheduleView) -> object:
