@@ -27,6 +27,13 @@ STRIDE`.
 fair offsets and inverse-fair-MAE weights, scored the same fair way, beside
 the blend that was actually published (`as_published`).
 
+`blend_staleness`, per side and bucket, at today's memory: the same
+rebuilt blend with a source's weight discounted the longer it has gone
+unscored at that lead (Mark Purcell, 2 Nov 2026). `inflate k` scores it
+as `mae * (1 + k * hours since its last sample)`; `uniform H` fades its
+share toward an equal split over H hours; `none` is today. Each gives the
+fair MAE and every source's mean share of the blend.
+
 Pure: no Home Assistant import, no I/O. Read-only by construction.
 """
 
@@ -45,6 +52,20 @@ except ImportError:  # pragma: no cover - standalone/cron path
 
 #: Today's memory, then the candidates Mark asked to compare.
 ALPHAS: tuple[float, ...] = (0.05, 0.005, 0.002, 0.001)
+#: Mark Purcell, 2 Nov 2026 (#1786): a source scored rarely at a lead keeps
+#: an old error, and so its weight, until it is scored again. Today's
+#: weights, his inflation shape at three k (per hour), and a fade toward
+#: an equal share at three horizons (hours).
+STALENESS: tuple[tuple[str, float], ...] = (
+    ("none", 0.0),
+    ("inflate", 0.01),
+    ("inflate", 0.02),
+    ("inflate", 0.05),
+    ("uniform", 6.0),
+    ("uniform", 24.0),
+    ("uniform", 72.0),
+)
+
 #: Kept pairs a source needs before its offset or weight is used, the
 #: tracker's MIN_SAMPLES in strided pairs.
 WARMUP = -(-pc.MIN_SAMPLES // peh.STRIDE)
@@ -122,10 +143,16 @@ def replay_source(pairs: list[tuple], bucket: str, alpha: float) -> dict[str, An
 
 
 def replay_blend(
-    by_source: Mapping[str, list[tuple]], bucket: str, alpha: float
+    by_source: Mapping[str, list[tuple]],
+    bucket: str,
+    alpha: float,
+    staleness: tuple[str, float] = ("none", 0.0),
 ) -> dict[str, Any] | None:
     """The sources re-blended with fair offsets and inverse-fair-MAE weights,
-    each known when the forecast was issued."""
+    each known when the forecast was issued. `staleness` discounts a
+    source's weight by the hours since its last sample at that point (see
+    STALENESS)."""
+    mode, amount = staleness
     a = strided_alpha(alpha)
     lead = _lead_intervals(bucket)
     timelines = {s: _offset_timeline(p, a) for s, p in by_source.items()}
@@ -148,24 +175,43 @@ def replay_blend(
         for key, forecast, settled in pairs:
             rows.setdefault(key, {})[s] = (forecast, settled)
     errs: list[float] = []
+    share_sum: dict[str, float] = {}
     for key in sorted(rows):
         issued = key - lead
-        num = den = 0.0
+        # (source, inverse-MAE weight, fade toward equal, adjusted forecast)
+        parts: list[tuple[str, float, float, float]] = []
         settled = None
         for s, (forecast, st) in rows[key].items():
             mk, mv = mae_lines[s]
             i = bisect_right(mk, issued) - 1
             if i < 0:
                 continue
-            w = 1.0 / max(mv[i], 1e-4)
-            num += w * (forecast - _known_at(*timelines[s], issued))
-            den += w
+            hours = (issued - mk[i]) * 5.0 / 60.0
+            mae = max(mv[i], 1e-4)
+            fade = 0.0
+            if mode == "inflate":
+                mae *= 1.0 + amount * hours
+            elif mode == "uniform":
+                fade = min(1.0, hours / amount)
+            adjusted = forecast - _known_at(*timelines[s], issued)
+            parts.append((s, 1.0 / mae, fade, adjusted))
             settled = st
-        if den > 0 and settled is not None:
-            errs.append(abs(num / den - settled))
+        if not parts or settled is None:
+            continue
+        total = sum(w for _s, w, _f, _a in parts)
+        shares = {s: (1.0 - f) * w / total + f / len(parts) for s, w, f, _a in parts}
+        norm = sum(shares.values())
+        blended = sum(shares[s] * a for s, _w, _f, a in parts) / norm
+        errs.append(abs(blended - settled))
+        for s, share in shares.items():
+            share_sum[s] = share_sum.get(s, 0.0) + share / norm
     if not errs:
         return None
-    return {"n": len(errs), "fair_mae": _r(sum(errs) / len(errs))}
+    return {
+        "n": len(errs),
+        "fair_mae": _r(sum(errs) / len(errs)),
+        "mean_share": {s: _r(v / len(errs)) for s, v in sorted(share_sum.items())},
+    }
 
 
 def replay(
@@ -217,5 +263,26 @@ def replay(
                 **{str(a): replay_blend(parts, b, a) for a in alphas},
             }
         side_out["blend"] = blend
+        side_out["blend_staleness"] = {
+            b: {
+                (f"{mode} {amount:g}" if mode != "none" else "none"): replay_blend(
+                    {
+                        s: _pairs(sources[s][b])
+                        for s in sources
+                        if s != pc.BLEND_SOURCE
+                        and b in sources[s]
+                        and (
+                            b not in ((blend_sources or {}).get(side) or {})
+                            or s in ((blend_sources or {}).get(side) or {})[b]
+                        )
+                    },
+                    b,
+                    alphas[0],
+                    staleness=(mode, amount),
+                )
+                for mode, amount in STALENESS
+            }
+            for b in buckets
+        }
         out[side] = side_out
     return out

@@ -133,7 +133,7 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
         }
     )
     assert out["import"]["blend"]["1-4 h"]["0.001"]["fair_mae"] < 0.01
-    assert out["export"] == {"blend": {}}
+    assert out["export"] == {"blend": {}, "blend_staleness": {}}
     only_b = por.replay(
         {
             "import": {
@@ -144,6 +144,35 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
         blend_sources={"import": {"1-4 h": ["b"]}},
     )
     assert only_b["import"]["blend"]["1-4 h"]["0.05"]["fair_mae"] == 0.0
+
+    # test_staleness_discounts_a_source_that_is_rarely_scored (#1786, Mark
+    # Purcell, 2 Nov): "none" is today's blend exactly; a source scored only
+    # every 20th pair keeps its old, good error between scores, and both
+    # candidate fixes give it less of the blend than today does.
+    sparse = {
+        "import": {
+            # a noisy every-pair source no offset can learn away, and a perfect
+            # one scored only every 20th pair: today it dominates on a stale score
+            "a": {"4-24 h": _cells([0.02, -0.02] * 200)},
+            "c": {
+                "4-24 h": {
+                    "normal": [
+                        [k, 0, 0.10, 0.10]
+                        for k in keys[:400]
+                        if keys.index(k) % 20 == 0
+                    ]
+                }
+            },
+        }
+    }
+    stale = por.replay(sparse)["import"]
+    today_blend = stale["blend"]["4-24 h"]["0.05"]
+    by_mode = stale["blend_staleness"]["4-24 h"]
+    assert by_mode["none"]["fair_mae"] == today_blend["fair_mae"]
+    for candidate in ("inflate 0.05", "uniform 6"):
+        assert (
+            by_mode[candidate]["mean_share"]["c"] < by_mode["none"]["mean_share"]["c"]
+        )
 
     # test_loo_band_coverage
     assert peh.loo_band_coverage([1] * 10, list(range(10))) == (None, None)
