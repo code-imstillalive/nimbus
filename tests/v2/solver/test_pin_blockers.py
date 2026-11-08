@@ -10,6 +10,7 @@ The explainer only reads; it never solves.
 from __future__ import annotations
 
 import dataclasses
+from types import SimpleNamespace
 
 import numpy as np
 from solver import lp as _solver_lp
@@ -170,6 +171,46 @@ def test_the_solver_rejects_a_pin_exactly_when_something_is_named():
     slower = [dataclasses.replace(pinned[0], max_discharge_kw=20.0)]
     solver_plan._diagnosed(infeasible, rebuild, slower, site["grid"])
     assert len(solves) > n
+
+
+def test_every_hard_setting_is_tried_by_the_name_the_household_sees(monkeypatch):
+    """#2127, #2393: with every hard setting in play, each is relaxed on its
+    own and named as the Solver tab names it. A relaxation that fails to
+    solve is skipped, not reported, and the budget stops the search with
+    what it has. The re-solve is a fake: only the walk is under test."""
+    import solver_plan
+
+    site = _site()
+    battery = dataclasses.replace(
+        site["batteries"][0],
+        must_have_soc_by_period_index=2,
+        must_have_soc_kwh=30.0,
+        reserve_kwh=5.0,
+        charge_by_kwh=20.0,
+        period0_pin_net_kw=10.0,
+        spike_override_discharge_kw=20.0,
+    )
+    grid = dataclasses.replace(site["grid"], min_export_kwh=1.0)
+
+    def rebuild(batteries, _grid):
+        if batteries[0].reserve_kwh == 0.0:
+            raise RuntimeError("relaxing the reserve did not solve")
+        return SimpleNamespace(status="optimal")
+
+    assert solver_plan.infeasible_causes(rebuild, [battery], grid) == (
+        "Battery Min SoC / Battery Max SoC (home)",
+        "Max Charge Power / Max Discharge Power (home)",
+        "departure target (home)",
+        "Charge To / Charge By (home)",
+        "the setpoint held for now (home)",
+        "price spike discharge (home)",
+        "Grid Max Import",
+        "Grid Max Export",
+        "the committed P2P export",
+    )
+
+    monkeypatch.setattr(solver_plan, "INFEASIBLE_DIAGNOSIS_BUDGET_S", -1.0)
+    assert solver_plan.infeasible_causes(rebuild, [battery], grid) == ()
 
 
 def _with_ev(site, *, group_kw=None, ev_kw=None):
