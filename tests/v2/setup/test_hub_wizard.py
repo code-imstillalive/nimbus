@@ -42,9 +42,20 @@ class Number:
         self.set_to = value
 
 
+def _known_sensors():
+    """Every sensor this file's pages submit, present as on a real install:
+    a wizard step refuses an entity id that doesn't exist (#2392)."""
+    return {
+        eid: SimpleNamespace(state="0.3", attributes={})
+        for eid in (*BATTERY.values(), *GRID.values(), *SOURCES.values())
+        + ("sensor.event", "sensor.kept")
+        if isinstance(eid, str) and "." in eid
+    }
+
+
 class Hass:
     def __init__(self, states=None):
-        self._states = dict(states or {})
+        self._states = _known_sensors() if states is None else dict(states)
         self.states = SimpleNamespace(
             get=self._states.get, async_all=lambda domain=None: []
         )
@@ -133,16 +144,7 @@ SOURCES = {
 
 def test_the_solver_pages_save_once_at_the_end_with_every_answer(world, monkeypatch):
     # test_the_solver_pages_save_once_at_the_end_with_every_answer
-    # Every sensor the pages are given exists, as on a real install: a wizard
-    # step refuses an entity id that doesn't (#2392 test-before-configure).
-    hass = Hass(
-        {
-            eid: SimpleNamespace(state="0.3", attributes={})
-            for eid in (*BATTERY.values(), *GRID.values(), *SOURCES.values())
-            + ("sensor.event",)
-            if isinstance(eid, str) and "." in eid
-        }
-    )
+    hass = Hass()
     flow = _flow(
         {"other": 1, "solver_import_price_sensor_2": "sensor.old_secondary"}, hass
     )
