@@ -281,22 +281,24 @@ def test_a_sensor_that_merely_held_its_value_counts_to_the_end_of_the_day(
 
 
 @pytest.mark.parametrize(
-    ("rows", "error", "expected"),
+    ("rows", "error", "expected", "states"),
     [
-        ([("unavailable", DUSK + timedelta(hours=2))], None, True),
-        ([("0.0", DUSK + timedelta(hours=1))], None, False),
-        ([], None, False),
+        ([("unavailable", DUSK + timedelta(hours=2))], None, True, []),
+        ([("0.0", DUSK + timedelta(hours=1))], None, False, ["0.0"]),
+        ([], None, False, []),
         (
             [("unavailable", DUSK - timedelta(hours=1))],
             None,
             False,
+            [],
         ),  # before the window
-        (None, RuntimeError("down"), None),  # unknown, not fine
+        (None, RuntimeError("down"), None, []),  # unknown, not fine
+        ([("on", DUSK + timedelta(hours=1))], None, False, ["on"]),  # a home sensor
     ],
-    ids=["outage", "held", "nothing", "outage_before", "read_failed"],
+    ids=["outage", "held", "nothing", "outage_before", "read_failed", "home"],
 )
 def test_the_outage_probe_reads_only_states_after_the_last_row(
-    monkeypatch, rows, error, expected
+    monkeypatch, rows, error, expected, states
 ):
     history = {"sensor.pv": [HistoryPoint(w.isoformat(), s) for s, w in (rows or [])]}
     hass = use_native_fake(monkeypatch, sw, FakeHA(states={}, history=history))
@@ -308,6 +310,11 @@ def test_the_outage_probe_reads_only_states_after_the_last_row(
         monkeypatch.setattr(shared, "native_state_changes", down)
     try:
         assert shared.fetch_entity_went_unavailable("sensor.pv", DUSK, END) is expected
+        # test_the_state_history_keeps_each_state_as_written (#768): the same rows
+        # as strings, as a participant's home sensor is read; a missing state is
+        # skipped, never kept, and a failed read is empty
+        got = shared.fetch_entity_state_history_range("sensor.pv", DUSK, END)
+        assert [state for _when, state in got] == states
     finally:
         hass.close()
 
