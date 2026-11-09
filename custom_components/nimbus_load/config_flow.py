@@ -66,7 +66,7 @@ _KIND_ORDER = {"grid": 0, "load": 1, "solar": 2, "battery": 3}
 _SHOWN = 80
 
 
-class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
+class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]  # HA untyped in CI
     """Handle creation of the single Nimbus hub."""
 
     VERSION = 1
@@ -103,7 +103,7 @@ class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
             return await self._async_create_hub(None)
         self._devices = sorted(
             self._proposal.document["devices"],
-            key=lambda d: (_KIND_ORDER.get(d.get("kind"), 9), d["id"]),
+            key=lambda d: (_KIND_ORDER.get(str(d.get("kind")), 9), d["id"]),
         )
         return await self.async_step_device()
 
