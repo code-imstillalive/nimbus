@@ -109,6 +109,50 @@ def test_with_nothing_measured_and_no_usable_band_there_is_no_band(tmp_path):
     assert (back.samples, back.pending) == (h.samples, h.pending)
     assert sq.SolarErrorHistory.from_dict({"samples": 3}).samples == {}
 
+    # test_only_gradable_forecasts_are_kept_and_graded
+    assert sq.lead_bucket(-0.1) is None
+    assert (
+        sq.lead_bucket(10_000.0) == sq.LEAD_BUCKETS[-1][0]
+    )  # beyond the last: the last
+    h = sq.SolarErrorHistory()
+    far = NOW + timedelta(hours=sq.MAX_LEAD_HOURS + 1)
+    h.record(
+        NOW, [far + timedelta(hours=0.5 * i) for i in range(4)], [0.5] * 4, [5.0] * 4
+    )
+    past = NOW - timedelta(hours=6)
+    h.record(
+        NOW, [past + timedelta(hours=0.5 * i) for i in range(4)], [0.5] * 4, [5.0] * 4
+    )
+    assert h.pending == {}  # too far ahead, or already over
+    stale = (
+        int((NOW - sq.MAX_SETTLE_AGE - timedelta(hours=1)).timestamp())
+        // sq.INTERVAL_SECONDS
+    )
+    h.pending = {stale: {"0-1 h": [0.5, 4.0]}}
+    assert h.due(NOW) == [] and h.pending == {}  # too old to grade: dropped
+    k = int(NOW.timestamp() // sq.INTERVAL_SECONDS)
+    h.pending = {k: {"0-1 h": [0.5, sq.NIGHT_KW / 2], "1-4 h": [2.5, 1.0]}}
+    # a night forecast is not graded; 50 kW against 1 kW is a unit mix-up, not a plant
+    assert h.settle({k: 50.0}, TZ) == 0 and h.samples == {}
+
+    # test_the_history_file_and_the_recorder_read_never_break_the_solve
+    kept = sq.SolarErrorHistory()
+    assert sq._load(types.SimpleNamespace(_SOLAR_QUANTILES_CACHE=kept)) is kept
+    saved = tmp_path / "saved.json"
+    kept.samples["0-1 h"] = [["2026-10-15", 0.9]]
+    saved.write_text(json.dumps(kept.to_dict()), encoding="utf-8")
+    fresh = types.SimpleNamespace(
+        _SOLAR_QUANTILES_CACHE=None, SOLAR_QUANTILES_PATH=str(saved)
+    )
+    assert sq._load(fresh).samples == kept.samples  # read from the file, then cached
+    assert fresh._SOLAR_QUANTILES_CACHE.samples == kept.samples
+    sq._save(
+        types.SimpleNamespace(SOLAR_QUANTILES_PATH=str(tmp_path)), kept
+    )  # a folder
+    nothing = types.SimpleNamespace(fetch_entity_history_range=lambda *_a: [])
+    assert sq._actuals(nothing, "sensor.pv", [], TZ) == {}
+    assert sq._actuals(nothing, "sensor.pv", [k, k + 1], TZ) == {k: None, k + 1: None}
+
     # test_four_days_of_history_replace_solcasts_band_with_the_measured_one
     tmp_1 = (
         tmp_path
