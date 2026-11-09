@@ -282,6 +282,34 @@ jobs:
             custom_components/nimbus_load/solver_reports/backtest.py \
             custom_components/nimbus_load/solver_reports/counterfactual.py \
             custom_components/nimbus_load/solver_reports/flex.py \
+            custom_components/nimbus_load/device_storage.py \
+            custom_components/nimbus_load/flows/device_setup.py \
+            custom_components/nimbus_load/flows/live_numbers.py \
+            custom_components/nimbus_load/forecast_snapshot_store.py \
+            custom_components/nimbus_load/forecaster_dashboard.py \
+            custom_components/nimbus_load/frontend.py \
+            custom_components/nimbus_load/known_sources.py \
+            custom_components/nimbus_load/load_run_state_coordinator.py \
+            custom_components/nimbus_load/pricing_autodetect.py \
+            custom_components/nimbus_load/pricing_source.py \
+            custom_components/nimbus_load/quality_history_store.py \
+            custom_components/nimbus_load/readiness_sensor.py \
+            custom_components/nimbus_load/repairs.py \
+            custom_components/nimbus_load/select.py \
+            custom_components/nimbus_load/sensor_flattened.py \
+            custom_components/nimbus_load/solver_runtime.py \
+            custom_components/nimbus_load/switch.py \
+            custom_components/nimbus_load/time.py \
+            custom_components/nimbus_load/diagnostics.py \
+            custom_components/nimbus_load/flows/battery_participant_subentry.py \
+            custom_components/nimbus_load/flows/battery_tower_subentry.py \
+            custom_components/nimbus_load/flows/controllable_load_subentry.py \
+            custom_components/nimbus_load/flows/load_subentry.py \
+            custom_components/nimbus_load/flows/power_source_subentry.py \
+            custom_components/nimbus_load/flows/pv_string_subentry.py \
+            custom_components/nimbus_load/flows/signal_subentry.py \
+            custom_components/nimbus_load/sensor.py \
+            custom_components/nimbus_load/services.py \
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------

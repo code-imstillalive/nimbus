@@ -33,7 +33,7 @@ class NimbusDeviceReadinessSensor(SensorEntity):
         self.entity_id = "sensor.nimbus_device_readiness"
         self._attr_translation_key = "device_readiness"
         self._attr_native_value = None
-        self._attr_extra_state_attributes = {}
+        self._attr_extra_state_attributes: dict[str, Any] = {}
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Nimbus",
