@@ -185,7 +185,7 @@ def test_16_october_late_start_does_not_trip_it_but_would_without_confirmation(i
 # --- inert, off, and a recorder that is behind -------------------------------------------------
 
 
-def test_without_what_it_needs_it_is_off_even_if_it_was_on(install):
+def test_without_what_it_needs_it_is_off_even_if_it_was_on(install, monkeypatch):
     # test_without_what_it_needs_it_is_off_even_if_it_was_on
     for history, cfg_over, reason in [
         ([], {}, "no_history"),
@@ -202,6 +202,17 @@ def test_without_what_it_needs_it_is_off_even_if_it_was_on(install):
         assert (r["reason"], r["active"]) == (reason, False)
         if reason == "off":
             assert site.history_calls == 0
+
+    # test_a_gate_that_fails_never_breaks_the_solve: the arrays stay as fetched and "error" is published
+    site, now, grid, cfg = _blend_site(2000)  # a site the gate would lower
+
+    def broken(*_a, **_k):
+        raise RuntimeError("gate broke")
+
+    monkeypatch.setattr(srl, "evaluate_gate", broken)
+    (kw, _lo, _up), pub = _build(install, site, now, grid, cfg)
+    assert (pub["reason"], pub["active"]) == ("error", False)
+    assert kw[1] == pytest.approx((5.0 + 6.0 + 4.0) / 3)  # not lowered
 
     # test_a_locked_recorder_is_not_judged_even_if_it_was_on: A backup locks the recorder: the history read returns the last
     now = TODAY.replace(hour=8, minute=30)
