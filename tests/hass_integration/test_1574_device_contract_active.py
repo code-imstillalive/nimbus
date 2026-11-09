@@ -842,6 +842,21 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     ):
         result = await refusal
         assert (result["ok"], result["code"]) == (False, "choose_shadow_first")
+    # ...and the drift and unit answers say why not, never act.
+    assert (
+        await device_contract_ha.async_keep(hass, entry, "options", None, "grid_sensor")
+        == "not_active"
+    )
+    assert (
+        await device_contract_ha.async_restore(
+            hass, entry, "options", None, "grid_sensor"
+        )
+        == "not_active"
+    )
+    assert (
+        await device_contract_ha.async_declare_unit(hass, entry, "grid", "power", "kW")
+        == "not_in_use"
+    )
 
     # Leaving the dry run's tick off closes it, still in `legacy`.
     flow, menu = await _open("device_setup_dry_run")
@@ -858,6 +873,20 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     )
     assert done["type"] == FlowResultType.CREATE_ENTRY
     assert (await _store(hass, entry).async_read())["mode"] == "shadow"
+    # In `shadow` a control or source change is its own revision, as in `active`.
+    shadow = await _store(hass, entry).async_read()
+    allowed = await device_contract_ha.async_set_control(
+        hass, entry, shadow["revision"], hws["id"], "switch.hws", True, "user-1"
+    )
+    assert allowed["ok"] is True, allowed
+    moved = await _store(hass, entry).async_read()
+    assert moved["revision"] == shadow["revision"] + 1
+    switched = await device_contract_ha.async_set_source(
+        hass, entry, moved["revision"], "grid", "power", "sensor.new_meter"
+    )
+    assert switched["ok"] is True, switched
+    grid = _device((await _store(hass, entry).async_read())["document"], "grid")
+    assert grid["bindings"]["power"]["source"]["entity_id"] == "sensor.new_meter"
     # The edits above reloaded the entry (a view write in `active`); let the
     # reload finish and unload it, so no timer outlives the test.
     await hass.async_block_till_done()
