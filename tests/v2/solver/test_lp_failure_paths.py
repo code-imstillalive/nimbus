@@ -342,3 +342,32 @@ def _calibration_spy(edit=None):
 
     with patch.object(lp, "_calibrate_blend_weight", spy):
         yield seen
+
+
+def test_the_model_builder_refuses_what_would_build_a_wrong_problem():
+    """#2393: every refusal in `LPProblem`'s builder raises at the call that
+    would go wrong, rather than overwriting a variable, widening a binary or
+    pricing a name that does not exist."""
+    p = LPProblem()
+    p.add_variable("x", ub=5.0)
+    with pytest.raises(ValueError, match="already registered"):
+        p.add_variable("x")
+    with pytest.raises(ValueError, match="binary=True fixes bounds"):
+        p.add_variable("b", binary=True, ub=2.0)
+    with pytest.raises(ValueError, match="lb=3.0 > ub=1.0"):
+        p.add_variable("y", lb=3.0, ub=1.0)
+    for call in (
+        lambda: p.upper_bound("nope"),
+        lambda: p.set_cost("nope", 1.0),
+        lambda: p.set_secondary_cost("nope", 1.0),
+        lambda: p.add_ub_constraint({"nope": 1.0}, 0.0),
+        lambda: p.add_eq_constraint({"x": 1.0, "nope": 1.0}, 0.0),
+    ):
+        with pytest.raises(KeyError):
+            call()
+
+    # What was refused left nothing behind; what was accepted still works.
+    assert p.n_variables == 1 and p.upper_bound("x") == 5.0
+    p.set_cost("x", 1.0)
+    p.set_cost("x", 0.5)  # additive, never replaced
+    assert p._cost["x"] == 1.5
