@@ -300,6 +300,16 @@ jobs:
             custom_components/nimbus_load/solver_runtime.py \
             custom_components/nimbus_load/switch.py \
             custom_components/nimbus_load/time.py \
+            custom_components/nimbus_load/diagnostics.py \
+            custom_components/nimbus_load/flows/battery_participant_subentry.py \
+            custom_components/nimbus_load/flows/battery_tower_subentry.py \
+            custom_components/nimbus_load/flows/controllable_load_subentry.py \
+            custom_components/nimbus_load/flows/load_subentry.py \
+            custom_components/nimbus_load/flows/power_source_subentry.py \
+            custom_components/nimbus_load/flows/pv_string_subentry.py \
+            custom_components/nimbus_load/flows/signal_subentry.py \
+            custom_components/nimbus_load/sensor.py \
+            custom_components/nimbus_load/services.py \
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------
