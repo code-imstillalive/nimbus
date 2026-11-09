@@ -46,7 +46,7 @@ def _values(rows):
     return {name: row["value"] for name, row in rows.items()}
 
 
-def test_active_changes_nothing_for_a_model_trained_in_legacy():
+def test_active_changes_nothing_for_a_model_trained_in_legacy(monkeypatch):
     # test_active_changes_nothing_for_a_model_trained_in_legacy: The equivalence gate on a healthy F10 site: the battery's canonical
     assert _values(_run("active", NORMAL, do.TRAINED_NATIVE)) == _values(
         _run("legacy", NORMAL, do.TRAINED_NATIVE)
@@ -71,6 +71,37 @@ def test_active_changes_nothing_for_a_model_trained_in_legacy():
     assert late["grid_power"]["value"] == MEANS["grid_kw"]
     # never a fabricated zero
     assert late["grid_power"]["value"] != 0.0
+
+    # test_the_coordinator_feeds_active_readings_and_its_own_model_means: the
+    # coordinator's wiring (#1574 slice 2): the means come from the trained model
+    from types import SimpleNamespace
+
+    from custom_components.nimbus_load import device_contract_ha
+    from custom_components.nimbus_load.coordinator import (
+        FEATURE_NAMES,
+        NimbusCoordinator,
+    )
+
+    monkeypatch.setattr(device_contract_ha, "_state_reader", lambda _hass: gone.get)
+    coord = NimbusCoordinator.__new__(NimbusCoordinator)
+    coord.hass = None
+    x_mean = [0.0] * len(FEATURE_NAMES)
+    for feature, value in MEANS.items():
+        x_mean[FEATURE_NAMES.index(feature)] = value
+    coord._trained = SimpleNamespace(
+        x_mean=x_mean, power_feature_sign=do.TRAINED_NATIVE
+    )
+    legacy = do.legacy_inputs(F10["options"], gone.get, "load", "sensor.pool_power")
+    two_hours = NOW + timedelta(hours=2)
+    got = coord._contract_observation(
+        _doc(),
+        two_hours,
+        {name: (row["entity_id"], row["value"]) for name, row in legacy.items()},
+    )
+    want = _values(_run("active", gone, do.TRAINED_NATIVE, now=two_hours))
+    assert got == (want["battery_power"], want["grid_power"], want["solar_power"])
+    assert got[1] == MEANS["grid_kw"]  # absent: the model's own mean, not 0.0
+    assert coord._observation_inputs["grid_power"]["state"] == "absent"
 
     # test_a_feature_the_model_never_used_stays_zero: The model's own target is excluded today (#1540): `unused`, 0.0, in
     rows = _run("active", NORMAL, do.TRAINED_NATIVE, own_target="sensor.meter_power")
