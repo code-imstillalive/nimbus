@@ -310,6 +310,13 @@ jobs:
             custom_components/nimbus_load/flows/signal_subentry.py \
             custom_components/nimbus_load/sensor.py \
             custom_components/nimbus_load/services.py \
+            custom_components/nimbus_load/decision_inputs_store.py \
+            custom_components/nimbus_load/number.py \
+            custom_components/nimbus_load/price_input_check.py \
+            custom_components/nimbus_load/sensor_battery_soc.py \
+            custom_components/nimbus_load/sensor_p5min.py \
+            custom_components/nimbus_load/setup_builder.py \
+            custom_components/nimbus_load/setup_health.py \
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------
