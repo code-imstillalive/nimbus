@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import copy
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -200,6 +201,9 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none(monkeypatch):
         trackers = price_inputs._load_price_trackers()
     assert trackers["import"].samples["primary"]["0-5 min"] == 1
     assert trackers["import"].mae["primary"]["0-5 min"] == pytest.approx(0.01)
+    # A tracker file that can't be written (the path is a folder) never stops the solve.
+    monkeypatch.setattr(sw, "PRICE_CONSOLIDATION_PATH", str(Path(__file__).parent))
+    price_inputs._save_price_trackers(trackers)
 
 
 # --- each source's running error ----------------------------------------------------------------
