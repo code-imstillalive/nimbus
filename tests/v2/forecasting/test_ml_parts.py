@@ -215,6 +215,46 @@ def test_the_schedule_feature_wraps_midnight():
         {"tested_on": None, "mae_with": None, "mae_without": None},
     )
 
+    # The only away day is the first: no history before it to build from, so it is kept.
+    times, values, events = _occ_history(2, away_days=(0,))
+    assert occ.holds_up(times, values, events, slot_minutes=OCC_SLOT) == (
+        True,
+        {"tested_on": None, "mae_with": None, "mae_without": None},
+    )
+
+    # Missing readings are skipped, never scored: an away day read as nothing at
+    # all leaves nothing to compare, so it is kept; a slot the days before never
+    # read is left out of the comparison.
+    times, values, events = _occ_history(16, away_days=(15,))
+    day15 = (OCC_T0 + timedelta(days=15)).date()
+    gappy = [
+        None if t.date() == day15 or (t.hour, t.minute) == (3, 0) else v
+        for t, v in zip(times, values)
+    ]
+    assert occ.holds_up(times, gappy, events, slot_minutes=OCC_SLOT) == (
+        True,
+        {"tested_on": None, "mae_with": None, "mae_without": None},
+    )
+    only_three = [
+        None if (t.hour, t.minute) == (3, 0) and t.date() != day15 else v
+        for t, v in zip(times, values)
+    ]
+    kept, record = occ.holds_up(times, only_three, events, slot_minutes=OCC_SLOT)
+    assert kept and record["mae_with"] < record["mae_without"]
+
+    # A history with no usable reading builds no profile.
+    assert (
+        occ.build_profile(
+            times, [None] * len(times), events, now=times[-1], slot_minutes=OCC_SLOT
+        )
+        is None
+    )
+
+    # An away span ends where the history does; events after it are not read.
+    end = OCC_T0 + timedelta(days=1)
+    later = [(OCC_T0, 0.0), (OCC_T0 + timedelta(days=2), 1.0)]
+    assert occ.away_periods(later, end) == [(OCC_T0, end)]
+
 
 # --- gradient-boosted trees ---------------------------------------------------------
 
