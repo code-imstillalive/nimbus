@@ -777,9 +777,25 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     stored = await _store(hass, entry).async_read()
     assert stored["document"]["site"]["control_policy"] == "authorised"
 
+    # Choosing the mode it is already in just closes the screen.
+    flow, menu = await _open("device_setup_mode")
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"mode": "active"}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY
+    assert (await _store(hass, entry).async_read())["mode"] == "active"
+
     flow, menu = await _open("device_setup_mode")
     done = await hass.config_entries.options.async_configure(
         flow["flow_id"], {"mode": "legacy"}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY
+    assert (await _store(hass, entry).async_read())["mode"] == "legacy"
+
+    # Leaving the dry run's tick off closes it, still in `legacy`.
+    flow, menu = await _open("device_setup_dry_run")
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"go_shadow": False}
     )
     assert done["type"] == FlowResultType.CREATE_ENTRY
     assert (await _store(hass, entry).async_read())["mode"] == "legacy"
