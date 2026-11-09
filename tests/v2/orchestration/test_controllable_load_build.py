@@ -116,6 +116,11 @@ HWS = {"deferrable_max_power_kw": 3.7, "deferrable_target_kwh": 5.0}
 def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, caplog):
     # test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped
     caplog.clear()
+    # with Nimbus not set up at all there is nothing to build
+    found = site.hass.config_entries.async_entries
+    site.hass.config_entries.async_entries = lambda _domain: []
+    assert sw.build_controllable_loads(MIDNIGHT, [MIDNIGHT], 1) == ([], [], [])
+    site.hass.config_entries.async_entries = found
     site.load(
         "pump",
         "sheddable",
@@ -283,6 +288,10 @@ def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(site, capl
     late = datetime(2026, 9, 9, 20, 0, tzinfo=TZ)
     grid, windows = _windows(late)
     assert grid[windows[0].earliest_period].date() == late.date() + timedelta(days=1)
+    no_grid = cl._build_daily_adequacy_windows(
+        [], now, 6.0, 16.0, 2.0, today_delivered_kwh=0.0, today_done=False
+    )
+    assert no_grid == []
 
     # test_a_tank_falling_to_its_floor_pulls_the_deadline_in: #712/#713: the heat pump started itself, outside the plan, three
     caplog.clear()
@@ -335,11 +344,23 @@ def test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_o
     assert caplog.text.count("reports Watts") == 1
 
 
-@pytest.mark.parametrize("value", ["unavailable", None])
-def test_a_reading_that_is_not_there_writes_nothing(site, value):
-    if value:
+@pytest.mark.parametrize(
+    "value", ["unavailable", None, "amps", "not_a_number", "no_home_assistant"]
+)
+def test_a_reading_that_is_not_there_writes_nothing(site, value, monkeypatch):
+    if value == "amps":  # not a power unit: no measurement, never read as kW
+        site.state("sensor.p", "5", unit_of_measurement="A")
+    elif value == "not_a_number":  # a failed sample never takes the solve down
+        site.state("sensor.p", "abc", unit_of_measurement="kW")
+    elif value == "no_home_assistant":
+        site.state("sensor.p", "2.0", unit_of_measurement="kW")
+        monkeypatch.setattr(shared.NATIVE, "hass", None)
+    elif value:
         site.state("sensor.p", value)
-    cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
+    assert (
+        cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
+        is None
+    )
     assert site.run_state() == load_run_state.LoadRunState()
 
 
