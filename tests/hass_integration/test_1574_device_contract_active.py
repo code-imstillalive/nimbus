@@ -777,6 +777,45 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     stored = await _store(hass, entry).async_read()
     assert stored["document"]["site"]["control_policy"] == "authorised"
 
+    # test_a_change_that_cannot_apply_is_refused_with_nothing_changed
+    rev = stored["revision"]
+    for refusal, code in [
+        (
+            device_contract_ha.async_set_control(
+                hass, entry, rev, "nowhere", "switch.hws", True, "user-1"
+            ),
+            "unknown_device",
+        ),
+        (
+            device_contract_ha.async_set_control(
+                hass, entry, rev, hws["id"], "", True, "user-1"
+            ),
+            "control_entity_needed",
+        ),
+        (
+            device_contract_ha.async_set_control(
+                hass, entry, rev - 1, hws["id"], "switch.hws", True, "user-1"
+            ),
+            "revision_conflict",
+        ),
+        (
+            device_contract_ha.async_set_source(
+                hass, entry, rev, "nowhere", "power", "sensor.new_meter"
+            ),
+            "unknown_device",
+        ),
+        (
+            device_contract_ha.async_set_source(
+                hass, entry, rev - 1, "grid", "power", "sensor.new_meter"
+            ),
+            "revision_conflict",
+        ),
+        (device_contract_ha.async_confirm(hass, entry, rev, []), "nothing_to_confirm"),
+    ]:
+        result = await refusal
+        assert (result["ok"], result["code"]) == (False, code), result
+    assert await _store(hass, entry).async_read() == stored
+
     # Choosing the mode it is already in just closes the screen.
     flow, menu = await _open("device_setup_mode")
     done = await hass.config_entries.options.async_configure(
@@ -791,6 +830,18 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     )
     assert done["type"] == FlowResultType.CREATE_ENTRY
     assert (await _store(hass, entry).async_read())["mode"] == "legacy"
+    # In `legacy` there is no document to change: choose shadow first.
+    legacy = await _store(hass, entry).async_read()
+    for refusal in (
+        device_contract_ha.async_set_control(
+            hass, entry, legacy["revision"], hws["id"], "switch.hws", True, "user-1"
+        ),
+        device_contract_ha.async_set_source(
+            hass, entry, legacy["revision"], "grid", "power", "sensor.new_meter"
+        ),
+    ):
+        result = await refusal
+        assert (result["ok"], result["code"]) == (False, "choose_shadow_first")
 
     # Leaving the dry run's tick off closes it, still in `legacy`.
     flow, menu = await _open("device_setup_dry_run")
