@@ -224,6 +224,13 @@ def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(site, capl
         ("water_heater.hws", "eco", ">= 58", {"current_temperature": 59}, True),
         ("water_heater.hws", "eco", ">= 58", {}, False),  # no reading: fails open
         ("water_heater.hws", "eco", None, {"current_temperature": 59}, False),
+        (  # a setpoint that is not a number: fails open, never counted as done
+            "water_heater.hws",
+            "eco",
+            None,
+            {"current_temperature": 61, "temperature": "high"},
+            False,
+        ),
         ("climate.ac", "cool", ">= 20", {"current_temperature": 21}, True),
     ]:
         data = {**HWS, "deferrable_done_entity": entity}
