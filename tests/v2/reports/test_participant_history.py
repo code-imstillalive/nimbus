@@ -110,10 +110,21 @@ def test_a_participant_becomes_a_battery_with_its_day_read_as_charge(site):
 
 
 @pytest.mark.parametrize(
-    "case", ["none", "other_kind", "no_power_sensor", "no_history", "bad_soc_range"]
+    "case",
+    [
+        "none",
+        "no_entry",
+        "other_kind",
+        "no_power_sensor",
+        "no_history",
+        "bad_soc_range",
+    ],
 )
 def test_a_participant_that_cannot_be_rebuilt_is_left_out_without_a_crash(site, case):
-    if case == "other_kind":
+    if case == "no_entry":  # Nimbus not set up at all
+        site.add()
+        sw.NATIVE.hass.config_entries.async_entries = lambda _d: []
+    elif case == "other_kind":
         site.add({"load_sensor": "sensor.pool"}, kind="load")
     elif case == "no_power_sensor":
         site.add(
@@ -308,6 +319,33 @@ def test_a_participant_whose_positive_is_discharge_reads_it_so(site):
     site.add({**EV, "battery_participant_power_positive_is_charge": False})
     ((_b, charge, discharge, _f, _s),) = resolve()
     assert (charge == 0.0).all() and (discharge == 5.0).all()
+
+
+def test_a_declared_sign_the_history_contradicts_is_reported_once_never_corrected(
+    site, monkeypatch, caplog
+):
+    """#1241: SoC climbs while the power reads +5 kW, but the household
+    declared positive as discharge. Nimbus says so once per participant, keeps
+    the declaration, and a check that itself fails never stops the day."""
+    monkeypatch.setattr(bp, "_SIGN_CONVENTION_WARNED", set())
+    # SoC climbs 1 % every 15 minutes, 30 % to 70 %, then holds
+    site.soc = every(lambda t: 30.0 + min((t - DAY).total_seconds() / 900, 40))
+    site.add({**EV, "battery_participant_power_positive_is_charge": False})
+    with caplog.at_level("WARNING"):
+        ((_b, charge, discharge, _f, _s),) = resolve()
+        resolve()
+    warned = [r for r in caplog.records if "power-sign convention" in r.getMessage()]
+    assert len(warned) == 1 and "'ev'" in warned[0].getMessage()
+    assert (charge == 0.0).all() and (discharge == 5.0).all()  # declaration kept
+
+    from solver_inputs import sign_convention
+
+    def broken(*_a, **_k):
+        raise RuntimeError("detector broke")
+
+    monkeypatch.setattr(sign_convention, "detect_power_sign_convention", broken)
+    ((battery, *_rest),) = resolve()
+    assert battery.name == "ev"
 
 
 # --- a departure requirement reaches the oracle, as demanding as the day (#1111) ----------------
