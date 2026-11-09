@@ -255,6 +255,22 @@ def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(site, capl
             site.build(n=8)
         assert caplog.text.count("could not be evaluated") == 1
 
+    # test_a_daily_load_done_today_with_no_later_day_in_view_is_left_out_and_said
+    for done, scheduled in [("off", 1), ("on", 0)]:
+        caplog.clear()
+        site.load(
+            **HWS,
+            deferrable_earliest_hour=6.0,
+            deferrable_deadline_hour=16.0,
+            deferrable_done_entity="binary_sensor.hot",
+        )
+        site.state("binary_sensor.hot", done)
+        # 10:00 with four hours in view: tomorrow's window is out of sight
+        with caplog.at_level(logging.INFO):
+            _, adequacy, _ = site.build(now=MIDNIGHT + timedelta(hours=10), n=8)
+        assert len(adequacy) == scheduled
+        assert ("no real window left" in caplog.text) is (scheduled == 0)
+
     # test_today_is_cut_by_what_was_delivered_and_dropped_once_met_done_or_closed
     now = datetime(2026, 9, 9, 13, 5, tzinfo=TZ)
     _grid, partly = _windows(now, delivered=1.48)
