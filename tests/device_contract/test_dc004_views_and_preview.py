@@ -161,6 +161,27 @@ def test_an_option_and_number_conflict_is_reported_not_silently_kept():
     assert di.with_number(doc, "solver_price_spike_threshold", 1.0) is None
     assert "solver_price_spike_threshold" not in di.owned_number_keys()
     assert di.import_legacy(F10).document == doc  # the input is untouched
+    # ...and refused, never invented, when the device or its capacity is not there
+    owner = next(
+        d
+        for (d, _n), k in di._OWNED_NUMBERS.items()
+        if k == "solver_battery_capacity_kwh"
+    )
+    gone = copy.deepcopy(doc)
+    gone["devices"] = [d for d in gone["devices"] if d["id"] != owner]
+    assert di.with_number(gone, "solver_battery_capacity_kwh", 55.0) is None
+    blank = copy.deepcopy(doc)
+    next(d for d in blank["devices"] if d["id"] == owner)["capacity"] = {}
+    assert di.with_number(blank, "solver_battery_capacity_kwh", 55.0) is None
+    # a setting of a subentry that is no longer there reads as nothing
+    assert di._today(F10, "subentry:sub_not_here.x") is None
+    # an id from a name is a valid id: a leading digit or no name takes the fallback
+    assert [di._slug(n, "load") for n in ("Pool Pump!", "2nd pool", "", None)] == [
+        "pool_pump",
+        "load_2nd_pool",
+        "load",
+        "load",
+    ]
 
     # test_keep_my_change_adopts_one_key_and_leaves_the_others_to_the_document: "Keep my change" for one drifted key: the new document holds that
     doc = di.import_legacy(F10).document
