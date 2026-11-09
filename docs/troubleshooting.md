@@ -11,6 +11,8 @@ says what is wrong and where to fix it, and clears itself once fixed:
 - frozen or stale price inputs;
 - missing inputs;
 - placeholder battery numbers;
+- an entity you chose in setup that has been unavailable, unknown or
+  missing for an hour (it names every setting that uses it);
 - a battery participant whose "States that mean available" matched none of
   the states its availability entity reported in the last 7 days.
 - a Nimbus dashboard with no **Nimbus Tabs** card, so no *Check for
