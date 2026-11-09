@@ -143,3 +143,36 @@ def test_review_with_nothing_new_says_so():
         found={"revision": 3, "differences": [{"kind": "conflict"}]}
     )
     assert form["step_id"] == "device_setup_nothing"
+
+
+def test_a_refused_or_empty_step_says_why_on_its_own_screen():
+    """A mode change Nimbus refuses is shown on the same form; a site with no
+    device to edit or control gets its own screen; those screens just close."""
+    flow = _Flow()
+    refused = AsyncMock(return_value={"ok": False, "code": "dry_run_not_clean"})
+    preview = AsyncMock(return_value={"mode": "legacy", "clean": True})
+    empty = AsyncMock(return_value={"revision": 1, "document": {"devices": []}})
+    with (
+        patch.object(device_contract_ha, "async_preview", preview),
+        patch.object(device_contract_ha, "async_set_mode", refused),
+        patch.object(device_contract_ha, "async_state", empty),
+    ):
+        dry = asyncio.run(flow.async_step_device_setup_dry_run({"go_shadow": True}))
+        mode = asyncio.run(flow.async_step_device_setup_mode({"mode": "shadow"}))
+        edit = asyncio.run(flow.async_step_device_setup_edit(None))
+        control = asyncio.run(flow.async_step_device_setup_control(None))
+    assert (dry["step_id"], dry["errors"]) == (
+        "device_setup_dry_run",
+        {"base": "mode_refused"},
+    )
+    assert (mode["step_id"], mode["errors"]) == (
+        "device_setup_mode",
+        {"base": "mode_refused"},
+    )
+    assert edit["step_id"] == "device_setup_nothing"
+    assert control["step_id"] == "device_setup_no_control"
+    for step in (
+        flow.async_step_device_setup_nothing,
+        flow.async_step_device_setup_no_control,
+    ):
+        assert asyncio.run(step(None))["type"] == "create_entry"
