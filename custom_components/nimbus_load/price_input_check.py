@@ -96,12 +96,12 @@ def frozen_rate_field(hass: Any, entity_id: str | None) -> str | None:
 def find_frozen_price_inputs(hass: Any, options: dict) -> list[tuple[str, str, str]]:
     """`(setting, entity_id, evidence)` for every configured price field whose
     entity is a frozen rate."""
-    found = []
+    found: list[tuple[str, str, str]] = []
     for key, label in PRICE_FIELDS:
         entity_id = options.get(key)
         why = frozen_rate_field(hass, entity_id)
         if why is not None:
-            found.append((label, entity_id, why))
+            found.append((label, str(entity_id), why))
     return found
 
 

@@ -117,7 +117,7 @@ class NimbusBatterySlotSocSensor(_FlattenedAttributeSensor):
         super().update_from_parent({"soc_pct": rows[0]["soc_pct"]})
 
 
-def _hours(plan: list[Any], i: int) -> float | None:
+def _hours(plan: Any, i: int) -> float | None:
     row = plan[i] if i < len(plan) else None
     return row.get("hours") if isinstance(row, dict) else None
 

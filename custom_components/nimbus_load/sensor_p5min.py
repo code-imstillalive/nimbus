@@ -78,6 +78,7 @@ def resolve_region(hass: HomeAssistant, entry) -> str | None:
             ", ".join(sorted(named)),
         )
         return None
+    region: str | None
     if named:
         region = next(iter(named))
     else:

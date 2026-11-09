@@ -270,6 +270,8 @@ class _SharedNumberStore:
 
 
 class _CurrencyUnitMixin:
+    _desc: Any  # set by the entity class this mixes into
+
     """Resolve a currency sentinel against HA's own configured currency.
 
     nimbus issue #1293 (Mark Purcell, IV&V #1289). #1253 removed the

@@ -44,6 +44,7 @@ import gzip
 import json
 import logging
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -308,7 +309,7 @@ def _source_lines(
         attrs = dict(src.attributes) if src else None
         line = di.source_line(entity_id, src.state if src else None, updated, attrs)
         if entity_id in priced and src is not None and updated is not None:
-            fields = keyed.get(entity_id) or [None]
+            fields: Sequence[str | None] = keyed.get(entity_id) or [None]
             named: dict[str, str] = {}
             for field in fields:
                 cache_key = entity_id if field is None else f"{entity_id}#{field}"
