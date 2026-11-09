@@ -608,6 +608,23 @@ def test_dc_r06_nothing_published_is_missing_not_zero() -> None:
     got = _price_series(_aemo(case["intervals"]), "aemo_nem")
     assert (got.state, got.reason) == (db.MISSING, "no_rows")
     assert price_over([], *map(T, case["window"])) == (None, 0.0)
+    # No intervals cover nothing; one wholly outside the window leaves it all a gap.
+    assert db.coverage([]) == db.Coverage(None, None, (), 0.0)
+    start, end = map(T, case["window"])
+    before = db.Interval(
+        start - timedelta(hours=2), start - timedelta(hours=1), 0.1, "actual"
+    )
+    assert db.coverage([before], (start, end)) == db.Coverage(
+        start, end, ((start, end),), 0.0
+    )
+    # A naive time or a reversed window is a caller's mistake, refused loudly.
+    doc = _doc(_device("grid_main", "grid", power=_entity("sensor.g")))
+    with pytest.raises(ValueError, match="naive"):
+        db.resolve(
+            doc, "grid_main", "power", Recorder().readers(), NOW.replace(tzinfo=None)
+        )
+    with pytest.raises(ValueError, match="reversed"):
+        _resolve(doc, "grid_main", "power", Recorder(), window=(end, start))
 
 
 # --- DC-R05 / F03, F04: tariff roles, fees, actions, statistics --------------------
