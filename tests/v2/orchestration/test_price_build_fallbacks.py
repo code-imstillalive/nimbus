@@ -139,3 +139,35 @@ def test_with_no_aemo_series_the_stale_primary_is_kept_and_says_so(writer, monke
         assert out.aemo_export_series is None
         assert out.aemo_source == "aemo_markup"
         assert out.loss_factor is None
+
+    # test_the_aemo_forecast_check_warns_when_flagged_and_never_breaks_the_build:
+    # #452's AEMO 30-minute forecast against AEMO's own 5-minute prices
+    for result, warned in [
+        ({"flagged": True, "gap": 0.42}, 1),
+        ({"flagged": False, "gap": 0.01}, 0),
+        (RuntimeError("bad AEMO rows"), 0),
+    ]:
+        with monkeypatch.context() as mp:
+            mp.setattr(prices.price_freshness, "check", lambda *a, **k: None)
+            mp.setattr(sw, "fetch_entity_history_range", lambda *a, **k: [])
+
+            def compare(*a, result=result, **k):
+                if isinstance(result, Exception):
+                    raise result
+                return result
+
+            mp.setattr(sw.aemo_crosscheck, "compare_forecast_to_actuals", compare)
+            seen = []
+            mp.setattr(
+                price_blend,
+                "_warn_aemo_forecast_vs_actuals_once",
+                lambda start, detail, seen=seen: seen.append((start, detail)),
+            )
+            out = _build(
+                aemo_30min_forecast_sensor="sensor.aemo_fc",
+                solver_regional_spot_current_price_sensor="sensor.aemo_spot",
+            )
+            assert out.spot_import_raw == PRIMARY[0]  # the plan's prices untouched
+            assert len(seen) == warned
+            if warned:
+                assert seen[0] == (GRID[0], result)
