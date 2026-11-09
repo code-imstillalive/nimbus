@@ -72,3 +72,22 @@ def test_an_exact_unit_or_another_dimension_needs_none():
     grid = with_energy["devices"][0]["bindings"]
     grid["import_energy"] = copy.deepcopy(grid["power"])
     assert du.declare(with_energy, "grid", "import_energy", "kW") is None
+
+
+def test_a_binding_that_is_not_a_mapping_is_passed_over():
+    """A damaged document (a binding stored as a bare string) never breaks a
+    declaration: `declare` refuses it, and `carry_declared` keeps every good
+    declaration around it and leaves the damaged one as it was."""
+    damaged = _doc()
+    damaged["devices"][0]["bindings"]["power"] = "sensor.grid"
+    assert du.declare(damaged, "grid", "power", "kW") is None
+
+    old = du.declare(_doc(), "grid", "power", "kW")
+    old["devices"][0]["bindings"]["battery_power"] = "junk"
+    new = _doc()
+    new["devices"][0]["bindings"]["battery_power"] = "junk"
+    out = du.carry_declared(old, new)
+    power = out["devices"][0]["bindings"]["power"]
+    assert power["normalization"]["native_unit"] == "kW"
+    assert power["provenance"]["overridden"] is True
+    assert out["devices"][0]["bindings"]["battery_power"] == "junk"
