@@ -41,3 +41,9 @@ def test_drift_is_recent_error_over_twice_its_own_baseline():
                 / 10
                 / (sum(residuals[:-10]) / (len(residuals) - 10))
             )
+
+    # A window of 0 leaves no baseline to compare against: not watching, never flagged.
+    climbing = [0.1] * 10 + [0.5] * 10
+    status = anomaly.residual_drift_status(climbing, recent_window=0)
+    assert status.watching is False and status.sample_count == 20
+    assert anomaly.detect_residual_drift(climbing, recent_window=0) is None
