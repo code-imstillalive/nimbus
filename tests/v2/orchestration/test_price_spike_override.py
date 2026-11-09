@@ -42,5 +42,68 @@ class TestSpikeDetectionByAlertEntity(unittest.TestCase):
         self.assertFalse(detected)
 
 
+class TestTheOverrideFiresOnlyWhenArmedSeenAndSet(unittest.TestCase):
+    def test_the_override_discharges_only_when_armed_a_spike_is_seen_and_a_rate_is_set(
+        self,
+    ):
+        """#567: the household arms it; a spike alone never discharges, and an
+        armed override with no rate does nothing. Detection is reported either way."""
+        spike = {"solver_price_spike_threshold": 1.00}
+        for overrides, price, expected in [
+            (
+                {
+                    **spike,
+                    "solver_price_spike_override_armed": True,
+                    "solver_price_spike_discharge_kw": 5.0,
+                },
+                1.50,
+                (5.0, True),
+            ),
+            (
+                {
+                    **spike,
+                    "solver_price_spike_override_armed": True,
+                    "solver_price_spike_discharge_kw": 5.0,
+                },
+                0.50,
+                (None, False),
+            ),
+            (
+                {
+                    **spike,
+                    "solver_price_spike_override_armed": False,
+                    "solver_price_spike_discharge_kw": 5.0,
+                },
+                1.50,
+                (None, True),
+            ),
+            (
+                {
+                    **spike,
+                    "solver_price_spike_override_armed": True,
+                    "solver_price_spike_discharge_kw": 0.0,
+                },
+                1.50,
+                (None, True),
+            ),
+        ]:
+            with self.subTest(overrides=overrides, price=price):
+                self.assertEqual(
+                    price_inputs.resolve_price_spike_override(_cfg(**overrides), price),
+                    expected,
+                )
+
+        # The alert entity alone is a spike too, with no threshold set.
+        cfg = _cfg(
+            solver_price_spike_alert_entity="binary_sensor.retailer_spike",
+            solver_price_spike_override_armed=True,
+            solver_price_spike_discharge_kw=4.0,
+        )
+        with patch.object(solver_writer, "ha_get", return_value={"state": "on"}):
+            self.assertEqual(
+                price_inputs.resolve_price_spike_override(cfg, 0.10), (4.0, True)
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
