@@ -169,12 +169,12 @@ rules:
   test-coverage:
     status: todo
     comment: >-
-      Measured on CI, combined stub and real-HA runs (main at 3613639b,
-      8 Nov 2026): 95.6% overall, against a 75% fail-under floor. The rule
-      asks for 95% in every module, and 26 of 137 are below it; the lowest
-      are flows/device_setup.py (62%), solver/regret.py (80%) and
-      config_flow.py (81%). Closing the gap means new tests, which meets
-      the 1,010-1,020 test cap (#2393).
+      Measured on CI, combined stub and real-HA runs (main at 8c64e85,
+      10 Nov 2026): 97.8% overall, against a 75% fail-under floor. The rule
+      asks for 95% in every module; 2 of 137 are still below it:
+      device_contract_ha.py (93%) and flows/device_setup.py (94%). The 24
+      others were closed under #2393 with tests-only PRs, mostly as cases
+      added to existing tests, so the count stayed well under the cap.
 
   # Gold
   devices: done
