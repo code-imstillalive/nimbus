@@ -319,6 +319,18 @@ def test_without_amber_or_with_a_failed_read_nothing_is_collected(
     monkeypatch.setattr(sw, "ha_get", down)
     assert price_inputs.collect_amber_spot(["sensor.amber_general"], SPOT_NOW) == {}
 
+    # The loss-factor codes (#1786): blank, unknown or unreadable is no code.
+    cfg = {
+        "solver_loss_factor_tni_sensor": "sensor.tni",
+        "solver_loss_factor_dlf_code_sensor": "sensor.dlf",
+    }
+    codes = {"sensor.tni": "QBNE", "sensor.dlf": "unavailable"}
+    reads = type("Sw", (), {"ha_get": staticmethod(lambda e: {"state": codes[e]})})
+    assert price_inputs._loss_factor_codes(reads, cfg) == ("QBNE", None)
+    assert price_inputs._loss_factor_codes(reads, {}) == (None, None)
+    broken = type("Sw", (), {"ha_get": staticmethod(down)})
+    assert price_inputs._loss_factor_codes(broken, cfg) == (None, None)
+
 
 def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
     # test_a_spot_older_than_five_days_is_dropped
@@ -329,6 +341,15 @@ def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
         mp.setattr(sw, "ha_get", lambda _e: _amber(_spot_row(0.11)))
         out = price_inputs.collect_amber_spot(["sensor.amber_general"], SPOT_NOW)
         assert old not in out and len(out) == 1
+
+    # test_a_store_that_cannot_be_written_still_gives_this_solve_its_spot
+    with monkeypatch.context() as mp:
+        mp.setattr(sw, "AMBER_SPOT_PATH", str(spot_store.parent))  # a folder
+        mp.setattr(price_inputs, "_AMBER_SPOT_CACHE", None)
+        mp.setattr(solver_shared, "ha_get", lambda _e: _amber(_spot_row(0.11)))
+        mp.setattr(sw, "ha_get", lambda _e: _amber(_spot_row(0.11)))
+        out = price_inputs.collect_amber_spot(["sensor.amber_general"], SPOT_NOW)
+        assert len(out) == 1
 
     # test_the_markup_uses_the_same_poll_spot_over_a_late_regional_post
     with monkeypatch.context() as mp:
