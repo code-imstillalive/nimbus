@@ -16,6 +16,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Entity names come from translations** (#2411, quality scale `entity-translations`). All 241 names move into `strings.json`, word for word; names and entity ids are unchanged.
 - **Icons come from translations** (#2412, quality scale `icon-translations`). Each action has an icon; the three entities that set one in code show the same icon as before.
 - Internal: every part of Nimbus with code is now at least 95% covered by tests, 97.9% overall (#2413–#2479 under #2393; the count goes from 956 to 961, mostly as cases added to existing tests), and the quality scale's `test-coverage` is done (#2476).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at 68ebe8a5** (`release/0.102.0`, installed untagged through Home Assistant's marketplace and restarted at 07:43 AEST, 10 Nov; read through 07:47).
+  - 123 of the 127 Nimbus entities carrying a version read 0.102.0; the other four are the daily reports.
+  - None of the 388 Nimbus entities unavailable; plan `optimal` on the first solve after the restart (07:45); all 62 Solver numbers present with the same values as a read taken at 07:31 before the install.
+  - Names and ids unchanged by #2411: the same 388 Nimbus entity ids as before, and none of their names differs from the 07:31 read.
+  - Icons by #2412: Home Assistant serves `mdi:list-status`, `mdi:cash-sync` and `mdi:file-tree` for the three entities from `icons.json`, and an icon for each Nimbus action.
+  - Help's What's New shows 0.102.0. No Repairs at all. Log: no Nimbus ERROR; the Nimbus WARNING lines are the test box's known ones (forecast residual drift, the flex-telemetry clamp, the test EV's unreachable departure target, an implausible meter row, the P5MIN diagnostic, an empty temperature forecast), none from this release.
+  - Not seen live: the new Repair (#2437) raising, since no chosen entity on devhub has been unavailable for an hour. It is covered by the tests in its PR.
+- Consumer check: no setting, entity id or name is moved or renamed; three icons now come from `icons.json` and look the same. A new Repair kind, `configured_entity_unavailable`, can appear in Settings → Repairs.
 
 ## [0.101.0] - 2026-11-08
 
