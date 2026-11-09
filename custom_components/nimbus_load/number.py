@@ -270,8 +270,6 @@ class _SharedNumberStore:
 
 
 class _CurrencyUnitMixin:
-    _desc: Any  # set by the entity class this mixes into
-
     """Resolve a currency sentinel against HA's own configured currency.
 
     nimbus issue #1293 (Mark Purcell, IV&V #1289). #1253 removed the
@@ -304,6 +302,8 @@ class _CurrencyUnitMixin:
       deliberately not a plausible currency, so if it ever reached a UI it
       would be obviously wrong rather than quietly wrong.
     """
+
+    _desc: Any  # set by the entity class this mixes into
 
     @property
     def native_unit_of_measurement(self) -> str | None:
