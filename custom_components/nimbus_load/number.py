@@ -303,6 +303,8 @@ class _CurrencyUnitMixin:
       would be obviously wrong rather than quietly wrong.
     """
 
+    _desc: Any  # set by the entity class this mixes into
+
     @property
     def native_unit_of_measurement(self) -> str | None:
         unit = self._desc.unit

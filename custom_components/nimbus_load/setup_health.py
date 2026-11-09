@@ -524,6 +524,8 @@ def _live_settings(hass: Any, entry: Any) -> dict[str, float]:
                 "number", DOMAIN, f"{entry.entry_id}_{key}"
             )
             state = hass.states.get(entity_id) if entity_id else None
+            if state is None:
+                continue  # absent: not checked
             try:
                 out[key] = float(state.state)
             except (AttributeError, TypeError, ValueError):

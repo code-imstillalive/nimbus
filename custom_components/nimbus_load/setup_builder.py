@@ -197,7 +197,7 @@ def plan_setup_fills(options: Mapping[str, Any], lookup: StateLookup) -> SetupPl
     ):
         found = lookup(load_fc)
         attrs = found[1] if found is not None else {}
-        source = attrs.get("source_sensor")
+        source_sensor = attrs.get("source_sensor")
         whole_house = (
             attrs.get(ATTR_SUBENTRY_TYPE) == SUBENTRY_TYPE_SIGNAL
             and attrs.get(ATTR_SIGNAL_ROLE) == SIGNAL_ROLE_OTHER
@@ -208,14 +208,14 @@ def plan_setup_fills(options: Mapping[str, Any], lookup: StateLookup) -> SetupPl
             # Ambiguous role (Mark, #1587): a single Load's forecast is one
             # circuit, not the whole house. Left unresolved, not offered.
             pass
-        elif not isinstance(source, str) or not source:
+        elif not isinstance(source_sensor, str) or not source_sensor:
             plan.skipped.append(Skip(target, load_fc, "it names no source sensor"))
         else:
-            problem = _power_problem(source, lookup)
+            problem = _power_problem(source_sensor, lookup)
             if problem is not None:
-                plan.skipped.append(Skip(target, source, problem))
+                plan.skipped.append(Skip(target, source_sensor, problem))
             else:
-                plan.options[target] = source
+                plan.options[target] = source_sensor
 
     return plan
 
