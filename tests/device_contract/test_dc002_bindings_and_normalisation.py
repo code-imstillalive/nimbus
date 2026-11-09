@@ -751,6 +751,22 @@ def test_dc_r05_f03_an_allowed_read_only_action_is_called_once_and_read() -> Non
         Recorder(response=unitless),
     )
     assert bare.reason == "unit_undeclared"
+    # An adapter it doesn't know is refused before anything is called; with no
+    # way to call an action, or no answer, the price is missing.
+    unknown = _action_doc("openadr3_ven.get_forecast")
+    source = unknown["devices"][0]["bindings"]["import_price_forecast"]["source"]
+    source["adapter"] = {"name": "nope", "version": 1}
+    rec = Recorder(response=_OPENADR)
+    got = _resolve(unknown, "grid_main", "import_price_forecast", rec)
+    assert (got.reason, rec.calls) == ("adapter_unknown", [])
+    no_reader = db.Readers(state=lambda _e: None)
+    doc = _action_doc("openadr3_ven.get_forecast")
+    got = db.resolve(doc, "grid_main", "import_price_forecast", no_reader, NOW)
+    assert got.reason == "no_action_reader"
+    rec = Recorder(response=None)
+    got = _resolve(doc, "grid_main", "import_price_forecast", rec)
+    assert (got.state, got.reason) == (db.MISSING, "no_response")
+    assert [c[0] for c in rec.calls] == ["action"]
 
 
 def test_dc_r05_f03_openadr_rows_are_never_read_from_its_summary_attributes() -> None:
