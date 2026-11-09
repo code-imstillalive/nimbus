@@ -1,4 +1,4 @@
-"""nimbus #2393: device_contract_ha's two recorder reads on a real recorder.
+"""nimbus #2393: device_contract_ha's two recorder reads, and setup_health's, on a real recorder.
 
 The other device-contract tests patch `_async_history` and the statistics
 read, so the reads themselves were never run. Here nothing is patched:
@@ -17,7 +17,7 @@ from pytest_homeassistant_custom_component.components.recorder.common import (
     async_wait_recording_done,
 )
 
-from custom_components.nimbus_load import device_contract_ha
+from custom_components.nimbus_load import device_contract_ha, setup_health
 
 
 async def test_history_comes_back_as_a_series_with_gaps_as_none(
@@ -34,6 +34,16 @@ async def test_history_comes_back_as_a_series_with_gaps_as_none(
     )
 
     assert [v for _t, v in out["sensor.bat_power"]] == [1.5, None, 2.0]
+
+    # test_setup_health_reads_every_state_the_entity_had: the availability
+    # check (#2014) reads the same recorder, states as written, by entity
+    seen = await setup_health._async_states_seen(
+        hass,
+        ["sensor.bat_power", "sensor.never_recorded"],
+        start,
+        dt_util.utcnow() + timedelta(minutes=5),
+    )
+    assert seen == {"sensor.bat_power": ["1.5", "unavailable", "2.0"]}
 
 
 async def test_statistics_give_the_latest_row_and_its_unit(hass: HomeAssistant):
