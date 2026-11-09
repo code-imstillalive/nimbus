@@ -209,8 +209,9 @@ def test_without_what_it_needs_it_is_off_even_if_it_was_on(install, monkeypatch)
     def broken(*_a, **_k):
         raise RuntimeError("gate broke")
 
-    monkeypatch.setattr(srl, "evaluate_gate", broken)
-    (kw, _lo, _up), pub = _build(install, site, now, grid, cfg)
+    with monkeypatch.context() as m:  # only this case: the later ones judge for real
+        m.setattr(srl, "evaluate_gate", broken)
+        (kw, _lo, _up), pub = _build(install, site, now, grid, cfg)
     assert (pub["reason"], pub["active"]) == ("error", False)
     assert kw[1] == pytest.approx((5.0 + 6.0 + 4.0) / 3)  # not lowered
 
