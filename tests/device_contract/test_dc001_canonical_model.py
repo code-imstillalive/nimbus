@@ -173,6 +173,12 @@ def test_dc_r02_f06_reordering_devices_changes_neither_ids_nor_validation():
     for code in _CODES:
         assert code in _codes(_bad(code)), (code, dc.validate(_bad(code)))
 
+    # ...and every other path to a code: each malformed part is named, never skipped.
+    for code, part in _OTHER_PATHS:
+        doc = _minimal()
+        part(doc)
+        assert code in _codes(doc), (code, dc.validate(doc))
+
     # test_the_spec_table_and_the_tests_name_the_same_codes
     spec = (
         Path(__file__).resolve().parents[2]
@@ -337,6 +343,53 @@ def _bad(code):
         doc["devices"] = devices[1:]
         doc["relationships"] = []
     return doc
+
+
+def _forecast_solar(sources):
+    return {
+        "id": "solar_1",
+        "kind": "solar",
+        "bindings": {"generation_forecast": {"sources": sources, "combine": "mean"}},
+    }
+
+
+_OTHER_PATHS = (
+    # a device kind the contract does not know
+    ("role_not_allowed_for_kind", lambda d: d["devices"][1].update(kind="boat")),
+    # a source kind the contract does not know
+    (
+        "source_fields_missing",
+        lambda d: d["devices"][0]["bindings"]["power"].update(source={"kind": "guess"}),
+    ),
+    # a combined binding with no sources at all
+    ("source_fields_missing", lambda d: d["devices"].append(_forecast_solar([]))),
+    # a relationship kind the contract does not know
+    (
+        "reference_unresolved",
+        lambda d: d["relationships"].append({"kind": "feeds", "from": "grid_main"}),
+    ),
+    # a shared constraint naming no device
+    (
+        "reference_unresolved",
+        lambda d: d["shared_constraints"].append(
+            {"devices": ["battery_nowhere"], "quantity": "ac_power", "limit_kw": 5}
+        ),
+    ),
+    # a model output whose target names no device
+    (
+        "reference_unresolved",
+        lambda d: d["devices"][1]["bindings"].update(
+            energy={
+                "source": {
+                    "kind": "model_output",
+                    "model": "m",
+                    "target": "nowhere.power",
+                },
+                "provenance": {"origin": "derived", "confirmed": True},
+            }
+        ),
+    ),
+)
 
 
 _CODES = (
