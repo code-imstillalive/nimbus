@@ -350,9 +350,14 @@ rules:
   strict-typing:
     status: todo
     comment: >-
-      py.typed marker exists. Since 8 Nov 2026 (#2289 item 9) a blocking CI
-      job, "Type Check (mypy, solver+ml)", covers every module that does not
-      import Home Assistant: solver/, ml/ and 60 entries in all, with zero
-      findings. The modules that import Home Assistant (entities, flows,
-      coordinator) are still in the advisory whole-package job, so the rule
-      is not yet met.
+      py.typed marker exists. A blocking CI job, "Type Check (mypy,
+      solver+ml)", covers solver/, ml/ and 95 more modules, 123 source files
+      in all, with zero findings (10 Nov 2026: #2477 and #2483 added 35
+      Home Assistant-facing modules, among them sensor, services,
+      diagnostics and every subentry flow). Ten modules are still only in
+      the advisory whole-package job, 110 findings between them:
+      controllable_loads.py (39), solver_writer.py and
+      solver_dispatch/guard.py (19 each), device_contract_ha.py (10),
+      coordinator.py, flows/hub_options.py and solver_reports/quality.py
+      (5 each), __init__.py (4), config_flow.py and solver_shared.py (2
+      each), so the rule is not yet met.
