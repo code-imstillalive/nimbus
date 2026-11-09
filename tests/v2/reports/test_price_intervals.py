@@ -205,3 +205,52 @@ def _aemo(start_min, end_min, price):
 
 def _lv(end_min, **row):
     return {"intervalEnd": (T0 + timedelta(minutes=end_min)).isoformat(), **row}
+
+
+def test_each_adapter_skips_a_row_it_cannot_read_and_keeps_the_rest():
+    """A provider row that isn't a dict, has an unreadable time or value, or
+    runs backwards is passed over; the good row beside it still prices."""
+    t0, t1 = "2026-10-05T07:00:00+00:00", "2026-10-05T07:30:00+00:00"
+
+    def spans(intervals):
+        return [
+            (i.start.isoformat()[11:16], i.end.isoformat()[11:16], i.value)
+            for i in intervals
+        ]
+
+    good = [("07:00", "07:30", 0.1)]
+    pd7day = [
+        1,
+        {"time": "bad", "nemtime": t1, "value": 1},
+        {"time": t1, "nemtime": t0, "value": 2},
+    ]
+    assert (
+        spans(pi.pd7day_intervals([*pd7day, {"time": t0, "nemtime": t1, "value": 0.1}]))
+        == good
+    )
+    assert (
+        spans(
+            pi.generic_forecast_intervals(
+                [1, {"time": "bad", "value": 1}, {"time": t0, "value": 0.1}]
+            )
+        )
+        == good
+    )
+    detailed = [
+        1,
+        {"end_time": "bad"},
+        {"start_time": t0, "end_time": t1, "duration": 30},
+    ]
+    express = pi.amber_express_intervals(
+        [1, {"time": "bad", "value": 1}, {"time": t0, "value": 0.1}], detailed
+    )
+    assert spans(express or []) == good
+    openadr = [1, {"datetime": t0, "value": 0.1, "interval_minutes": 30}]
+    assert spans(pi.openadr_intervals(openadr)) == good
+    # HA core Amber rows without a duration still price their own span, and are
+    # recognised by shape; they are not a regional (AEMO / PD7DAY) forecast.
+    core = [{"start_time": t0, "end_time": t1, "per_kwh": 0.1}]
+    assert spans(pi.amber_core_intervals(core)) == good
+    assert spans(pi.intervals_from_rows(core) or []) == good
+    assert pi.regional_step_points(core) is None
+    assert pi._lv_span({"time": "bad"}) is None
