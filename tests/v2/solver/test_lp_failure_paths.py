@@ -371,3 +371,20 @@ def test_the_model_builder_refuses_what_would_build_a_wrong_problem():
     p.set_cost("x", 1.0)
     p.set_cost("x", 0.5)  # additive, never replaced
     assert p._cost["x"] == 1.5
+
+    # A result that is not optimal has nothing to read or cost: refused, never zero.
+    stuck = LPProblem()
+    stuck.add_variable("x", ub=1.0, cost=1.0)
+    stuck.add_ub_constraint({"x": -1.0}, -2.0)  # x >= 2 against x <= 1
+    infeasible = stuck.solve()
+    assert infeasible.status == "infeasible" and infeasible.x is None
+    for call in (
+        lambda: stuck.value_of(infeasible, "x"),
+        lambda: stuck.values_of(infeasible, ["x"]),
+        lambda: stuck.primary_cost_of(infeasible),
+    ):
+        with pytest.raises(ValueError, match="non-optimal result"):
+            call()
+    # A warm variant needs the basis the first solve was asked to keep.
+    with pytest.raises(ValueError, match="keep_basis=True"):
+        p.solve().resolve_variant({}, ())
