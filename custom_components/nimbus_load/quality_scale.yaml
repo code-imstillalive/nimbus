@@ -167,14 +167,14 @@ rules:
       No external service authentication; the integration reads local HA
       sensors and does not authenticate against any remote service.
   test-coverage:
-    status: todo
+    status: done
     comment: >-
-      Measured on CI, combined stub and real-HA runs (main at 8c64e85,
-      10 Nov 2026): 97.8% overall, against a 75% fail-under floor. The rule
-      asks for 95% in every module; 2 of 137 are still below it:
-      device_contract_ha.py (93%) and flows/device_setup.py (94%). The 24
-      others were closed under #2393 with tests-only PRs, mostly as cases
-      added to existing tests, so the count stayed well under the cap.
+      Measured on CI, combined stub and real-HA runs (main at 431316c,
+      10 Nov 2026): 97.9% overall (546 of 26,107 lines uncovered), and every
+      one of the 135 modules with code is at 95% or above; the lowest is
+      device_contract_ha.py at 95.2%. On 8 Nov, 26 were below 95%; they were
+      closed under #2393 with tests-only PRs, mostly as cases added to
+      existing tests, so the count stayed well under the cap (960).
 
   # Gold
   devices: done
