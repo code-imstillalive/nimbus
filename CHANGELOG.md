@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.102.0] - 2026-11-10
+
+**A Repair names an entity you chose that has gone quiet, and entity names and icons come from translations.**
+
+- **A Repair for a chosen entity that stays unavailable** (#2437, for #2436, reviewed by Mark Purcell). When an entity picked in setup reads `unavailable` or `unknown`, or is missing, for an hour, **Settings → Repairs** names it and every setting that uses it, and clears itself once it reports again. The hour counts from Home Assistant's start, so a restart never raises it. An availability entity is left out, because `unavailable` can be its real answer.
+- **Entity names come from translations** (#2411, quality scale `entity-translations`). All 241 names move into `strings.json`, word for word; names and entity ids are unchanged.
+- **Icons come from translations** (#2412, quality scale `icon-translations`). Each action has an icon; the three entities that set one in code show the same icon as before.
+- Internal: every part of Nimbus with code is now at least 95% covered by tests, 97.9% overall (#2413–#2479 under #2393; the count goes from 956 to 961, mostly as cases added to existing tests), and the quality scale's `test-coverage` is done (#2476).
+
 ## [0.101.0] - 2026-11-08
 
 **Setup refuses an entity that does not exist, errors read in plain words, and new installs start with fewer entities switched on.**
@@ -18,6 +27,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The Set controllable load action** is described like the other actions (#2400).
 - Docs: what Nimbus provides, what people use it for, how often it updates, and its known limitations (#2396–#2399).
 - Internal: a read-only replay that compares staleness weightings for the price blend (#2405, for #1786, reviewed by Mark Purcell); the test cap counts a parametrised test once (#2406).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at e19f0c28** (`release/0.101.0`, installed untagged through Home Assistant's marketplace and restarted at 18:51 AEST, 8 Nov; read through 18:54).
+  - 123 of the 127 Nimbus entities carrying a version read 0.101.0; the other four are the daily reports.
+  - None of the 388 Nimbus entities unavailable; plan `optimal` (solved 18:53); all 62 Solver numbers kept their values over the restart.
+  - Help's What's New shows 0.101.0. No Repairs at all. Log: no Nimbus ERROR.
+  - Existing install unchanged by #2403: the same 388 Nimbus entities are present and none was disabled, as Home Assistant applies "disabled by default" only to entities created for the first time.
+  - Not seen live: the wizard refusing a mistyped entity (#2404). It is covered by the real Home Assistant test on CI (three cases), not exercised on devhub.
+- Consumer check: no setting, entity or card is moved or renamed. New installs get the 57 diagnostic entities Nimbus's own tabs do not show switched off; existing installs keep every entity as it is. Error messages change wording only.
 
 ## [0.100.1] - 2026-11-08
 

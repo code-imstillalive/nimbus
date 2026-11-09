@@ -218,6 +218,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.102.0",
+        "10 Nov 2026",
+        (
+            (
+                "**Repairs** names an entity you chose in setup that has "
+                "been unavailable for an hour, and every setting using it."
+            ),
+            "Entity names and icons come from translations; none changes.",
+        ),
+    ),
+    (
         "0.101.0",
         "8 Nov 2026",
         (
