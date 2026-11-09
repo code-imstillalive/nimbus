@@ -59,7 +59,12 @@ def _arrays(cfg, **kw):
 def test_a_source_that_cannot_be_read_is_dropped_and_said_once(site, caplog):
     # test_a_source_that_cannot_be_read_is_dropped_and_said_once
     caplog.clear()
-    for broken in [{"something_else": 1}, urllib.error.URLError("down")]:
+    for broken in [
+        {"something_else": 1},
+        urllib.error.URLError("down"),
+        # #363: a time that is not ISO at all drops the source, it never takes the solve down
+        {"forecast": [{"time": "half past three", "value": 3.0}] * N},
+    ]:
         caplog.clear()
         site["sensor.bad"] = broken
         site["sensor.good"] = _forecast([4.0] * N)
