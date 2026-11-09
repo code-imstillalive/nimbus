@@ -293,7 +293,9 @@ def test_a_sensor_that_merely_held_its_value_counts_to_the_end_of_the_day(
             [],
         ),  # before the window
         (None, RuntimeError("down"), None, []),  # unknown, not fine
-        ([("on", DUSK + timedelta(hours=1))], None, False, ["on"]),  # a home sensor
+        # a home sensor's "on": not a number, so an outage to this probe (its
+        # docstring: any non-numeric state), and kept as written by the reader
+        ([("on", DUSK + timedelta(hours=1))], None, True, ["on"]),
     ],
     ids=["outage", "held", "nothing", "outage_before", "read_failed", "home"],
 )
