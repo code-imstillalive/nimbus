@@ -456,6 +456,68 @@ def test_dc_r04_a_missing_entity_or_unbound_role_is_missing_never_zero() -> None
         got = _resolve(doc, device, role, rec)
         assert (got.value, got.state, got.reason) == (None, db.MISSING, reason)
 
+    # ...and the same through a statistic, a derived value and an adapter.
+    stat = _binding(
+        {
+            "kind": "recorder_statistic",
+            "statistic_id": "sensor:e",
+            "interval_semantics": "hourly_sum",
+        }
+    )
+
+    def stats(value, unit):
+        return Recorder(statistics={"sensor:e": {"value": value, "unit": unit}})
+
+    def adapted(spec=None, path="forecast"):
+        binding = _attribute("sensor.aemo", "aemo_nem", path=path)
+        if spec is not None:
+            binding["source"]["adapter"] = spec
+        return binding
+
+    sum_of = {"kind": "derived", "calculation": "sum"}
+    rows = Recorder(
+        {"sensor.aemo": {"state": "0.1", "attributes": {"forecast": [1, 2]}}}
+    )
+    for doc, role, rec, reason in [
+        (grid(import_energy=stat), "import_energy", stats("x", "kWh"), "not_numeric"),
+        (
+            grid(import_energy=stat),
+            "import_energy",
+            stats(5, "kW"),
+            "power_unit_as_energy",
+        ),
+        (
+            grid(
+                power=_binding({**sum_of, "depends_on": ["grid_main.import_energy"]}),
+                import_energy=_entity("sensor.e"),
+            ),
+            "power",
+            Recorder({"sensor.e": _state("5", "kWh")}),
+            "dependency_dimension_differs",
+        ),
+        (
+            grid(import_price_forecast=adapted("aemo_nem")),
+            "import_price_forecast",
+            rows,
+            "adapter_unknown",
+        ),
+        (
+            grid(import_price_forecast=adapted({"name": "aemo_nem", "version": "1"})),
+            "import_price_forecast",
+            rows,
+            "adapter_unknown",
+        ),
+        (
+            grid(import_price_forecast=adapted(path="forecast.rows")),
+            "import_price_forecast",
+            rows,
+            "no_rows",
+        ),
+        (grid(power=adapted()), "power", rows, "adapter_reads_prices_only"),
+    ]:
+        got = _resolve(doc, "grid_main", role, rec)
+        assert (got.value, got.state, got.reason) == (None, db.MISSING, reason)
+
 
 def _breaker(rule: dict[str, Any], **times: Any) -> db.Resolved:
     doc = _doc(
