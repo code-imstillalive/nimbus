@@ -375,6 +375,87 @@ def test_dc_r04_a_missing_entity_or_unbound_role_is_missing_never_zero() -> None
         "unbound",
     )
 
+    # Every malformed binding is missing with its own reason, never zero.
+    def grid(**bindings):
+        return _doc(_device("grid_main", "grid", **bindings))
+
+    derived = {"kind": "derived", "calculation": "sum"}
+    for doc, device, role, rec, reason in [
+        (
+            grid(power=_entity("sensor.g")),
+            "nowhere",
+            "power",
+            Recorder(),
+            "device_unknown",
+        ),
+        (
+            grid(flux=_entity("sensor.g")),
+            "grid_main",
+            "flux",
+            Recorder(),
+            "role_unknown",
+        ),
+        (
+            grid(power=_binding({"kind": "guess"})),
+            "grid_main",
+            "power",
+            Recorder(),
+            "source_kind_unknown",
+        ),
+        (
+            grid(power=_entity("sensor.g")),
+            "grid_main",
+            "power",
+            Recorder({"sensor.g": {"attributes": {}}}),
+            "no_state",
+        ),
+        (
+            grid(
+                power=_binding(
+                    {
+                        **derived,
+                        "calculation": "magic",
+                        "depends_on": ["grid_main.import_power"],
+                    }
+                )
+            ),
+            "grid_main",
+            "power",
+            Recorder(),
+            "calculation_unknown",
+        ),
+        (
+            grid(power=_binding({**derived, "depends_on": []})),
+            "grid_main",
+            "power",
+            Recorder(),
+            "no_dependencies",
+        ),
+        (
+            grid(import_energy=_entity("sensor.e")),
+            "grid_main",
+            "import_energy",
+            Recorder({"sensor.e": _state("5")}),
+            "unit_missing",
+        ),
+        (
+            grid(import_energy=_entity("sensor.e")),
+            "grid_main",
+            "import_energy",
+            Recorder({"sensor.e": _state("5", "A")}),
+            "unit_not_energy",
+        ),
+        (
+            grid(power=_binding({"kind": "constant", "value": "lots", "unit": "kW"})),
+            "grid_main",
+            "power",
+            Recorder(),
+            "not_numeric",
+        ),
+    ]:
+        got = _resolve(doc, device, role, rec)
+        assert (got.value, got.state, got.reason) == (None, db.MISSING, reason)
+
 
 def _breaker(rule: dict[str, Any], **times: Any) -> db.Resolved:
     doc = _doc(
