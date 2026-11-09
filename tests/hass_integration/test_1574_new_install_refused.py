@@ -55,3 +55,26 @@ async def test_a_site_that_cannot_be_saved_is_forgotten_and_a_repair_says_why(
     )
     assert issue is not None
     assert issue.translation_placeholders == {"reason": reason}
+
+
+async def test_a_confirmed_site_that_does_not_validate_is_refused_and_nothing_written(
+    hass: HomeAssistant,
+):
+    """#1574 DC-007 slice 1, #2393: the real commit, not a patched one. A site
+    the store's validation refuses comes back with its problems and the hub
+    keeps no document and stays in `legacy`, as before the flow."""
+    entry = MockConfigEntry(domain=DOMAIN, title="Nimbus", data={}, options={})
+    entry.add_to_hass(hass)
+
+    out = await device_contract_ha.async_adopt_new_install(hass, entry, SITE)
+
+    assert (out["ok"], out["code"], out["mode"]) == (
+        False,
+        "document_invalid",
+        "legacy",
+    )
+    assert out["problems"] and all(
+        {"code", "path", "message"} <= set(p) for p in out["problems"]
+    )
+    state = await device_contract_ha._store(hass, entry).async_read()
+    assert (state["document"], state["mode"]) == (None, "legacy")
