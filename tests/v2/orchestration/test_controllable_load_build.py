@@ -170,7 +170,7 @@ def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, 
         )
 
 
-def test_an_overnight_or_open_ended_window_is_one_window(site):
+def test_an_overnight_or_open_ended_window_is_one_window(site, caplog):
     site.load(
         "ev",
         deferrable_max_power_kw=7.0,
@@ -184,6 +184,16 @@ def test_an_overnight_or_open_ended_window_is_one_window(site):
     _, (ev, open_ended), _ = site.build(now, grid=grid)
     assert ev.windows is None and ev.earliest_period < ev.deadline_period
     assert open_ended.windows is None and open_ended.deadline_period == len(grid) - 1
+
+    # At 02:00 the next 22:00 is tonight but the next 06:00 is this morning,
+    # so the deadline resolves before the earliest start: that cycle leaves
+    # the load out, says why, and never builds a backwards window.
+    early = datetime(2026, 9, 9, 2, 0, tzinfo=TZ)
+    grid, _ = shared.build_tiered_grid(early)
+    with caplog.at_level(logging.WARNING):
+        _, adequacy, _ = site.build(early, grid=grid)
+    assert [a.name for a in adequacy] == ["open"]
+    assert "'ev' (deferrable) resolved deadline_period" in caplog.text
 
 
 def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(site, caplog):
