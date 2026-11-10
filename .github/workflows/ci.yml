@@ -324,6 +324,7 @@ jobs:
             custom_components/nimbus_load/flows/hub_options.py \
             custom_components/nimbus_load/solver_reports/quality.py \
             custom_components/nimbus_load/solver_writer.py \
+            custom_components/nimbus_load/device_contract_ha.py \
             custom_components/nimbus_load/solver_inputs/controllable_loads.py \
             --ignore-missing-imports --follow-imports=silent
 
