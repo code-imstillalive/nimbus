@@ -136,20 +136,16 @@ class NimbusRegretCard extends HTMLElement {
     this._error = null;
     this._render();
     try {
-      // Real incident, 2026-09-01: these were built with no timezone
-      // offset at all (start) or via toISOString() sliced to look
-      // offset-less but actually UTC (end) -- the service parses them
-      // with Python's datetime.fromisoformat(), producing an
-      // offset-NAIVE datetime that then crashes comparing against
-      // dt_util.now() (offset-aware): "can't compare offset-naive and
-      // offset-aware datetimes". Explicit +10:00 (Brisbane has no DST)
-      // on both ends is what the scoring engine actually expects --
-      // matches the exact strings verified working by hand against the
-      // real service tonight.
-      const start = `${dateKey}T00:00:00+10:00`;
+      // Local midnight to local midnight, with NO offset: compute_quality_report
+      // anchors an offset-less time to Home Assistant's own time zone
+      // (services._coerce_datetime). The card once sent "+10:00" here
+      // (2026-09-01, before that anchoring existed), which scored every
+      // install outside Brisbane, or on daylight saving, on Brisbane's
+      // midnight.
+      const start = `${dateKey}T00:00:00`;
       const endDateObj = new Date(`${dateKey}T00:00:00`);
       endDateObj.setDate(endDateObj.getDate() + 1);
-      const end = `${this._formatLocalDate(endDateObj)}T00:00:00+10:00`;
+      const end = `${this._formatLocalDate(endDateObj)}T00:00:00`;
       const result = await this._hass.callService(
         "nimbus_load",
         "compute_quality_report",
