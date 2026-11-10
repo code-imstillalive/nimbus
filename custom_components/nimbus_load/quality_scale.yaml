@@ -351,16 +351,11 @@ rules:
       sensor states via the core API only. Would become applicable if a
       future feature reaches out to an external forecast provider.
   strict-typing:
-    status: todo
+    status: done
     comment: >-
-      py.typed marker exists. A blocking CI job, "Type Check (mypy,
-      solver+ml)", covers solver/, ml/ and 95 more modules, 123 source files
-      in all, with zero findings (10 Nov 2026: #2477 and #2483 added 35
-      Home Assistant-facing modules, among them sensor, services,
-      diagnostics and every subentry flow). Ten modules are still only in
-      the advisory whole-package job, 110 findings between them:
-      controllable_loads.py (39), solver_writer.py and
-      solver_dispatch/guard.py (19 each), device_contract_ha.py (10),
-      coordinator.py, flows/hub_options.py and solver_reports/quality.py
-      (5 each), __init__.py (4), config_flow.py and solver_shared.py (2
-      each), so the rule is not yet met.
+      py.typed marker exists. Every module in the package, 137 source
+      files, is in the blocking CI job "Type Check (mypy, solver+ml)",
+      with zero findings. It runs without Home Assistant installed. The last
+      ten modules were brought to zero and added on 10 Nov 2026 (#2484,
+      #2487, #2488-#2491, #2495, #2497-#2500), and so were the four package
+      __init__ modules.

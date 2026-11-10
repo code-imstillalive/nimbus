@@ -327,6 +327,10 @@ jobs:
             custom_components/nimbus_load/solver_dispatch/guard.py \
             custom_components/nimbus_load/device_contract_ha.py \
             custom_components/nimbus_load/solver_inputs/controllable_loads.py \
+            custom_components/nimbus_load/flows/__init__.py \
+            custom_components/nimbus_load/solver_dispatch/__init__.py \
+            custom_components/nimbus_load/solver_inputs/__init__.py \
+            custom_components/nimbus_load/solver_reports/__init__.py \
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------
