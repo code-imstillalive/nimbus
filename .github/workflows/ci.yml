@@ -319,6 +319,10 @@ jobs:
             custom_components/nimbus_load/setup_health.py \
             custom_components/nimbus_load/config_flow.py \
             custom_components/nimbus_load/solver_shared.py \
+            custom_components/nimbus_load/__init__.py \
+            custom_components/nimbus_load/coordinator.py \
+            custom_components/nimbus_load/flows/hub_options.py \
+            custom_components/nimbus_load/solver_reports/quality.py \
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------
