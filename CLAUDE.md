@@ -70,6 +70,7 @@ Before designing a solver, load-model, scoring or output mechanism:
    - the `manifest.json` version bump;
    - a `help_tab.WHATS_NEW` entry;
    - the previous release's `Devhub validation:` and `Consumer check:` lines carried back to `main`;
+   - an `Install shapes:` line for each change: which install shapes it touches (test box, reference household, Mark Purcell's install; `tests/device_contract/test_install_shapes.py`) and where it was seen live, or "unseen on <shape>" (#2394);
    - the user docs (`docs/`, published at code-imstillalive.github.io/nimbus) updated for every change in it a user would see: a new, changed or removed setting, entity, tab or behaviour. Household, 18 Oct 2026: "make sure these are kept up to date each release". `tests/test_docs_every_number_setting_listed.py` catches a missing or removed setting; other changes are checked by hand.
 2. Cut `release/X.Y.Z` from the merge commit. Install it on devhub untagged via HACS, restart, and validate.
 3. Merge a verdict PR into `release/X.Y.Z`, carrying `Devhub validation: ... at <commit>` and `Consumer check:`. "Devhub validation: not claimed, because X" is a valid answer.
