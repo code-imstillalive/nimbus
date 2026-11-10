@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import copy
 import re
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -673,7 +673,7 @@ def _candidate(binding: Mapping[str, Any]) -> dict[str, Any]:
 
 def add_provider_profiles(
     proposal: Proposal,
-    detected: list[Mapping[str, Any]],
+    detected: Sequence[Mapping[str, Any]],
     *,
     registry_ids: Mapping[str, str] | None = None,
 ) -> Proposal:
@@ -1269,7 +1269,7 @@ def _confirmed(binding: Mapping[str, Any]) -> dict[str, Any]:
 def apply_confirmation(
     stored: Mapping[str, Any],
     rediscovery: Rediscovery,
-    choices: list[Mapping[str, Any]],
+    choices: Sequence[Mapping[str, Any]],
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[tuple[str, str]]]:
     """(new document, refusals, changed (device, role) pairs).
 
