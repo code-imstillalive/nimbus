@@ -597,7 +597,7 @@ def _native_http_error(entity_id: str, code: int, msg: str) -> urllib.error.HTTP
         url=f"native://{entity_id}",
         code=code,
         msg=msg,
-        hdrs=None,
+        hdrs=None,  # type: ignore[arg-type]  # accepted at runtime; typeshed says Message
         fp=io.BytesIO(msg.encode("utf-8")),
     )
 
@@ -1680,6 +1680,8 @@ def native_state_changes(
     from homeassistant.components.recorder import get_instance, history
 
     hass = NATIVE.hass
+    if hass is None:  # every caller catches and degrades, as it did on hass.loop
+        raise RuntimeError("the recorder is read only inside Home Assistant")
 
     async def _fetch() -> dict:
         return await get_instance(hass).async_add_executor_job(
