@@ -11,11 +11,14 @@ rules:
       on_reload).
   appropriate-polling: done
   brands:
-    status: todo
+    status: done
     comment: >-
-      Custom brand/icon.png in this repo works via HACS's local fallback, but
-      isn't upstreamed to home-assistant/brands (custom_integrations/nimbus_load/).
-      Needs a PR to that separate repo -- can't be completed from inside this one.
+      Since Home Assistant 2026.3.0 a custom integration ships its own brand
+      icons; home-assistant/brands no longer accepts them (its bot closed
+      home-assistant/brands#11215, "Add nimbus_load icon", on 25 Sep 2026
+      for that reason). Nimbus ships custom_components/nimbus_load/brand/
+      icon.png (256 x 256) and icon@2x.png (512 x 512), checked by
+      tests/test_brand_assets_meet_brands_requirements.py.
   common-modules: done
   config-flow-test-coverage:
     status: done
