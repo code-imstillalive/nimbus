@@ -57,6 +57,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -102,7 +103,7 @@ PRICE_STALE_UNRELIABLE_SHARE = 0.25
 
 def _price_stamp_rows(
     sw,
-    entity_ids: list[str],
+    entity_ids: Sequence[str | None],
     day_start: datetime,
     day_end: datetime,
     localvolts_v2: dict | None = None,
@@ -1790,7 +1791,15 @@ def _soc_discrepancy_stats(
     mean_threshold_pct: float = 8.0,
     ach_soc_pct_at_hour: dict[str, float] | None = None,
     power_coverage: dict[str, float | int] | None = None,
-) -> dict[str, float | bool | str | list[dict[str, float | bool | str]] | None]:
+) -> dict[
+    str,
+    float
+    | bool
+    | str
+    | list[dict[str, float | bool | str]]
+    | dict[str, float | int]
+    | None,
+]:
     """nimbus issue #427 (Mark Purcell): the achieved trajectory's own
     SoC is *integrated* from real battery-power history through the
     efficiency model (see compute_quality_report()'s own j_ach_soc_kwh
