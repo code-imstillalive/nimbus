@@ -680,17 +680,27 @@ def unavailable_too_long(
     """(entity, where it is used, since when) for each chosen entity that has
     read `unavailable` or `unknown`, or has not existed, for at least
     `UNAVAILABLE_GRACE` (#2436). `read_state(entity_id)` is (state,
-    last_changed) or None. Silence is counted from the later of its last
-    change and the hub's start, so a restart never trips it. `label(part,
-    key)` is how the setting is named in that part's own form."""
+    last_changed[, last_reported]) or None. Silence is counted from the later
+    of its last change and the hub's start, so a restart never trips it.
+    `unknown` that its integration reported within the grace is an answer,
+    not silence: a spot rate on the unmatched share reads unknown for hours
+    while import is fully matched. `label(part, key)` is how the setting is
+    named in that part's own form."""
     out = []
     for entity_id, uses in sorted(chosen.items()):
         reading = read_state(entity_id)
         if reading is None:
             since = hub_since
         else:
-            value, changed = reading
+            value, changed, *reported = reading
             if value not in ("unavailable", "unknown"):
+                continue
+            if (
+                value == "unknown"
+                and reported
+                and reported[0] is not None
+                and now - reported[0] < UNAVAILABLE_GRACE
+            ):
                 continue
             since = max(changed, hub_since)
         if now - since < UNAVAILABLE_GRACE:
@@ -776,9 +786,11 @@ async def _async_unavailable_entities(
             return []
         labels = await hass.async_add_executor_job(_field_labels)
 
-        def read_state(entity_id: str) -> tuple[str, datetime] | None:
+        def read_state(entity_id: str) -> tuple[str, datetime, datetime | None] | None:
             st = hass.states.get(entity_id)
-            return None if st is None else (st.state, st.last_changed)
+            if st is None:
+                return None
+            return (st.state, st.last_changed, getattr(st, "last_reported", None))
 
         return unavailable_too_long(
             chosen,
