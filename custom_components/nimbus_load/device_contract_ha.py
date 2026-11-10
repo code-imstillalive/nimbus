@@ -109,12 +109,12 @@ def snapshot(hass: Any, entry: Any) -> dict[str, Any]:
     for key in _NUMBER_KEYS:
         eid = registry.async_get_entity_id("number", DOMAIN, f"{entry.entry_id}_{key}")
         state = hass.states.get(eid) if eid else None
+        if state is None:
+            continue
         try:
-            numbers[key] = float(state.state) if state is not None else None
+            numbers[key] = float(state.state)
         except (TypeError, ValueError):
             continue
-        if numbers[key] is None:
-            del numbers[key]
     subentries = [
         {
             "subentry_id": sid,
@@ -403,6 +403,7 @@ async def _async_commit_active(
     )
     if not committed.ok:
         return {"ok": False, "code": committed.code, "mode": "active"}
+    assert committed.revision is not None  # every ok Result carries one
     code, changed = await _async_write_views(hass, entry, document, committed.revision)
     if code:
         return {"ok": False, "code": code, "mode": "active"}
@@ -450,6 +451,7 @@ async def async_adopt_new_install(
                 "problems": _problems(committed.problems),
             }
         revision = committed.revision
+        assert revision is not None  # every ok Result carries one
         shadow = await store.async_set_mode(revision, "shadow")
         if not shadow.ok:
             return {"ok": False, "code": shadow.code, "mode": "legacy"}
@@ -813,7 +815,9 @@ _BINDING_FAULTS = frozenset(
 
 
 def _is_binding_fault(reason: str | None) -> bool:
-    return bool(reason) and (reason in _BINDING_FAULTS or reason.startswith("unit_"))
+    return reason is not None and (
+        reason in _BINDING_FAULTS or reason.startswith("unit_")
+    )
 
 
 def _profile_key(platform: str, uid: str, config_entry_id: str | None):
