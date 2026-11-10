@@ -1894,6 +1894,7 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
                 ),
                 user_input,
             )
+            assert self._solver_data is not None  # seeded by _absorb_step
             # nimbus #1661: a price that is frozen at forecast build (LocalVolts
             # Rate All Var) would hide a spike from the plan. Refused here; an
             # existing install is told by a Repair (setup_health).
@@ -1947,7 +1948,7 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
                     {
                         **dict(self.config_entry.options),
                         # A refused submission keeps what was entered.
-                        **(self._solver_data if errors else {}),
+                        **((self._solver_data or {}) if errors else {}),
                     }
                 ).extend(
                     live_numbers.schema_fields(
@@ -1982,6 +1983,7 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
                 _collapse_optionals_into_advanced(_solver_sources_schema({})),
                 user_input,
             )
+            assert self._solver_data is not None  # seeded by _absorb_step
             # Same explicit-key-list fix as async_step_forecaster (see its
             # own comment for the full story) -- self._solver_data now
             # holds whatever was actually submitted across all 3 Solver
