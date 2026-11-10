@@ -26,7 +26,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from homeassistant.components.recorder import get_instance
@@ -393,7 +393,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         training and prediction go through, keeps the two consistent: the
         feature is absent from both, exactly as if it were not configured.
         """
-        if self._feature_or_none(sensor) is None:
+        if sensor is None or self._feature_or_none(sensor) is None:
             return None
         unit = energy_unit_of(self.hass, sensor)
         if unit is not None:
@@ -1216,11 +1216,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         if getattr(self, "_retrain_failing_since", None) is None:
             self._retrain_failing_since = datetime.now(UTC)
-        if getattr(self, "_trained", None) is None or getattr(
-            self, "_stale_model_warned", False
-        ):
+        trained = getattr(self, "_trained", None)
+        if trained is None or getattr(self, "_stale_model_warned", False):
             return
-        age_days = _model_age_days(self._trained.trained_at)
+        age_days = _model_age_days(trained.trained_at)
         if age_days is None or age_days < STALE_MODEL_WARN_DAYS:
             return
         self._stale_model_warned = True
@@ -1956,14 +1955,14 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and end_hour is not None
             ):
                 now_utc = dt_util.utcnow()
-                timestamps = [
+                grid_local = [
                     dt_util.as_local(t)
                     for t in _forecast_grid_utc(
                         now_utc, now_utc + timedelta(hours=self._horizon_hours)
                     )
                 ]
                 values = deterministic_values(
-                    timestamps, expected_kw, start_hour, end_hour
+                    grid_local, expected_kw, start_hour, end_hour
                 )
                 # The configured rule is exact, so the band is the value.
                 forecast = [
@@ -1973,7 +1972,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "lower": round(v, 3),
                         "upper": round(v, 3),
                     }
-                    for ts, v in zip(timestamps, values, strict=True)
+                    for ts, v in zip(grid_local, values, strict=True)
                 ]
                 state = round(values[0], 3) if values else 0.0
             origin, readiness = forecast_provenance(
@@ -2096,7 +2095,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # own; both read the same real history.
         def _predict(lo: int, hi: int | None) -> PredictionResult:
             return predict(
-                self._trained,
+                cast(TrainedModel, self._trained),  # None returned early above
                 timestamps[lo:hi],
                 temps[lo:hi],
                 humidities[lo:hi],
@@ -2156,7 +2155,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # validation set to early-stop against) -- preferred over
                 # the residual-based fallback below whenever available,
                 # never blended with it for a single load's forecast.
-                lower, upper = result.model_lower[i], result.model_upper[i]
+                # has_model_bounds: both are lists here
+                lower = cast(list[float], result.model_lower)[i]
+                upper = cast(list[float], result.model_upper)[i]
             else:
                 lead_hours = (ts - now_utc).total_seconds() / 3600
                 band = calibrated_band(
