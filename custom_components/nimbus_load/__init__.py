@@ -23,6 +23,7 @@ from collections.abc import Callable
 # here -- `time.monotonic()` then raised AttributeError and setup failed
 # (devhub, 11 Oct 2026).
 from time import monotonic
+from typing import Any
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
@@ -975,7 +976,7 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
         triggering_entity = pending.get("entity_id")
         price_change_at = pending.get("changed_at")
         trigger_kind = pending.get("trigger_kind", "price_change")
-        context = {
+        context: dict[str, Any] = {
             "trigger_source": trigger_kind,
             "triggering_entity": triggering_entity,
             "price_change_at": price_change_at,
