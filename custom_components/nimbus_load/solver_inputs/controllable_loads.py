@@ -70,7 +70,7 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     import household_modes  # type: ignore[no-redef]
     import solver_shared  # type: ignore[no-redef]
-    from done_condition import (
+    from done_condition import (  # type: ignore[no-redef]
         parse_done_when as _parse_done_when,  # type: ignore[no-redef]
     )
     from solver import elements  # type: ignore[no-redef]
@@ -275,8 +275,8 @@ def _sample_load_run_state(
             from .. import load_run_state
             from ..const import DOMAIN
         except ImportError:
-            import load_run_state
-            from const import DOMAIN
+            import load_run_state  # type: ignore[no-redef]
+            from const import DOMAIN  # type: ignore[no-redef]
 
         async def _update() -> load_run_state.LoadRunState:
             store = load_run_state.LoadRunStateStore(
@@ -422,8 +422,8 @@ def _build_daily_adequacy_windows(
         from .. import load_run_state
         from ..solver import elements
     except ImportError:
-        import load_run_state
-        from solver import elements
+        import load_run_state  # type: ignore[no-redef]
+        from solver import elements  # type: ignore[no-redef]
 
     windows: list = []
     if not grid_times:
@@ -668,10 +668,10 @@ def build_controllable_loads(
             SUBENTRY_TYPE_CONTROLLABLE_LOAD,
         )
     except ImportError:
-        import done_condition
-        import load_run_state
-        import thermal_forecast
-        from const import (
+        import done_condition  # type: ignore[no-redef]
+        import load_run_state  # type: ignore[no-redef]
+        import thermal_forecast  # type: ignore[no-redef]
+        from const import (  # type: ignore[no-redef]
             CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,

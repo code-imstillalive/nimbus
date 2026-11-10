@@ -323,7 +323,11 @@ jobs:
             custom_components/nimbus_load/coordinator.py \
             custom_components/nimbus_load/flows/hub_options.py \
             custom_components/nimbus_load/solver_reports/quality.py \
+<<<<<<< HEAD
             custom_components/nimbus_load/device_contract_ha.py \
+=======
+            custom_components/nimbus_load/solver_inputs/controllable_loads.py \
+>>>>>>> origin/main
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------
