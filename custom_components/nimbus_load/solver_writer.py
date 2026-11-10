@@ -30,7 +30,7 @@ import urllib.error
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from time import monotonic
-from typing import Any
+from typing import Any, TypedDict
 from zoneinfo import ZoneInfo
 
 # nimbus issue #590: same dual-mode try/except shape as every other
@@ -56,10 +56,12 @@ try:
     # Kept as a re-export rather than retargeting those six tests.
     from .done_condition import parse_done_when as _parse_done_when
 except ImportError:
-    from done_condition import (
+    from done_condition import (  # type: ignore[no-redef]
         ATTRIBUTE_DONE_DOMAINS as _done_condition_attribute_domains,
     )
-    from done_condition import parse_done_when as _parse_done_when  # noqa: F401
+    from done_condition import (  # type: ignore[no-redef]  # noqa: F401
+        parse_done_when as _parse_done_when,
+    )
 
 # nimbus issue #735 stage 1: the input-gathering third of main(), moved
 # out one source at a time. Same dual-mode try/except as every other
@@ -424,8 +426,11 @@ except ImportError:
     # issue #349's "the relative import must not produce a second,
     # distinct top-level `ml` module" guarantee. Removing it would
     # break both.
-    from ml.blend import blend_forecast_array, cross_source_spread  # noqa: F401
-    from solver import (  # noqa: F401 -- `lp` is a re-export: main()'s own
+    from ml.blend import (  # type: ignore[no-redef]  # noqa: F401
+        blend_forecast_array,
+        cross_source_spread,
+    )
+    from solver import (  # type: ignore[no-redef]  # noqa: F401 -- `lp` is a re-export: main()'s own
         # lp.CalibratedOptions() call moved to solver_plan.py (#1303), but
         # tests/v2/orchestration/test_smoothness_and_proximal_weights.py asserts
         # against solver_writer.lp.CalibratedOptions at :215 and :225.
@@ -435,12 +440,12 @@ except ImportError:
         network,
         nowcast_skill,
     )
-    from solver.backtest import (
+    from solver.backtest import (  # type: ignore[no-redef]
         EFFICIENCY_CANDIDATES_PERCENT,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         efficiency_label,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         run_efficiency_sensitivity_sweep,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
     )
-    from solver.quality_report import (
+    from solver.quality_report import (  # type: ignore[no-redef]
         compute_quality_report,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
     )
 
@@ -942,13 +947,14 @@ def set_native_hass(hass) -> None:
         # instead of raising before the try/except can catch it.
         raw_time_zone = getattr(getattr(hass, "config", None), "time_zone", None)
         try:
-            LOCAL_TZ = ZoneInfo(raw_time_zone)
+            # None raises TypeError here, on purpose: the except keeps LOCAL_TZ.
+            LOCAL_TZ = ZoneInfo(raw_time_zone)  # type: ignore[arg-type]
             # solver_shared keeps its own LOCAL_TZ, read by _local() and the
             # history readers -- the local hour behind TOU fees, the EV
             # departure hour, day boundaries and P2P checkpoints. Left at its
             # import-time default (Australia/Brisbane), every install outside
             # that zone evaluated those in Brisbane time. One zone for both.
-            sys.modules[_local.__module__].LOCAL_TZ = LOCAL_TZ
+            sys.modules[_local.__module__].LOCAL_TZ = LOCAL_TZ  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             _LOGGER.exception(
                 "Nimbus: could not resolve hass.config.time_zone (%r) -- "
@@ -1163,9 +1169,10 @@ def _grid_meter_sign(meter_sensor: str) -> float | None:
     rec = (attrs or {}).get("meter_reconciliation") or {}
     if rec.get("status") != "agrees" or rec.get("meter_sensor") != meter_sensor:
         return None
-    return {"positive_is_import": 1.0, "positive_is_export": -1.0}.get(
-        rec.get("meter_sign")
-    )
+    sign = rec.get("meter_sign")
+    if not isinstance(sign, str):
+        return None
+    return {"positive_is_import": 1.0, "positive_is_export": -1.0}.get(sign)
 
 
 def _live_grid_meter_kw(cfg: dict) -> float | None:
@@ -1175,7 +1182,7 @@ def _live_grid_meter_kw(cfg: dict) -> float | None:
     is unusable."""
     meter = cfg.get("switchboard_grid_meter_sensor") or cfg.get("grid_sensor")
     sign = _grid_meter_sign(meter) if meter else None
-    if sign is None:
+    if not meter or sign is None:
         return None
     try:
         state = ha_get(meter)
@@ -1274,9 +1281,14 @@ def _flex_telemetry_assets(
     return assets
 
 
+class _FlexAvailable(TypedDict):
+    flex_available_up_kw: float
+    flex_available_down_kw: float
+
+
 def _flex_available_physical(
     plan, import_limit_kw: float, export_limit_kw: float
-) -> dict[str, float]:
+) -> _FlexAvailable:
     """Household `flex_available_up_kw`/`_down_kw` as PHYSICAL availability
     (nimbus #1634 step 1, option (b); #1639): the sum of every battery's own
     hardware headroom in period 0, capped by what the grid envelope still
@@ -2835,7 +2847,7 @@ def _stale_power_period_indices(
         try:
             from . import load_run_state
         except ImportError:
-            import load_run_state
+            import load_run_state  # type: ignore[no-redef]
         max_gap_hours = load_run_state.MAX_SAMPLE_GAP_HOURS
 
     if not grid_times:
