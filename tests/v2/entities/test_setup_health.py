@@ -285,6 +285,20 @@ def test_a_chosen_entity_silent_past_the_grace_is_reported_once_per_entity():
     assert [e for e, *_ in sh.unavailable_too_long(chosen, states.get, T0, up)] == [
         "sensor.gone"
     ]
+    # `unknown` its integration is still reporting is an answer, not silence:
+    # a spot rate on the unmatched share reads unknown while import is fully
+    # matched, for hours, and is fine (household, 10 Nov 2026). A stale one
+    # still counts.
+    states["sensor.buy"] = (
+        "unknown",
+        T0 - timedelta(hours=2),
+        T0 - timedelta(minutes=2),
+    )
+    states["sensor.soc"] = ("unknown", T0 - timedelta(hours=2), T0 - timedelta(hours=2))
+    assert [e for e, *_ in sh.unavailable_too_long(chosen, states.get, T0, up)] == [
+        "sensor.gone",
+        "sensor.soc",
+    ]
 
     # A setting is named as its own part's form words it (Mark Purcell, #2437
     # review): the same key reads differently on a Load and a Power Signal,
