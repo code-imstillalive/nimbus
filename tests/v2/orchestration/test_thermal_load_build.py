@@ -99,6 +99,32 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         _sheddable, _adequacy, thermal = self._run(data, states={})
         self.assertEqual(thermal, [])
 
+        # test_an_overnight_window_read_in_the_early_hours_is_left_out
+        # At 02:00 the next 22:00 is tonight but the next 06:00 is this
+        # morning: the deadline resolves before the earliest start, so that
+        # cycle leaves the load out and says why rather than build a
+        # backwards window (the deferrable branch has the same guard).
+        data = {
+            "controllable_load_name": "HWS",
+            "controllable_load_kind": "thermal",
+            "thermal_temperature_entity": "water_heater.hws",
+            "thermal_max_power_kw": 3.0,
+            "thermal_target_temperature_c": 60.0,
+            "thermal_earliest_hour": 22.0,
+            "thermal_deadline_hour": 6.0,
+        }
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
+        }
+        with self.assertLogs(level="WARNING") as logs:
+            _sheddable, _adequacy, thermal = self._run(
+                data, states, now=datetime(2026, 9, 13, 2, 0, tzinfo=_TZ)
+            )
+        self.assertEqual(thermal, [])
+        self.assertTrue(
+            any("'HWS' (thermal) resolved deadline_period" in m for m in logs.output)
+        )
+
         # test_a_non_water_heater_climate_temperature_entity_is_skipped
         # done_condition.read_current_temperature() only supports
         # water_heater/climate domains -- a plain sensor has no
