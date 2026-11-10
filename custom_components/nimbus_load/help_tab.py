@@ -218,6 +218,21 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.103.0",
+        "11 Nov 2026",
+        (
+            (
+                "**Repairs** no longer names an entity that reads "
+                "unknown on purpose while its integration still reports it."
+            ),
+            ("The Regret card scores each day from your own midnight, not Brisbane's."),
+            (
+                "A temperature forecast that worked survives a reload, and "
+                "a first empty fetch is asked again before it warns."
+            ),
+        ),
+    ),
+    (
         "0.102.0",
         "10 Nov 2026",
         (
