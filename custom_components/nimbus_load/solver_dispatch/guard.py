@@ -255,9 +255,12 @@ def device_setting_matches(
         want = "performance" if commanded_state else "eco"
         current = attrs.get("operation_mode") or current
     elif domain == "climate":
-        if commanded_state and not climate_on_hvac_mode:
+        if not commanded_state:
+            want = "off"
+        elif not climate_on_hvac_mode:
             return None
-        want = climate_on_hvac_mode if commanded_state else "off"
+        else:
+            want = climate_on_hvac_mode
     else:
         return None
     if current in (None, "", "unknown", "unavailable"):
@@ -295,7 +298,9 @@ def _resolve_reaffirm_after_seconds(data: dict) -> float | None:
     try:
         from ..const import CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES as _KEY
     except ImportError:  # bare-module import shape
-        from const import CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES as _KEY
+        from const import (  # type: ignore[no-redef]
+            CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES as _KEY,
+        )
 
     raw = data.get(_KEY)
     if raw is None:
@@ -451,10 +456,10 @@ def apply_commanded_state_guard(
                 DOMAIN,
             )
         except ImportError:
-            import done_condition
-            import load_run_state
-            import thermal_forecast
-            from const import (
+            import done_condition  # type: ignore[no-redef]
+            import load_run_state  # type: ignore[no-redef]
+            import thermal_forecast  # type: ignore[no-redef]
+            from const import (  # type: ignore[no-redef]
                 CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE,
                 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
