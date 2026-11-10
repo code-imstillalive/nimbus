@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.103.0] - 2026-11-11
+
+**Fewer false Repairs, the Regret card on your own midnight, and a temperature forecast that survives a reload.**
+
+- **An entity that reads `unknown` on purpose is not a Repair** (#2502). 0.102.0's Repair for a chosen entity that has gone quiet also named one reading `unknown` by design while its integration still reported it: a retailer's spot rate on the unmatched share is empty while import is fully matched, for hours, every evening. An `unknown` reported within the last hour now counts as an answer. `unavailable`, a missing entity and an `unknown` that has stopped being reported still raise it.
+- **The Regret card scores each day from Home Assistant's own midnight** (#2506). It asked for `<day>T00:00:00+10:00`, Brisbane's offset, so every install in another zone, or on daylight saving, was scored on Brisbane's midnight. It now sends local midnight, which Nimbus reads in Home Assistant's time zone. Brisbane installs see no change.
+- **A temperature forecast that worked survives a reload** (#2443, for #2442, reviewed by Mark Purcell). The last good forecast is kept per weather entity across a settings save or reload, and a first empty fetch is asked again before it warns, so one reload no longer logs four "yielded 0 forecast entries" warnings at once.
+- Internal: every module, all 137 files, is in the blocking strict type check, and the quality scale's `strict-typing` is done, the last rule left (#2477–#2503 under #2392, reviewed by Mark Purcell). A test runs the device import over three install shapes, the test box, the reference household and Mark Purcell's install (#2504, #2394). Tests 961 → 963.
+- Install shapes (#2394): #2502 touches every shape (any chosen entity); its false Repair was seen live on the reference household, and the change is unseen elsewhere until installed. #2506 touches every shape with a Regret card; the reference household is in Brisbane, so a zone difference is unseen live on any of the three. #2443 touches any install with a temperature forecast; its warnings were seen live on Mark Purcell's install, and the fix is unseen there until he installs it.
+
 ## [0.102.0] - 2026-11-10
 
 **A Repair names an entity you chose that has gone quiet, and entity names and icons come from translations.**
@@ -16,6 +26,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Entity names come from translations** (#2411, quality scale `entity-translations`). All 241 names move into `strings.json`, word for word; names and entity ids are unchanged.
 - **Icons come from translations** (#2412, quality scale `icon-translations`). Each action has an icon; the three entities that set one in code show the same icon as before.
 - Internal: every part of Nimbus with code is now at least 95% covered by tests, 97.9% overall (#2413–#2479 under #2393; the count goes from 956 to 961, mostly as cases added to existing tests), and the quality scale's `test-coverage` is done (#2476).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at 68ebe8a5** (`release/0.102.0`, installed untagged through Home Assistant's marketplace and restarted at 07:43 AEST, 10 Nov; read through 07:47).
+  - 123 of the 127 Nimbus entities carrying a version read 0.102.0; the other four are the daily reports.
+  - None of the 388 Nimbus entities unavailable; plan `optimal` on the first solve after the restart (07:45); all 62 Solver numbers present with the same values as a read taken at 07:31 before the install.
+  - Names and ids unchanged by #2411: the same 388 Nimbus entity ids as before, and none of their names differs from the 07:31 read.
+  - Icons by #2412: Home Assistant serves `mdi:list-status`, `mdi:cash-sync` and `mdi:file-tree` for the three entities from `icons.json`, and an icon for each Nimbus action.
+  - Help's What's New shows 0.102.0. No Repairs at all. Log: no Nimbus ERROR; the Nimbus WARNING lines are the test box's known ones (forecast residual drift, the flex-telemetry clamp, the test EV's unreachable departure target, an implausible meter row, the P5MIN diagnostic, an empty temperature forecast), none from this release.
+  - Not seen live: the new Repair (#2437) raising, since no chosen entity on devhub has been unavailable for an hour. It is covered by the tests in its PR.
+- Consumer check: no setting, entity id or name is moved or renamed; three icons now come from `icons.json` and look the same. A new Repair kind, `configured_entity_unavailable`, can appear in Settings → Repairs.
 
 ## [0.101.0] - 2026-11-08
 
