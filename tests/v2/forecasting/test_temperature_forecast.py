@@ -60,9 +60,8 @@ def _make_bare_coordinator() -> NimbusCoordinator:
     # sensor, which none of these tests' sources are.
     coord.subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.some_load"})
     # #269 state -- see coordinator.py's own __init__ for what each means.
-    coord._temp_forecast_cache = []
-    coord._temp_forecast_cache_entity = None
     coord._last_temp_forecast_ok = None
+    coord._temp_forecast_empty_once = False
     return coord
 
 
@@ -105,7 +104,14 @@ def test_weather_domain_entity_not_in_response_returns_empty(caplog):
     coord.hass.states.get.return_value = MagicMock(attributes={"forecast": []})
     with caplog.at_level(logging.WARNING):
         asyncio.run(coord._async_fetch_temperature_forecast())  # first-ever failure
-    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+    # #2442: a first fetch that comes back empty is asked once more before it
+    # warns (the weather integration may not have answered yet); a second
+    # empty one in a row still warns, so a never-working sensor stays loud.
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(coord._async_fetch_temperature_forecast())  # and again
+    (warned,) = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert "yielded 0 forecast entries" in warned.getMessage()
 
     coord.hass.states.get.return_value = MagicMock(
         attributes={
@@ -150,6 +156,47 @@ def test_weather_domain_entity_not_in_response_returns_empty(caplog):
     coord.hass.services.async_call = AsyncMock(side_effect=RuntimeError("transient"))
     rescued = asyncio.run(coord._async_fetch_temperature_forecast())
     assert [t for _, t in rescued] == [21.0, 22.5]
+
+    # test_the_last_good_forecast_outlives_a_reload_and_is_shared (#2442, Mark
+    # Purcell): a reload builds new coordinators. Their first fetch, if the
+    # weather entity answers empty at that moment, falls back to the last good
+    # forecast any load read from that entity, with no warning; a different
+    # entity never inherits it.
+    hass = MagicMock()
+    hass.data = {}
+    hass.services.async_call = AsyncMock(
+        return_value={
+            "weather.home": {
+                "forecast": [
+                    {"datetime": "2099-01-01T10:00:00+00:00", "temperature": 19.5}
+                ]
+            }
+        }
+    )
+    before = _make_bare_coordinator()
+    before.entry = MagicMock(options={CONF_TEMPERATURE_FORECAST_SENSOR: "weather.home"})
+    before.hass = hass
+    asyncio.run(before._async_fetch_temperature_forecast())
+
+    hass.services.async_call = AsyncMock(
+        return_value={"weather.home": {"forecast": []}}
+    )
+    after_reload = _make_bare_coordinator()
+    after_reload.entry = before.entry
+    after_reload.hass = hass
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        got = asyncio.run(after_reload._async_fetch_temperature_forecast())
+    assert [t for _, t in got] == [19.5]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    other = _make_bare_coordinator()
+    other.entry = MagicMock(
+        options={CONF_TEMPERATURE_FORECAST_SENSOR: "weather.elsewhere"}
+    )
+    other.hass = hass
+    hass.services.async_call = AsyncMock(return_value={})
+    assert asyncio.run(other._async_fetch_temperature_forecast()) == []
 
 
 # -- #269 mitigation B: warn on state-change, not just the first-ever tick ---
