@@ -317,6 +317,8 @@ jobs:
             custom_components/nimbus_load/sensor_p5min.py \
             custom_components/nimbus_load/setup_builder.py \
             custom_components/nimbus_load/setup_health.py \
+            custom_components/nimbus_load/config_flow.py \
+            custom_components/nimbus_load/solver_shared.py \
             --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------
