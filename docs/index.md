@@ -10,6 +10,33 @@ It runs inside Home Assistant. There is no cloud service and no account.
 
 Not sure it fits your home? See [what people use it for](use-cases.md).
 
+## If you already run EMHASS or HAEO
+
+Nimbus does the same job: it is an alternative to either, not an add-on to
+them. All three plan a battery against prices with a linear-programming solver
+and re-plan as things change. Where they differ, from the
+[living comparison](https://github.com/code-imstillalive/nimbus/issues/1797)
+kept up to date with every release:
+
+- **Its own load forecast.** Nimbus learns your house's load from your own
+  history, as a whole and circuit by circuit. EMHASS has a load forecaster too;
+  HAEO uses a forecast you supply.
+- **Uncertainty in the plan.** Separate dials for import-price, export-price
+  and solar-forecast risk, using the solar forecast's own p10/p90 band.
+- **Peer-to-peer export.** It can plan committed export blocks (LocalVolts P2P).
+- **A daily score.** Each day's plan is scored against perfect hindsight, so
+  you can see what it cost you. Neither of the others measures this.
+- **Guards.** Stale prices, false price spikes, failed solves and device
+  commands each have one ([Safety features](safety.md)).
+
+Where the others are ahead: HAEO models a network topology with pricing per
+connection, which Nimbus does not; EMHASS has a much larger community and a
+longer track record.
+
+You can install Nimbus beside the one you run. It only plans until you connect
+it to your battery yourself, and it never reads another optimiser's plan, so
+the two don't interfere.
+
 ## Where to start
 
 1. **[Getting started](setup-guide.md)**: install with HACS, add the
