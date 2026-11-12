@@ -1273,7 +1273,7 @@
          },
          {
           "charge_kw": 5.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 23.624,
           "soc_pct": 59.06,
           "time": "2026-09-06T20:15:00+10:00"
@@ -1287,7 +1287,7 @@
          },
          {
           "charge_kw": 5.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 24.437,
           "soc_pct": 61.09,
           "time": "2026-09-06T20:25:00+10:00"
@@ -1308,7 +1308,7 @@
          },
          {
           "charge_kw": 5.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 25.655,
           "soc_pct": 64.14,
           "time": "2026-09-06T20:40:00+10:00"
@@ -1322,7 +1322,7 @@
          },
          {
           "charge_kw": 5.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 26.467,
           "soc_pct": 66.17,
           "time": "2026-09-06T20:50:00+10:00"
@@ -1336,7 +1336,7 @@
          },
          {
           "charge_kw": 5.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 29.31,
           "soc_pct": 73.28,
           "time": "2026-09-06T21:00:00+10:00"
@@ -1350,7 +1350,7 @@
          },
          {
           "charge_kw": 5.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 34.183,
           "soc_pct": 85.46,
           "time": "2026-09-06T22:00:00+10:00"
@@ -1371,7 +1371,7 @@
          },
          {
           "charge_kw": 1.944,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-06T23:30:00+10:00"
@@ -1399,7 +1399,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T01:30:00+10:00"
@@ -1413,7 +1413,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T02:30:00+10:00"
@@ -1434,7 +1434,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T04:00:00+10:00"
@@ -1448,7 +1448,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T05:00:00+10:00"
@@ -1462,7 +1462,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T06:00:00+10:00"
@@ -1497,7 +1497,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T08:30:00+10:00"
@@ -1511,7 +1511,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T09:30:00+10:00"
@@ -1525,7 +1525,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T10:30:00+10:00"
@@ -1560,7 +1560,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T13:00:00+10:00"
@@ -1574,7 +1574,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T14:00:00+10:00"
@@ -1588,7 +1588,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T15:00:00+10:00"
@@ -1623,7 +1623,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T17:30:00+10:00"
@@ -1637,7 +1637,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T18:30:00+10:00"
@@ -1651,7 +1651,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T19:30:00+10:00"
@@ -1686,7 +1686,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T22:00:00+10:00"
@@ -1700,7 +1700,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-07T23:00:00+10:00"
@@ -1749,7 +1749,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T02:30:00+10:00"
@@ -1763,7 +1763,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T03:30:00+10:00"
@@ -1777,7 +1777,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T04:30:00+10:00"
@@ -1812,7 +1812,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T07:00:00+10:00"
@@ -1826,7 +1826,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T08:00:00+10:00"
@@ -1840,7 +1840,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T09:00:00+10:00"
@@ -1875,7 +1875,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T11:30:00+10:00"
@@ -1889,7 +1889,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T12:30:00+10:00"
@@ -1903,7 +1903,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T13:30:00+10:00"
@@ -1938,7 +1938,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T16:00:00+10:00"
@@ -1952,7 +1952,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T17:00:00+10:00"
@@ -1966,7 +1966,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T18:00:00+10:00"
@@ -2001,7 +2001,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T20:30:00+10:00"
@@ -2015,7 +2015,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T21:30:00+10:00"
@@ -2029,7 +2029,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T22:30:00+10:00"
@@ -2043,14 +2043,14 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-08T23:30:00+10:00"
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T00:00:00+10:00"
@@ -2064,7 +2064,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T01:00:00+10:00"
@@ -2078,7 +2078,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T02:00:00+10:00"
@@ -2092,7 +2092,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T03:00:00+10:00"
@@ -2127,7 +2127,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T05:30:00+10:00"
@@ -2141,7 +2141,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T06:30:00+10:00"
@@ -2155,7 +2155,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T07:30:00+10:00"
@@ -2190,7 +2190,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T10:00:00+10:00"
@@ -2204,7 +2204,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T11:00:00+10:00"
@@ -2218,7 +2218,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T12:00:00+10:00"
@@ -2253,7 +2253,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T14:30:00+10:00"
@@ -2267,7 +2267,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T15:30:00+10:00"
@@ -2281,7 +2281,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T16:30:00+10:00"
@@ -2316,7 +2316,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T19:00:00+10:00"
@@ -2330,7 +2330,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T20:00:00+10:00"
@@ -2344,7 +2344,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T21:00:00+10:00"
@@ -2379,7 +2379,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 39.664,
           "soc_pct": 99.16,
           "time": "2026-09-09T23:30:00+10:00"
@@ -2747,7 +2747,7 @@
       "direction_two_way_pairs": 0,
       "discharge_efficiency": 0.9747,
       "efficiency_convention": "round_trip_symmetric_sqrt",
-      "energy_shadow_price_now": 0.3001,
+      "energy_shadow_price_now": 0.3,
       "envelope_export_limit_kw": 15.0,
       "envelope_import_limit_kw": 15.0,
       "equivalent_full_cycles": 0.616,
@@ -2808,7 +2808,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 56.02,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -2867,7 +2867,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3001,
         "soc_pct": 57.03,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -2985,7 +2985,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.2999,
         "soc_pct": 59.06,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3044,7 +3044,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3001,
         "soc_pct": 60.08,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3103,7 +3103,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 61.09,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3929,7 +3929,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3988,7 +3988,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -4165,7 +4165,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -4224,7 +4224,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -4283,7 +4283,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -4342,7 +4342,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -4755,7 +4755,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -4814,7 +4814,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -5345,7 +5345,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -5404,7 +5404,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -5522,7 +5522,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -5640,7 +5640,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -5699,7 +5699,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -5758,7 +5758,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -5817,7 +5817,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -5876,7 +5876,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6053,7 +6053,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6171,7 +6171,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6407,7 +6407,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6466,7 +6466,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6525,7 +6525,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6584,7 +6584,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6643,7 +6643,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6820,7 +6820,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6879,7 +6879,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6938,7 +6938,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6997,7 +6997,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7115,7 +7115,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7174,7 +7174,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7233,7 +7233,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7292,7 +7292,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7469,7 +7469,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7528,7 +7528,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7587,7 +7587,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7705,7 +7705,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7764,7 +7764,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7882,7 +7882,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8059,7 +8059,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8118,7 +8118,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8236,7 +8236,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8413,7 +8413,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8531,7 +8531,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8590,7 +8590,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8649,7 +8649,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8767,7 +8767,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8885,7 +8885,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8944,7 +8944,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9003,7 +9003,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9121,7 +9121,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9239,7 +9239,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9357,7 +9357,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9416,7 +9416,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9534,7 +9534,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9593,7 +9593,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9652,7 +9652,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9770,7 +9770,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9829,7 +9829,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9888,7 +9888,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9947,7 +9947,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10006,7 +10006,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10183,7 +10183,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10242,7 +10242,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10360,7 +10360,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10655,7 +10655,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10714,7 +10714,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10773,7 +10773,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10832,7 +10832,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10950,7 +10950,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11009,7 +11009,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11068,7 +11068,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11186,7 +11186,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11245,7 +11245,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11304,7 +11304,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11422,7 +11422,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11481,7 +11481,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11540,7 +11540,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11599,7 +11599,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11658,7 +11658,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11717,7 +11717,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11894,7 +11894,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11953,7 +11953,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -12012,7 +12012,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -12071,7 +12071,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -12248,7 +12248,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -12307,7 +12307,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -15138,7 +15138,7 @@
        "n_periods": 202,
        "n_sheddable_loads": 1,
        "n_thermal_loads": 0,
-       "simplex_iterations": 17,
+       "simplex_iterations": 28,
        "solar_running_low": {
         "active": false,
         "actual_30min_avg_kw": null,
@@ -15552,8 +15552,8 @@
     5.0,
     5.0,
     5.0,
-    4.302284543134867,
-    1.9435261438031546,
+    4.302284543134917,
+    1.943526143803183,
     0.0,
     0.0,
     0.0,
@@ -15902,46 +15902,46 @@
     0.0,
     0.0,
     0.0,
-    1.5577337994686185,
-    1.5577337994686185,
-    1.5577337994686185,
-    1.5577337994686185,
-    1.5577337994686185,
-    1.5577337994686185,
-    1.5577337994686185,
-    1.5577337994686185,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193,
-    1.5577337994686193
+    1.557733799468618,
+    1.557733799468618,
+    1.557733799468618,
+    1.557733799468618,
+    1.557733799468618,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.5577337994686213,
+    1.557733799468622,
+    1.557733799468619,
+    1.557733799468619,
+    1.5577337994686296,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619,
+    1.557733799468619
    ],
    "battery_name": "home",
    "grid_export_kw": [
@@ -16150,23 +16150,23 @@
    ],
    "grid_import_kw": [
     11.5,
+    11.500000000000004,
+    11.500000000000002,
     11.5,
     11.5,
     11.5,
     11.5,
-    11.5,
-    11.5,
-    8.500000000000002,
+    8.5,
     8.5,
     8.4,
-    8.399999999988358,
+    8.39999999999423,
     8.4,
-    8.299999999999994,
+    8.300000000000045,
     8.3,
     8.3,
     8.3,
-    7.602284543134867,
-    5.243526143803154,
+    7.602284543134917,
+    5.243526143803183,
     3.3,
     3.3,
     3.3,
@@ -16311,46 +16311,46 @@
     3.3,
     3.3,
     3.3,
-    1.7422662005313814,
-    1.7422662005313814,
-    1.7422662005313814,
-    1.7422662005313814,
-    1.7422662005313814,
-    1.7422662005313814,
-    1.7422662005313814,
-    1.7422662005313814,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805,
-    1.7422662005313805
+    1.7422662005313818,
+    1.7422662005313818,
+    1.7422662005313818,
+    1.7422662005313818,
+    1.7422662005313818,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.7422662005313785,
+    1.7422662005313778,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531373,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381,
+    1.742266200531381
    ],
    "period_hours": [
     0.08333333333333333,
@@ -35159,11 +35159,11 @@
     "plan_shadow_price_forecast": [
      {
       "time": "2026-09-06T20:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-06T20:05:00+10:00",
-      "value": 0.2999
+      "value": 0.3001
      },
      {
       "time": "2026-09-06T20:10:00+10:00",
@@ -35171,15 +35171,15 @@
      },
      {
       "time": "2026-09-06T20:15:00+10:00",
-      "value": 0.3001
-     },
-     {
-      "time": "2026-09-06T20:20:00+10:00",
       "value": 0.2999
      },
      {
-      "time": "2026-09-06T20:25:00+10:00",
+      "time": "2026-09-06T20:20:00+10:00",
       "value": 0.3001
+     },
+     {
+      "time": "2026-09-06T20:25:00+10:00",
+      "value": 0.3
      },
      {
       "time": "2026-09-06T20:30:00+10:00",
@@ -35235,11 +35235,11 @@
      },
      {
       "time": "2026-09-07T00:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T01:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-07T01:30:00+10:00",
@@ -35251,19 +35251,19 @@
      },
      {
       "time": "2026-09-07T02:30:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-07T03:00:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-07T03:30:00+10:00",
       "value": 0.2999
      },
      {
-      "time": "2026-09-07T04:00:00+10:00",
+      "time": "2026-09-07T03:00:00+10:00",
       "value": 0.3001
+     },
+     {
+      "time": "2026-09-07T03:30:00+10:00",
+      "value": 0.3
+     },
+     {
+      "time": "2026-09-07T04:00:00+10:00",
+      "value": 0.3
      },
      {
       "time": "2026-09-07T04:30:00+10:00",
@@ -35291,11 +35291,11 @@
      },
      {
       "time": "2026-09-07T07:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T08:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-07T08:30:00+10:00",
@@ -35331,11 +35331,11 @@
      },
      {
       "time": "2026-09-07T12:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T13:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T13:30:00+10:00",
@@ -35343,7 +35343,7 @@
      },
      {
       "time": "2026-09-07T14:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T14:30:00+10:00",
@@ -35351,23 +35351,23 @@
      },
      {
       "time": "2026-09-07T15:00:00+10:00",
-      "value": 0.3001
-     },
-     {
-      "time": "2026-09-07T15:30:00+10:00",
       "value": 0.2999
      },
      {
-      "time": "2026-09-07T16:00:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-07T16:30:00+10:00",
+      "time": "2026-09-07T15:30:00+10:00",
       "value": 0.3001
      },
      {
-      "time": "2026-09-07T17:00:00+10:00",
+      "time": "2026-09-07T16:00:00+10:00",
+      "value": 0.2999
+     },
+     {
+      "time": "2026-09-07T16:30:00+10:00",
       "value": 0.3
+     },
+     {
+      "time": "2026-09-07T17:00:00+10:00",
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T17:30:00+10:00",
@@ -35379,7 +35379,7 @@
      },
      {
       "time": "2026-09-07T18:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T19:00:00+10:00",
@@ -35387,7 +35387,7 @@
      },
      {
       "time": "2026-09-07T19:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T20:00:00+10:00",
@@ -35403,23 +35403,23 @@
      },
      {
       "time": "2026-09-07T21:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T22:00:00+10:00",
-      "value": 0.2999
-     },
-     {
-      "time": "2026-09-07T22:30:00+10:00",
       "value": 0.3001
      },
      {
+      "time": "2026-09-07T22:30:00+10:00",
+      "value": 0.3
+     },
+     {
       "time": "2026-09-07T23:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T23:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T00:00:00+10:00",
@@ -35431,19 +35431,19 @@
      },
      {
       "time": "2026-09-08T01:00:00+10:00",
-      "value": 0.3001
-     },
-     {
-      "time": "2026-09-08T01:30:00+10:00",
       "value": 0.3
      },
      {
-      "time": "2026-09-08T02:00:00+10:00",
+      "time": "2026-09-08T01:30:00+10:00",
       "value": 0.3001
      },
      {
-      "time": "2026-09-08T02:30:00+10:00",
+      "time": "2026-09-08T02:00:00+10:00",
       "value": 0.2999
+     },
+     {
+      "time": "2026-09-08T02:30:00+10:00",
+      "value": 0.3
      },
      {
       "time": "2026-09-08T03:00:00+10:00",
@@ -35451,19 +35451,19 @@
      },
      {
       "time": "2026-09-08T03:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T04:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T04:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T05:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T05:30:00+10:00",
@@ -35475,15 +35475,15 @@
      },
      {
       "time": "2026-09-08T06:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T07:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-08T07:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T08:00:00+10:00",
@@ -35491,11 +35491,11 @@
      },
      {
       "time": "2026-09-08T08:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T09:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T09:30:00+10:00",
@@ -35503,7 +35503,7 @@
      },
      {
       "time": "2026-09-08T10:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T10:30:00+10:00",
@@ -35515,11 +35515,11 @@
      },
      {
       "time": "2026-09-08T11:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-08T12:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T12:30:00+10:00",
@@ -35527,7 +35527,7 @@
      },
      {
       "time": "2026-09-08T13:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T13:30:00+10:00",
@@ -35539,7 +35539,7 @@
      },
      {
       "time": "2026-09-08T14:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T15:00:00+10:00",
@@ -35547,15 +35547,15 @@
      },
      {
       "time": "2026-09-08T15:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T16:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T16:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T17:00:00+10:00",
@@ -35563,7 +35563,7 @@
      },
      {
       "time": "2026-09-08T17:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T18:00:00+10:00",
@@ -35571,15 +35571,15 @@
      },
      {
       "time": "2026-09-08T18:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T19:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T19:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-08T20:00:00+10:00",
@@ -35587,7 +35587,7 @@
      },
      {
       "time": "2026-09-08T20:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T21:00:00+10:00",
@@ -35595,7 +35595,7 @@
      },
      {
       "time": "2026-09-08T21:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-08T22:00:00+10:00",
@@ -35603,11 +35603,11 @@
      },
      {
       "time": "2026-09-08T22:30:00+10:00",
-      "value": 0.3001
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T23:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T23:30:00+10:00",
@@ -35615,15 +35615,15 @@
      },
      {
       "time": "2026-09-09T00:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T00:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T01:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T01:30:00+10:00",
@@ -35631,23 +35631,23 @@
      },
      {
       "time": "2026-09-09T02:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T02:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T03:00:00+10:00",
-      "value": 0.3001
-     },
-     {
-      "time": "2026-09-09T03:30:00+10:00",
       "value": 0.3
      },
      {
-      "time": "2026-09-09T04:00:00+10:00",
+      "time": "2026-09-09T03:30:00+10:00",
       "value": 0.3001
+     },
+     {
+      "time": "2026-09-09T04:00:00+10:00",
+      "value": 0.3
      },
      {
       "time": "2026-09-09T04:30:00+10:00",
@@ -35659,11 +35659,11 @@
      },
      {
       "time": "2026-09-09T05:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T06:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T06:30:00+10:00",
@@ -35671,7 +35671,7 @@
      },
      {
       "time": "2026-09-09T07:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T07:30:00+10:00",
@@ -35691,19 +35691,19 @@
      },
      {
       "time": "2026-09-09T09:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T10:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T10:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T11:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T11:30:00+10:00",
@@ -35711,15 +35711,15 @@
      },
      {
       "time": "2026-09-09T12:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T12:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T13:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T13:30:00+10:00",
@@ -35727,15 +35727,15 @@
      },
      {
       "time": "2026-09-09T14:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T14:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T15:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T15:30:00+10:00",
@@ -35743,27 +35743,27 @@
      },
      {
       "time": "2026-09-09T16:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T16:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T17:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T17:30:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-09T18:00:00+10:00",
       "value": 0.3001
      },
      {
+      "time": "2026-09-09T18:00:00+10:00",
+      "value": 0.2999
+     },
+     {
       "time": "2026-09-09T18:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T19:00:00+10:00",
@@ -35775,19 +35775,19 @@
      },
      {
       "time": "2026-09-09T20:00:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-09T20:30:00+10:00",
       "value": 0.3001
      },
      {
-      "time": "2026-09-09T21:00:00+10:00",
+      "time": "2026-09-09T20:30:00+10:00",
       "value": 0.3
      },
      {
+      "time": "2026-09-09T21:00:00+10:00",
+      "value": 0.2999
+     },
+     {
       "time": "2026-09-09T21:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T22:00:00+10:00",
@@ -35799,11 +35799,11 @@
      },
      {
       "time": "2026-09-09T23:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T23:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T00:00:00+10:00",
@@ -35967,7 +35967,7 @@
      }
     ],
     "plan_shortfall_kwh": 1.5,
-    "plan_status_reason": "running now, marginal cost 30.01 c/kWh",
+    "plan_status_reason": "running now, marginal cost 30.00 c/kWh",
     "plan_target_kwh": 3.25,
     "plan_tariff_attributed_cost": 3.225,
     "plan_temperature_forecast": null,
@@ -38442,11 +38442,11 @@
     "plan_shadow_price_forecast": [
      {
       "time": "2026-09-06T20:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-06T20:05:00+10:00",
-      "value": 0.2999
+      "value": 0.3001
      },
      {
       "time": "2026-09-06T20:10:00+10:00",
@@ -38454,15 +38454,15 @@
      },
      {
       "time": "2026-09-06T20:15:00+10:00",
-      "value": 0.3001
-     },
-     {
-      "time": "2026-09-06T20:20:00+10:00",
       "value": 0.2999
      },
      {
-      "time": "2026-09-06T20:25:00+10:00",
+      "time": "2026-09-06T20:20:00+10:00",
       "value": 0.3001
+     },
+     {
+      "time": "2026-09-06T20:25:00+10:00",
+      "value": 0.3
      },
      {
       "time": "2026-09-06T20:30:00+10:00",
@@ -38518,11 +38518,11 @@
      },
      {
       "time": "2026-09-07T00:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T01:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-07T01:30:00+10:00",
@@ -38534,19 +38534,19 @@
      },
      {
       "time": "2026-09-07T02:30:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-07T03:00:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-07T03:30:00+10:00",
       "value": 0.2999
      },
      {
-      "time": "2026-09-07T04:00:00+10:00",
+      "time": "2026-09-07T03:00:00+10:00",
       "value": 0.3001
+     },
+     {
+      "time": "2026-09-07T03:30:00+10:00",
+      "value": 0.3
+     },
+     {
+      "time": "2026-09-07T04:00:00+10:00",
+      "value": 0.3
      },
      {
       "time": "2026-09-07T04:30:00+10:00",
@@ -38574,11 +38574,11 @@
      },
      {
       "time": "2026-09-07T07:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T08:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-07T08:30:00+10:00",
@@ -38614,11 +38614,11 @@
      },
      {
       "time": "2026-09-07T12:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T13:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T13:30:00+10:00",
@@ -38626,7 +38626,7 @@
      },
      {
       "time": "2026-09-07T14:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T14:30:00+10:00",
@@ -38634,23 +38634,23 @@
      },
      {
       "time": "2026-09-07T15:00:00+10:00",
-      "value": 0.3001
-     },
-     {
-      "time": "2026-09-07T15:30:00+10:00",
       "value": 0.2999
      },
      {
-      "time": "2026-09-07T16:00:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-07T16:30:00+10:00",
+      "time": "2026-09-07T15:30:00+10:00",
       "value": 0.3001
      },
      {
-      "time": "2026-09-07T17:00:00+10:00",
+      "time": "2026-09-07T16:00:00+10:00",
+      "value": 0.2999
+     },
+     {
+      "time": "2026-09-07T16:30:00+10:00",
       "value": 0.3
+     },
+     {
+      "time": "2026-09-07T17:00:00+10:00",
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T17:30:00+10:00",
@@ -38662,7 +38662,7 @@
      },
      {
       "time": "2026-09-07T18:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T19:00:00+10:00",
@@ -38670,7 +38670,7 @@
      },
      {
       "time": "2026-09-07T19:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T20:00:00+10:00",
@@ -38686,23 +38686,23 @@
      },
      {
       "time": "2026-09-07T21:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T22:00:00+10:00",
-      "value": 0.2999
-     },
-     {
-      "time": "2026-09-07T22:30:00+10:00",
       "value": 0.3001
      },
      {
+      "time": "2026-09-07T22:30:00+10:00",
+      "value": 0.3
+     },
+     {
       "time": "2026-09-07T23:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T23:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T00:00:00+10:00",
@@ -38714,19 +38714,19 @@
      },
      {
       "time": "2026-09-08T01:00:00+10:00",
-      "value": 0.3001
-     },
-     {
-      "time": "2026-09-08T01:30:00+10:00",
       "value": 0.3
      },
      {
-      "time": "2026-09-08T02:00:00+10:00",
+      "time": "2026-09-08T01:30:00+10:00",
       "value": 0.3001
      },
      {
-      "time": "2026-09-08T02:30:00+10:00",
+      "time": "2026-09-08T02:00:00+10:00",
       "value": 0.2999
+     },
+     {
+      "time": "2026-09-08T02:30:00+10:00",
+      "value": 0.3
      },
      {
       "time": "2026-09-08T03:00:00+10:00",
@@ -38734,19 +38734,19 @@
      },
      {
       "time": "2026-09-08T03:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T04:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T04:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T05:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T05:30:00+10:00",
@@ -38758,15 +38758,15 @@
      },
      {
       "time": "2026-09-08T06:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T07:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-08T07:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T08:00:00+10:00",
@@ -38774,11 +38774,11 @@
      },
      {
       "time": "2026-09-08T08:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T09:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T09:30:00+10:00",
@@ -38786,7 +38786,7 @@
      },
      {
       "time": "2026-09-08T10:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T10:30:00+10:00",
@@ -38798,11 +38798,11 @@
      },
      {
       "time": "2026-09-08T11:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-08T12:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T12:30:00+10:00",
@@ -38810,7 +38810,7 @@
      },
      {
       "time": "2026-09-08T13:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T13:30:00+10:00",
@@ -38822,7 +38822,7 @@
      },
      {
       "time": "2026-09-08T14:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T15:00:00+10:00",
@@ -38830,15 +38830,15 @@
      },
      {
       "time": "2026-09-08T15:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T16:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T16:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T17:00:00+10:00",
@@ -38846,7 +38846,7 @@
      },
      {
       "time": "2026-09-08T17:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T18:00:00+10:00",
@@ -38854,15 +38854,15 @@
      },
      {
       "time": "2026-09-08T18:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T19:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-08T19:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-08T20:00:00+10:00",
@@ -38870,7 +38870,7 @@
      },
      {
       "time": "2026-09-08T20:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T21:00:00+10:00",
@@ -38878,7 +38878,7 @@
      },
      {
       "time": "2026-09-08T21:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-08T22:00:00+10:00",
@@ -38886,11 +38886,11 @@
      },
      {
       "time": "2026-09-08T22:30:00+10:00",
-      "value": 0.3001
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T23:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T23:30:00+10:00",
@@ -38898,15 +38898,15 @@
      },
      {
       "time": "2026-09-09T00:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T00:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T01:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T01:30:00+10:00",
@@ -38914,23 +38914,23 @@
      },
      {
       "time": "2026-09-09T02:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T02:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T03:00:00+10:00",
-      "value": 0.3001
-     },
-     {
-      "time": "2026-09-09T03:30:00+10:00",
       "value": 0.3
      },
      {
-      "time": "2026-09-09T04:00:00+10:00",
+      "time": "2026-09-09T03:30:00+10:00",
       "value": 0.3001
+     },
+     {
+      "time": "2026-09-09T04:00:00+10:00",
+      "value": 0.3
      },
      {
       "time": "2026-09-09T04:30:00+10:00",
@@ -38942,11 +38942,11 @@
      },
      {
       "time": "2026-09-09T05:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T06:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T06:30:00+10:00",
@@ -38954,7 +38954,7 @@
      },
      {
       "time": "2026-09-09T07:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T07:30:00+10:00",
@@ -38974,19 +38974,19 @@
      },
      {
       "time": "2026-09-09T09:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T10:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T10:30:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T11:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T11:30:00+10:00",
@@ -38994,15 +38994,15 @@
      },
      {
       "time": "2026-09-09T12:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T12:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T13:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T13:30:00+10:00",
@@ -39010,15 +39010,15 @@
      },
      {
       "time": "2026-09-09T14:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T14:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T15:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T15:30:00+10:00",
@@ -39026,27 +39026,27 @@
      },
      {
       "time": "2026-09-09T16:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T16:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T17:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-09T17:30:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-09T18:00:00+10:00",
       "value": 0.3001
      },
      {
+      "time": "2026-09-09T18:00:00+10:00",
+      "value": 0.2999
+     },
+     {
       "time": "2026-09-09T18:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T19:00:00+10:00",
@@ -39058,19 +39058,19 @@
      },
      {
       "time": "2026-09-09T20:00:00+10:00",
-      "value": 0.3
-     },
-     {
-      "time": "2026-09-09T20:30:00+10:00",
       "value": 0.3001
      },
      {
-      "time": "2026-09-09T21:00:00+10:00",
+      "time": "2026-09-09T20:30:00+10:00",
       "value": 0.3
      },
      {
+      "time": "2026-09-09T21:00:00+10:00",
+      "value": 0.2999
+     },
+     {
       "time": "2026-09-09T21:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T22:00:00+10:00",
@@ -39082,11 +39082,11 @@
      },
      {
       "time": "2026-09-09T23:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-09T23:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T00:00:00+10:00",
