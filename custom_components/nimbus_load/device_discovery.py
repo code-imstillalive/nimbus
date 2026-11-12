@@ -914,7 +914,13 @@ def _equipment_device(
     document: dict[str, Any], questions: list[dict[str, Any]], kind: str
 ) -> dict[str, Any]:
     """The proposal's device of `kind` (the Whole house for a load), or a new
-    one supplying the house when the Energy Dashboard named none."""
+    one supplying the house when the Energy Dashboard named none.
+
+    Assumes at most one device of `kind` exists going in: with two (say two
+    batteries), it binds to the first rather than asking which. True today,
+    since discovery makes one battery and one solar device and a profile runs
+    for one instance only; a profile that can meet several must ask instead
+    (Mark Purcell, #2523 review)."""
     devices = document["devices"]
     if kind == "load":
         return next(d for d in devices if d["id"] == _HOUSE_ID)
