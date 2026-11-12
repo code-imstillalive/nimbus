@@ -785,8 +785,10 @@ async def async_number_changed(hass: Any, entry: Any, key: str, value: float) ->
 # DC-002 against the live state.
 
 #: Provider integrations discovery recognises (device_discovery's matrix).
-_PROFILE_DOMAINS = frozenset(device_discovery.PROFILES) | frozenset(
-    device_discovery.REPORTED_ONLY
+_PROFILE_DOMAINS = (
+    frozenset(device_discovery.PROFILES)
+    | frozenset(device_discovery.REPORTED_ONLY)
+    | frozenset(device_discovery.EQUIPMENT_PROFILES)
 )
 
 #: DC-002 reasons that mean the BINDING is wrong, not that its data is
@@ -823,7 +825,7 @@ def _is_binding_fault(reason: str | None) -> bool:
 def _profile_key(platform: str, uid: str, config_entry_id: str | None):
     """(instance, key) of one provider entity, from its built-in unique_id
     (device_discovery's PROFILES comment), or (None, None)."""
-    if platform == "localvolts_v2":
+    if platform in ("localvolts_v2", "sigen"):
         prefix = f"{config_entry_id}_"
         if config_entry_id and uid.startswith(prefix):
             return config_entry_id, uid[len(prefix) :]
