@@ -1359,6 +1359,9 @@ def apply_price_trust(
         threshold, threshold_from = price_error_history.spike_threshold(cfg)
         summary = price_error_history._summary(price_error_history._load(sw))
         out: dict = {"threshold": threshold, "threshold_from": threshold_from}
+        # Both sides are computed before either is written, so a failure
+        # leaves both as they were (Mark Purcell, review of #2535).
+        pending: list[tuple[list[float], list[float]]] = []
         for side, target, labels in (
             ("import", spot_import_raw, import_price_source),
             ("export", spot_export, export_price_source),
@@ -1376,7 +1379,7 @@ def apply_price_trust(
                 buckets=price_error_history.LEAD_BUCKETS,
                 bucket_5min=_bucket_5min,
             )
-            target[:] = adjusted
+            pending.append((target, adjusted))
             moved = [
                 [
                     grid_times[i].isoformat(),
@@ -1388,6 +1391,8 @@ def apply_price_trust(
                 if w is not None and w < 1.0
             ]
             out[side] = {"periods_moved": len(moved), "moved": moved[:96]}
+        for target, adjusted in pending:
+            target[:] = adjusted
         return out
     except Exception as e:  # noqa: BLE001 -- an adjustment must never break a solve
         solver_shared._LOGGER.debug("Nimbus #2534: price trust failed: %s", e)
