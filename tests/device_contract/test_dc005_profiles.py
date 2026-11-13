@@ -179,8 +179,10 @@ def test_the_proposed_adapters_are_ones_dc002_resolves():
             r"^\| [^|]+\| `([a-z0-9_]+)` \| ([a-z ]+?) \|", matrix, _re.MULTILINE
         )
     )
-    assert set(dd.PROFILES) | set(dd.REPORTED_ONLY) == set(rows)
-    for profile in dd.PROFILES:
+    assert set(dd.PROFILES) | set(dd.REPORTED_ONLY) | set(dd.EQUIPMENT_PROFILES) == set(
+        rows
+    )
+    for profile in (*dd.PROFILES, *dd.EQUIPMENT_PROFILES):
         assert rows[profile] in ("supported", "proposed"), profile
     for provider in dd.REPORTED_ONLY:
         assert rows[provider] == "reported only", provider
