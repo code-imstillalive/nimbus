@@ -25,6 +25,7 @@ Rules for any Claude session working on this repo. Rules only: the history and r
 4. **Every check, every time.** Nothing merges, releases or ships until every check is `completed` and `success`. Pending is not a pass. A rebase or force-push restarts CI. Diagnose a failure from its log before calling it external or flaky. Being asked to hurry is not a reason to skip a check.
 5. **Fix it fully.** Don't scope a fix, comment and move on. Finish it, or record exactly what remains and why.
 6. **On an issue Mark Purcell raises, own the solution:** test the options, implement the best on evidence, and report what was measured. Defer to his technical judgement unless you have a verified reason not to.
+7. **Replying to an issue posts a comment; it never edits the issue itself.** Via the GitHub MCP tools, that means `add_issue_comment`, never `issue_write` with `method: "update"` and a `body` — that call sets the issue's *description*, and silently overwrote #1574, #2514 and #2515's own text this way (6 and 13 Nov 2026) before Mark caught it and restored #1574 by hand. Reserve `issue_write`'s `update` for an actual edit to the issue (state, labels, type), never for a reply. The same distinction applies with the `gh` CLI: `gh issue comment`, not `gh issue edit`.
 
 ## Authority
 
