@@ -42,5 +42,6 @@ Nothing is listed as *supported* on fixtures alone.
 | Sigenergy (`sigen` integration) | `sigen` | proposed | Battery power and charge level, solar power, the plant's Total Load as the Whole house, and grid import and export power; the net grid power is worked out as import minus export. Consumed Power is reported, not bound. The battery's capacity is asked once. |
 
 This page is updated with each release. When your install runs a profile,
-tell us on [#1574](https://github.com/code-imstillalive/nimbus/issues/1574) so
-it can move to *supported*.
+[open an issue](https://github.com/code-imstillalive/nimbus/issues/new) naming
+the profile and what the proposal got right or wrong, so it can move to
+*supported*.
