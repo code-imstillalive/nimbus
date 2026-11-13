@@ -115,11 +115,10 @@ dev = [
     # exists specifically because ITS version selects a whole HA core
     # release underneath it.
     "import-linter>=2.0",
-    # Pinned below 1.16 (12 Nov 2026): highspy 1.16.0 changed a dual value
-    # in the golden master (0.3001 vs 0.3) and stopped reproducing the
-    # phase-3 lex-restore scenarios, and lp.py relies on behaviour measured
-    # on 1.15.1. Lift the pin once 1.16 is evaluated.
-    "highspy>=1.15.1,<1.16",
+    # Below 1.17 (13 Nov 2026, #2520): 1.16 was evaluated before the pin
+    # was lifted (no plan-cost change, no slower solves); the next minor
+    # is evaluated the same way before this bound moves.
+    "highspy>=1.15.1,<1.17",
     # The real JSON Schema validator, for nimbus issue #495's own acceptance
     # criterion: "a record built from a synthetic solve validates against
     # telemetry.schema.json v2.0". That file is @purcell-lab's, vendored here
