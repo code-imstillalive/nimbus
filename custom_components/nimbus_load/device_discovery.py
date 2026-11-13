@@ -1027,6 +1027,7 @@ def _add_equipment_profiles(
                         "candidates": [_candidate(current), _candidate(new)],
                     }
                 )
+        _add_derived_grid_power(document, questions, profile, instance)
         for key, why in _EQUIPMENT_NO_ROLE.get(profile, {}).items():
             if isinstance(keys.get(key), str) and keys[key]:
                 findings.append(
@@ -1038,6 +1039,51 @@ def _add_equipment_profiles(
                         "message": why,
                     }
                 )
+
+
+def _add_derived_grid_power(
+    document: dict[str, Any],
+    questions: list[dict[str, Any]],
+    profile: str,
+    instance: str,
+) -> None:
+    """The Grid's net `power` as import minus export (DC-R16 `derived`, the
+    registered `difference`), when an equipment profile filled both and
+    nothing else gives the net: no sensor of its own, and no open question
+    about one. Readiness and observation read the net, so without this a
+    site with only the two magnitudes would need a template helper."""
+    grid = next(d for d in document["devices"] if d["kind"] == "grid")
+    bindings = grid["bindings"]
+    if "power" in bindings or not {"import_power", "export_power"} <= set(bindings):
+        return
+    if any(
+        q.get("code") == Q_SEVERAL_SOURCES
+        and q.get("device") == grid["id"]
+        and q.get("role") == "power"
+        for q in questions
+    ):
+        return
+    bindings["power"] = {
+        "source": {
+            "kind": "derived",
+            "calculation": "difference",
+            "depends_on": [f"{grid['id']}.import_power", f"{grid['id']}.export_power"],
+        },
+        "provenance": {
+            "origin": "derived",
+            "confirmed": False,
+            "overridden": False,
+            "evidence": [
+                {
+                    "kind": "provider_profile",
+                    "profile": profile,
+                    "profile_version": EQUIPMENT_PROFILE_VERSION,
+                    "instance": instance,
+                    "derived_from": ["import_power", "export_power"],
+                }
+            ],
+        },
+    }
 
 
 # --- Step 3: history pairing (DC-005 "Evidence", decision 4) -----------------

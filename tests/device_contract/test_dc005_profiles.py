@@ -235,7 +235,15 @@ def test_a_sigenergy_plant_fills_battery_solar_whole_house_and_grid():
     ] == [(dd.F_PROFILE_NO_ROLE, "sensor.sig_consumed")]
     assert all(f["code"] != dd.F_PROFILE_UNKNOWN for f in p.findings)
     grid = _grid(p)["bindings"]
-    assert sorted(grid) == ["export_power", "import_power"]  # no net grid sensor
+    # No net grid sensor: the net is derived as import minus export.
+    assert sorted(grid) == ["export_power", "import_power", "power"]
+    assert grid["power"]["source"] == {
+        "kind": "derived",
+        "calculation": "difference",
+        "depends_on": ["grid.import_power", "grid.export_power"],
+    }
+    assert grid["power"]["provenance"]["origin"] == "derived"
+    assert p.problems == []
     assert grid["import_power"]["source"]["entity_id"] == "sensor.sig_grid_in"
     assert grid["export_power"]["source"]["entity_id"] == "sensor.sig_grid_out"
     assert grid["export_power"]["normalization"] == {
