@@ -606,8 +606,10 @@ _LV_NO_ROLE = ("sell_matched_cost", "p2p_settlement_history")
 # site by Mark Purcell, 12-13 Nov 2026). Its battery power reads positive while
 # CHARGING, measured on that site for this key: the sign is set per key, never
 # assumed for every Sigenergy model. Grid power has no single native sensor
-# there (import and export are separate), so no grid role is proposed; the
-# Energy Dashboard's grid stays the source.
+# there: import and export are two magnitudes, each positive only while its
+# own direction flows and 0 otherwise (checked live against the plant's
+# importing/exporting binary sensors, 13 Nov 2026), so they fill the Grid's
+# separate `import_power` and `export_power` roles.
 _SIGEN = "sigen"
 
 EQUIPMENT_PROFILE_VERSION = 1
@@ -624,6 +626,8 @@ EQUIPMENT_PROFILES: dict[str, tuple[tuple[str, str, str, str | None], ...]] = {
         ("battery", "soc", "sigen_plant_plant_ess_soc", None),
         ("solar", "power", "sigen_plant_plant_photovoltaic_power", "generation"),
         ("load", "power", "sigen_plant_plant_total_load_power", "consumption"),
+        ("grid", "import_power", "sigen_plant_plant_grid_import_power", "import"),
+        ("grid", "export_power", "sigen_plant_plant_grid_export_power", "export"),
     ),
 }
 
@@ -632,6 +636,8 @@ _CANONICAL_DIRECTION = {
     ("battery", "power"): "discharge",
     ("solar", "power"): "generation",
     ("load", "power"): "consumption",
+    ("grid", "import_power"): "import",
+    ("grid", "export_power"): "export",
 }
 
 # Keys an equipment profile recognises but binds to no role, and why.
