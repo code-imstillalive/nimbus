@@ -820,8 +820,6 @@ def add_provider_profiles(
                 if isinstance(keys.get(key), str) and keys[key]
             )
 
-    _add_equipment_profiles(document, questions, findings, instances, regs)
-
     # A role step 1 already asked about stays a question: a profile's source
     # joins its candidates, it never settles them.
     asked = {
@@ -862,6 +860,11 @@ def add_provider_profiles(
             }
         )
     grid["bindings"] = bindings
+
+    # After the Grid's price roles are settled above, which rebuilds its
+    # bindings: an equipment profile's grid roles (a Sigenergy plant's import
+    # and export power) join them here instead of being dropped by it.
+    _add_equipment_profiles(document, questions, findings, instances, regs)
     return Proposal(
         document=document,
         questions=questions,
