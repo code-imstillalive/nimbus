@@ -596,6 +596,54 @@ REPORTED_ONLY = {
 # sell price already holds (DC-002's open question 2 on #1574).
 _LV_NO_ROLE = ("sell_matched_cost", "p2p_settlement_history")
 
+# --- Equipment profiles (DC-R17: one reviewed PR each) ----------------------
+#
+# A price profile above fills the Grid device. An equipment profile fills the
+# battery, solar and Whole house devices from one inverter integration, keyed
+# by the integration's own unique_id keys, so a renamed entity is still found.
+#
+# Sigenergy (`sigen` integration, #2514; keys read live from a real Sigenergy
+# site by Mark Purcell, 12-13 Nov 2026). Its battery power reads positive while
+# CHARGING, measured on that site for this key: the sign is set per key, never
+# assumed for every Sigenergy model. Grid power has no single native sensor
+# there (import and export are separate), so no grid role is proposed; the
+# Energy Dashboard's grid stays the source.
+_SIGEN = "sigen"
+
+EQUIPMENT_PROFILE_VERSION = 1
+
+# profile -> ((device kind, role, key, native positive direction or None), ...)
+EQUIPMENT_PROFILES: dict[str, tuple[tuple[str, str, str, str | None], ...]] = {
+    _SIGEN: (
+        (
+            "battery",
+            "power",
+            "sigen_inverter_inverter_ess_charge_discharge_power",
+            "charge",
+        ),
+        ("battery", "soc", "sigen_plant_plant_ess_soc", None),
+        ("solar", "power", "sigen_plant_plant_photovoltaic_power", "generation"),
+        ("load", "power", "sigen_plant_plant_total_load_power", "consumption"),
+    ),
+}
+
+# The contract's own positive direction for each signed (kind, role).
+_CANONICAL_DIRECTION = {
+    ("battery", "power"): "discharge",
+    ("solar", "power"): "generation",
+    ("load", "power"): "consumption",
+}
+
+# Keys an equipment profile recognises but binds to no role, and why.
+_EQUIPMENT_NO_ROLE: dict[str, dict[str, str]] = {
+    _SIGEN: {
+        "sigen_plant_plant_consumed_power": "a second meter of the whole "
+        "house; the Whole house device's power is the plant's Total Load, so "
+        "this one is not bound (set it as the whole-house cross-check, or a "
+        "Power Signal with the Whole house role, if you want it)",
+    },
+}
+
 F_PROFILE_SEVERAL = "profile_several_instances"
 F_PROFILE_REPORTED = "profile_reported_only"
 F_PROFILE_NO_ROLE = "profile_key_has_no_role"
@@ -712,6 +760,8 @@ def add_provider_profiles(
                 }
             )
             continue
+        if profile in EQUIPMENT_PROFILES:
+            continue  # _add_equipment_profiles
         if profile not in PROFILES:
             findings.append(
                 {
@@ -764,6 +814,8 @@ def add_provider_profiles(
                 if isinstance(keys.get(key), str) and keys[key]
             )
 
+    _add_equipment_profiles(document, questions, findings, instances, regs)
+
     # A role step 1 already asked about stays a question: a profile's source
     # joins its candidates, it never settles them.
     asked = {
@@ -810,6 +862,173 @@ def add_provider_profiles(
         findings=findings,
         problems=dc.validate(document),
     )
+
+
+def _equipment_identity(binding: Mapping[str, Any]) -> tuple[Any, ...]:
+    """`_identity` plus the sensor's native sign: the same sensor named
+    twice with opposite signs is a disagreement, never corroboration."""
+    norm = binding.get("normalization") or {}
+    return (*_identity(binding), norm.get("native_positive_direction"))
+
+
+def _equipment_binding(
+    profile: str,
+    instance: str,
+    kind: str,
+    role: str,
+    key: str,
+    entity_id: str,
+    native: str | None,
+    registry_ids: Mapping[str, str],
+) -> dict[str, Any]:
+    source: dict[str, Any] = {"kind": "entity_state", "entity_id": entity_id}
+    if entity_id in registry_ids:
+        source["registry_id"] = registry_ids[entity_id]
+    binding: dict[str, Any] = {
+        "source": source,
+        "provenance": {
+            "origin": "provider_profile",
+            "confirmed": False,
+            "overridden": False,
+            "evidence": [
+                {
+                    "kind": "provider_profile",
+                    "profile": profile,
+                    "profile_version": EQUIPMENT_PROFILE_VERSION,
+                    "instance": instance,
+                    "key": key,
+                }
+            ],
+        },
+    }
+    canonical = _CANONICAL_DIRECTION.get((kind, role))
+    if canonical is not None and native is not None:
+        binding["normalization"] = {
+            "positive_direction": canonical,
+            "native_positive_direction": native,
+        }
+    return binding
+
+
+def _equipment_device(
+    document: dict[str, Any], questions: list[dict[str, Any]], kind: str
+) -> dict[str, Any]:
+    """The proposal's device of `kind` (the Whole house for a load), or a new
+    one supplying the house when the Energy Dashboard named none.
+
+    Assumes at most one device of `kind` exists going in: with two (say two
+    batteries), it binds to the first rather than asking which. True today,
+    since discovery makes one battery and one solar device and a profile runs
+    for one instance only; a profile that can meet several must ask instead
+    (Mark Purcell, #2523 review)."""
+    devices = document["devices"]
+    if kind == "load":
+        return next(d for d in devices if d["id"] == _HOUSE_ID)
+    found = next((d for d in devices if d["kind"] == kind), None)
+    if found is not None:
+        return found
+    taken = {str(d["id"]) for d in devices}
+    device: dict[str, Any] = {
+        "id": _unique(kind, taken),
+        "kind": kind,
+        "name": kind.title(),
+        "bindings": {},
+        "constraints": {},
+    }
+    devices.append(device)
+    document.setdefault("relationships", []).append(
+        {"kind": "supplies", "from": device["id"], "to": _HOUSE_ID}
+    )
+    if kind == "battery":
+        questions.append(
+            {
+                "code": Q_FACT_NEEDED,
+                "device": device["id"],
+                "fact": "capacity",
+                "message": "how much energy the battery holds, in kWh, and "
+                "whether that is its usable or nominal capacity",
+            }
+        )
+    return device
+
+
+def _add_equipment_profiles(
+    document: dict[str, Any],
+    questions: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+    instances: Mapping[str, Sequence[Mapping[str, Any]]],
+    regs: Mapping[str, str],
+) -> None:
+    """Each single-instance equipment profile's roles, joined to the device
+    that holds them. A role the Energy Dashboard already filled with the same
+    sensor and sign is corroborated; a different sensor or sign becomes a
+    question listing both, as a price profile's does."""
+    for profile, items in sorted(instances.items()):
+        if profile not in EQUIPMENT_PROFILES:
+            continue
+        if len(items) != 1:
+            findings.append(
+                {
+                    "code": F_PROFILE_SEVERAL,
+                    "profile": profile,
+                    "instances": sorted(str(i.get("instance")) for i in items),
+                    "message": "more than one is configured; nothing is "
+                    "proposed rather than guessing which one the site uses",
+                }
+            )
+            continue
+        (item,) = items
+        keys = item.get("keys") or {}
+        instance = str(item.get("instance"))
+        for kind, role, key, native in EQUIPMENT_PROFILES[profile]:
+            entity_id = keys.get(key)
+            if not (isinstance(entity_id, str) and entity_id):
+                continue
+            device = _equipment_device(document, questions, kind)
+            new = _equipment_binding(
+                profile, instance, kind, role, key, entity_id, native, regs
+            )
+            asked = next(
+                (
+                    q
+                    for q in questions
+                    if q.get("code") == Q_SEVERAL_SOURCES
+                    and q.get("device") == device["id"]
+                    and q.get("role") == role
+                ),
+                None,
+            )
+            if asked is not None:
+                asked["candidates"].append(_candidate(new))
+                continue
+            current = device["bindings"].get(role)
+            if current is None:
+                device["bindings"][role] = new
+            elif _equipment_identity(current) == _equipment_identity(new):
+                current["provenance"]["evidence"].extend(
+                    copy.deepcopy(new["provenance"]["evidence"])
+                )
+            else:
+                del device["bindings"][role]
+                questions.append(
+                    {
+                        "code": Q_SEVERAL_SOURCES,
+                        "device": device["id"],
+                        "role": role,
+                        "candidates": [_candidate(current), _candidate(new)],
+                    }
+                )
+        for key, why in _EQUIPMENT_NO_ROLE.get(profile, {}).items():
+            if isinstance(keys.get(key), str) and keys[key]:
+                findings.append(
+                    {
+                        "code": F_PROFILE_NO_ROLE,
+                        "profile": profile,
+                        "key": key,
+                        "entity_id": keys[key],
+                        "message": why,
+                    }
+                )
 
 
 # --- Step 3: history pairing (DC-005 "Evidence", decision 4) -----------------

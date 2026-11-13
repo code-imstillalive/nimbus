@@ -184,3 +184,96 @@ def test_the_proposed_adapters_are_ones_dc002_resolves():
         assert rows[profile] in ("supported", "proposed"), profile
     for provider in dd.REPORTED_ONLY:
         assert rows[provider] == "reported only", provider
+
+
+SIGEN = {
+    "profile": "sigen",
+    "instance": "entry_sigen",
+    "keys": {
+        "sigen_inverter_inverter_ess_charge_discharge_power": "sensor.sig_bat_power",
+        "sigen_plant_plant_ess_soc": "sensor.sig_soc",
+        "sigen_plant_plant_photovoltaic_power": "sensor.sig_pv",
+        "sigen_plant_plant_total_load_power": "sensor.sig_total_load",
+        "sigen_plant_plant_consumed_power": "sensor.sig_consumed",
+    },
+}
+
+
+def _device(proposal, ident):
+    return next(d for d in proposal.document["devices"] if d["id"] == ident)
+
+
+def test_a_sigenergy_plant_fills_battery_solar_and_whole_house():
+    """#2514 (DC-R17, keys from a real Sigenergy site via Mark Purcell): one
+    equipment profile fills the battery, solar and Whole house devices, with
+    the battery power's own sign; the second whole-house meter is reported,
+    not bound; an Energy Dashboard source that agrees is corroborated, and one
+    that disagrees, even on sign alone, is a question, never overridden."""
+    p = dd.add_provider_profiles(_empty(), [SIGEN])
+    battery = _device(p, "battery")
+    assert battery["bindings"]["power"]["source"]["entity_id"] == "sensor.sig_bat_power"
+    assert battery["bindings"]["power"]["normalization"] == {
+        "positive_direction": "discharge",
+        "native_positive_direction": "charge",
+    }
+    assert battery["bindings"]["soc"]["source"]["entity_id"] == "sensor.sig_soc"
+    assert any(
+        q["code"] == dd.Q_FACT_NEEDED and q["device"] == "battery" for q in p.questions
+    )
+    solar = _device(p, "solar")
+    assert solar["bindings"]["power"]["source"]["entity_id"] == "sensor.sig_pv"
+    house = _device(p, "load_house")
+    assert house["bindings"]["power"]["source"]["entity_id"] == "sensor.sig_total_load"
+    assert house["bindings"]["power"]["normalization"]["native_positive_direction"] == (
+        "consumption"
+    )
+    assert [
+        (f["code"], f["entity_id"]) for f in p.findings if f.get("profile") == "sigen"
+    ] == [(dd.F_PROFILE_NO_ROLE, "sensor.sig_consumed")]
+    assert all(f["code"] != dd.F_PROFILE_UNKNOWN for f in p.findings)
+    assert _grid(p)["bindings"] == {}  # no grid role: import/export are separate
+
+    # With an Energy Dashboard: the same solar sensor and sign is corroborated;
+    # the same battery sensor with the opposite sign is a question.
+    prefs = {
+        "energy_sources": [
+            {
+                "type": "solar",
+                "stat_energy_from": "sensor.pv_kwh",
+                "stat_rate": "sensor.sig_pv",
+            },
+            {
+                "type": "battery",
+                "stat_energy_from": "sensor.bat_out_kwh",
+                "stat_energy_to": "sensor.bat_in_kwh",
+                "stat_rate": "sensor.sig_bat_power",
+            },
+        ]
+    }
+    p = dd.add_provider_profiles(dd.propose_from_energy_dashboard(prefs), [SIGEN])
+    solar = _device(p, "solar")
+    kinds = [e["kind"] for e in solar["bindings"]["power"]["provenance"]["evidence"]]
+    assert "provider_profile" in kinds and len(kinds) == 2
+    battery = _device(p, "battery")
+    assert "power" not in battery["bindings"]
+    (q,) = [
+        q
+        for q in p.questions
+        if q["code"] == dd.Q_SEVERAL_SOURCES and q["device"] == "battery"
+    ]
+    assert q["role"] == "power"
+    assert sorted(
+        c["normalization"]["native_positive_direction"] for c in q["candidates"]
+    ) == [
+        "charge",
+        "discharge",
+    ]
+
+    # Two Sigenergy plants: nothing is proposed rather than guessed.
+    two = dict(SIGEN, instance="entry_sigen_2")
+    p = dd.add_provider_profiles(_empty(), [SIGEN, two])
+    assert not any(d["kind"] == "battery" for d in p.document["devices"])
+    assert any(
+        f["code"] == dd.F_PROFILE_SEVERAL and f["profile"] == "sigen"
+        for f in p.findings
+    )
