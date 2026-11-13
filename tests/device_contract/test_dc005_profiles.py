@@ -195,6 +195,8 @@ SIGEN = {
         "sigen_plant_plant_photovoltaic_power": "sensor.sig_pv",
         "sigen_plant_plant_total_load_power": "sensor.sig_total_load",
         "sigen_plant_plant_consumed_power": "sensor.sig_consumed",
+        "sigen_plant_plant_grid_import_power": "sensor.sig_grid_in",
+        "sigen_plant_plant_grid_export_power": "sensor.sig_grid_out",
     },
 }
 
@@ -203,10 +205,11 @@ def _device(proposal, ident):
     return next(d for d in proposal.document["devices"] if d["id"] == ident)
 
 
-def test_a_sigenergy_plant_fills_battery_solar_and_whole_house():
+def test_a_sigenergy_plant_fills_battery_solar_whole_house_and_grid():
     """#2514 (DC-R17, keys from a real Sigenergy site via Mark Purcell): one
     equipment profile fills the battery, solar and Whole house devices, with
-    the battery power's own sign; the second whole-house meter is reported,
+    the battery power's own sign, and the Grid's separate import and export
+    power; the second whole-house meter is reported,
     not bound; an Energy Dashboard source that agrees is corroborated, and one
     that disagrees, even on sign alone, is a question, never overridden."""
     p = dd.add_provider_profiles(_empty(), [SIGEN])
@@ -231,12 +234,36 @@ def test_a_sigenergy_plant_fills_battery_solar_and_whole_house():
         (f["code"], f["entity_id"]) for f in p.findings if f.get("profile") == "sigen"
     ] == [(dd.F_PROFILE_NO_ROLE, "sensor.sig_consumed")]
     assert all(f["code"] != dd.F_PROFILE_UNKNOWN for f in p.findings)
-    assert _grid(p)["bindings"] == {}  # no grid role: import/export are separate
+    grid = _grid(p)["bindings"]
+    # No net grid sensor: the net is derived as import minus export.
+    assert sorted(grid) == ["export_power", "import_power", "power"]
+    assert grid["power"]["source"] == {
+        "kind": "derived",
+        "calculation": "difference",
+        "depends_on": ["grid.import_power", "grid.export_power"],
+    }
+    assert grid["power"]["provenance"]["origin"] == "derived"
+    # The derived net validates; the only problem is the battery's capacity,
+    # which discovery asks for as a question.
+    assert [x.code for x in p.problems] == ["capacity_missing"]
+    assert grid["import_power"]["source"]["entity_id"] == "sensor.sig_grid_in"
+    assert grid["export_power"]["source"]["entity_id"] == "sensor.sig_grid_out"
+    assert grid["export_power"]["normalization"] == {
+        "positive_direction": "export",
+        "native_positive_direction": "export",
+    }
 
     # With an Energy Dashboard: the same solar sensor and sign is corroborated;
-    # the same battery sensor with the opposite sign is a question.
+    # the same battery sensor with the opposite sign is a question; the
+    # dashboard's net grid power stays, beside the profile's import and export.
     prefs = {
         "energy_sources": [
+            {
+                "type": "grid",
+                "stat_energy_from": "sensor.grid_in_kwh",
+                "stat_energy_to": "sensor.grid_out_kwh",
+                "stat_rate": "sensor.grid_net",
+            },
             {
                 "type": "solar",
                 "stat_energy_from": "sensor.pv_kwh",
@@ -254,6 +281,9 @@ def test_a_sigenergy_plant_fills_battery_solar_and_whole_house():
     solar = _device(p, "solar")
     kinds = [e["kind"] for e in solar["bindings"]["power"]["provenance"]["evidence"]]
     assert "provider_profile" in kinds and len(kinds) == 2
+    grid = _grid(p)["bindings"]
+    assert grid["power"]["source"]["entity_id"] == "sensor.grid_net"
+    assert grid["import_power"]["source"]["entity_id"] == "sensor.sig_grid_in"
     battery = _device(p, "battery")
     assert "power" not in battery["bindings"]
     (q,) = [
