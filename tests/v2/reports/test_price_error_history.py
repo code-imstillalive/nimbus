@@ -6,8 +6,8 @@ tracker scores: one normal pair per half hour (rotating), every spike and
 surprise kept, three weeks bounded, re-filed when the threshold changes, and
 persisted. The summary gives quantiles of difference and ratio, a Beta(1, 1)
 spike hit rate and leave-one-day-out band coverage, compact enough for an
-attribute. The plan never reads it yet: `main()` plans exactly as without
-it. Synthetic values only.
+attribute. Since #2534 the plan reads it, through `price_trust`, for
+periods priced past the configured source's own rows. Synthetic values only.
 """
 
 from __future__ import annotations
@@ -205,7 +205,7 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
         for i in range(13):
             result = _cycle(start + timedelta(minutes=5 * i))
         eh = result["error_history"]
-        assert eh["read_by_dispatch"] is False
+        assert eh["read_by_dispatch"] is True
         assert eh["threshold"] == 5.0
         assert eh["samples"] >= 1
         # The 0-5 min forecast of 0.30 settled at 0.31: a +0.01 signed error.

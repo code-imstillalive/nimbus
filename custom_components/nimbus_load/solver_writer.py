@@ -3403,6 +3403,24 @@ def _price_blend_phase(
 
     rrp_crosscheck_result = price_inputs.rrp_crosscheck_report(cfg, now)
 
+    # nimbus #2534 (household, 13 Nov 2026): past the configured source's own
+    # rows, a forecast counts for more the closer it gets, so a day-ahead
+    # spike does not price the plan at full height. The primary's rows, the
+    # settled block and live-consolidated periods are untouched. Published
+    # with the consolidation result.
+    price_trust_result = price_inputs.apply_price_trust(
+        cfg,
+        now,
+        grid_times,
+        _prices,
+        spot_import_raw,
+        spot_export,
+        import_price_source,
+        export_price_source,
+    )
+    if isinstance(price_consolidation_result, dict):
+        price_consolidation_result["trust"] = price_trust_result
+
     # nimbus #1778 (Mark Purcell): while the P5MIN false-spike flag holds,
     # forward spikes in the SCHEDULING prices -- whatever the source, after
     # blending -- are replaced; the current interval keeps its real price.
