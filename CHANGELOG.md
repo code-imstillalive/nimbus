@@ -16,6 +16,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **HiGHS 1.16 is allowed** (#2522, evaluated in #2520 with Mark Purcell). The solver library may now be 1.15.1 up to, not including, 1.17. On 1.16 plans cost the same; only ties between equally good plans can break differently.
 - Internal: the support matrix lists equipment profiles, and its test checks them (#2514). Tests 963 → 964.
 - Install shapes (#2394): #2523 and #2526 touch only a Sigenergy install; they were built from keys read live on Mark Purcell's install and are unseen on any install until he or Justin reviews a proposal. #2522 touches every install; devhub ran HiGHS 1.16 against 1.15.1 in #2520.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at d15ab1fa** (`release/0.104.0`, installed untagged through Home Assistant's marketplace and restarted at 15:17 AEST, 13 Nov; read through 15:20).
+  - 123 of the 127 Nimbus entities carrying a version read 0.104.0; the other four are the daily reports (0.103.0).
+  - The same 388 Nimbus entity ids as a read at 15:16 before the install, none unavailable, no name changed; plan `optimal` on the first solve after the restart (15:19); all 62 Solver numbers present with the same values as at 15:16.
+  - #2522: Home Assistant installed HiGHS 1.16.0 on the restart, and that first solve ran on it.
+  - Help's What's New shows 0.104.0. No Repairs at all. Log: no Nimbus ERROR; the Nimbus WARNING lines are the test box's known ones (two P5MIN/AEMO price diagnostics, an implausible meter row), none from this release.
+  - Not seen live: the Sigenergy profile (#2523, #2526), since devhub has no Sigenergy system. It is covered by the tests in its PRs, built from keys read live on Mark Purcell's install.
+- Consumer check: no setting, entity id or name is moved or renamed. A Sigenergy install sees a new proposal in Device setup, applied only when reviewed. Any install may move to HiGHS 1.16 on its next restart.
 
 ## [0.103.0] - 2026-11-11
 
