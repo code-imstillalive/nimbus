@@ -243,7 +243,9 @@ def test_a_sigenergy_plant_fills_battery_solar_whole_house_and_grid():
         "depends_on": ["grid.import_power", "grid.export_power"],
     }
     assert grid["power"]["provenance"]["origin"] == "derived"
-    assert p.problems == []
+    # The derived net validates; the only problem is the battery's capacity,
+    # which discovery asks for as a question.
+    assert [x.code for x in p.problems] == ["capacity_missing"]
     assert grid["import_power"]["source"]["entity_id"] == "sensor.sig_grid_in"
     assert grid["export_power"]["source"]["entity_id"] == "sensor.sig_grid_out"
     assert grid["export_power"]["normalization"] == {
