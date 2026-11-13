@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import importlib.metadata
 import logging
 import unittest
 import unittest.mock
@@ -13,6 +14,12 @@ import unittest.mock
 from solver import lp
 from solver import lp as _solver_lp
 from solver.lp import CalibratedOptions, LexOptions
+
+
+def _highspy_at_least(major: int, minor: int) -> bool:
+    parts = importlib.metadata.version("highspy").split(".")
+    return (int(parts[0]), int(parts[1])) >= (major, minor)
+
 
 _PINNED_RESOLVE_CALL_SITES = 3
 """How many `with _lp_tolerance_matching_mip(h):` blocks `lp.py` should
@@ -122,6 +129,15 @@ class TestTheFixIsWhatIsDoingIt(unittest.TestCase):
     non-empty (and it is, in every scenario here: 768 and 2304 binaries).
     """
 
+    @unittest.skipIf(
+        _highspy_at_least(1, 16),
+        "highspy >= 1.16: no known scenario reaches #773's 1e-7..1e-6 pinned-LP "
+        "band, so this A/B has nothing to reproduce (#2520, 32 scenarios searched "
+        "13 Nov 2026). The tolerance fix stays wired in, and "
+        "test_the_helper_wraps_every_pinned_resolve still guards that. The band "
+        "may resurface on a future solver version: revisit this skip then, it is "
+        "not a closed question (Mark Purcell, #2520).",
+    )
     def test_neutralising_only_the_phase3_call_site_brings_it_back(self):
         # test_neutralising_only_the_phase3_call_site_brings_it_back
         _solver_lp._lex_calibration_failed_until = 0.0
