@@ -14723,7 +14723,7 @@
         "min_samples": 30,
         "normal_stride": 6,
         "pending_intervals": 22,
-        "read_by_dispatch": false,
+        "read_by_dispatch": true,
         "samples": 0,
         "threshold": 5.0,
         "threshold_from": "solver_p5min_false_spike_threshold_mwh"
@@ -15046,7 +15046,19 @@
          "5-60 min": null
         }
        },
-       "mode": "shadow"
+       "mode": "shadow",
+       "trust": {
+        "export": {
+         "moved": [],
+         "periods_moved": 0
+        },
+        "import": {
+         "moved": [],
+         "periods_moved": 0
+        },
+        "threshold": 5.0,
+        "threshold_from": "solver_p5min_false_spike_threshold_mwh"
+       }
       },
       "price_source_freshness": null,
       "price_spike_active": false,

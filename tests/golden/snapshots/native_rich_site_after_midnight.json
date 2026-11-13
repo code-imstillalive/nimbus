@@ -16269,7 +16269,7 @@
         "min_samples": 30,
         "normal_stride": 6,
         "pending_intervals": 1150,
-        "read_by_dispatch": false,
+        "read_by_dispatch": true,
         "samples": 0,
         "threshold": 0.85,
         "threshold_from": "solver_price_spike_threshold"
@@ -16660,7 +16660,19 @@
          "5-60 min": null
         }
        },
-       "mode": "shadow"
+       "mode": "shadow",
+       "trust": {
+        "export": {
+         "moved": [],
+         "periods_moved": 0
+        },
+        "import": {
+         "moved": [],
+         "periods_moved": 0
+        },
+        "threshold": 0.85,
+        "threshold_from": "solver_price_spike_threshold"
+       }
       },
       "price_source_freshness": null,
       "price_spike_active": false,
@@ -33576,7 +33588,7 @@
         "min_samples": 30,
         "normal_stride": 6,
         "pending_intervals": 1152,
-        "read_by_dispatch": false,
+        "read_by_dispatch": true,
         "samples": 0,
         "threshold": 0.85,
         "threshold_from": "solver_price_spike_threshold"
@@ -33967,7 +33979,19 @@
          "5-60 min": null
         }
        },
-       "mode": "shadow"
+       "mode": "shadow",
+       "trust": {
+        "export": {
+         "moved": [],
+         "periods_moved": 0
+        },
+        "import": {
+         "moved": [],
+         "periods_moved": 0
+        },
+        "threshold": 0.85,
+        "threshold_from": "solver_price_spike_threshold"
+       }
       },
       "price_source_freshness": null,
       "price_spike_active": false,
