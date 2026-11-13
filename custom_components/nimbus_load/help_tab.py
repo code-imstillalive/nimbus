@@ -218,6 +218,18 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.104.0",
+        "13 Nov 2026",
+        (
+            (
+                "**Device setup** finds a Sigenergy system: battery, solar, "
+                "whole house and grid, with the net grid power worked out "
+                "from import and export."
+            ),
+            "Nimbus runs on HiGHS 1.16 as well as 1.15.",
+        ),
+    ),
+    (
         "0.103.0",
         "11 Nov 2026",
         (

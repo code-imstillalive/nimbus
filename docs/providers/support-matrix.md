@@ -35,6 +35,12 @@ Nothing is listed as *supported* on fixtures alone.
 | Individual devices and circuits | Energy Dashboard's individual devices | proposed |
 | A power sensor that matches a device by its history | history pairing | proposed, always confirmed by you |
 
+## Inverter and battery brands
+
+| Brand | Profile | State | Notes |
+|---|---|---|---|
+| Sigenergy (`sigen` integration) | `sigen` | proposed | Battery power and charge level, solar power, the plant's Total Load as the Whole house, and grid import and export power; the net grid power is worked out as import minus export. Consumed Power is reported, not bound. The battery's capacity is asked once. |
+
 This page is updated with each release. When your install runs a profile,
 tell us on [#1574](https://github.com/code-imstillalive/nimbus/issues/1574) so
 it can move to *supported*.

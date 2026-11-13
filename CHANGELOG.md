@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.104.0] - 2026-11-13
+
+**Device setup finds a Sigenergy system, and Nimbus runs on HiGHS 1.16.**
+
+- **A Sigenergy system fills its own devices in Device setup** (#2523, #2526, for #2514, reviewed by Mark Purcell). With the `sigen` integration installed, **Configure → Device setup → Review what Nimbus finds** proposes the battery's power and charge level, the solar power, the plant's Total Load as the Whole house, and the grid's import and export power, found by the integration's own keys, so a renamed entity is still found. The battery's power reads positive while charging on that key, and the proposal records it. The plant has no single net grid sensor, so the net is worked out as import minus export and no template helper is needed; an Energy Dashboard net grid power, where you have one, is kept instead. A sensor the Energy Dashboard already names differently becomes a question, never overridden. Two Sigenergy plants propose nothing rather than guess. Nothing changes until you review and apply the proposal.
+- **HiGHS 1.16 is allowed** (#2522, evaluated in #2520 with Mark Purcell). The solver library may now be 1.15.1 up to, not including, 1.17. On 1.16 plans cost the same; only ties between equally good plans can break differently.
+- Internal: the support matrix lists equipment profiles, and its test checks them (#2514). Tests 963 → 964.
+- Install shapes (#2394): #2523 and #2526 touch only a Sigenergy install; they were built from keys read live on Mark Purcell's install and are unseen on any install until he or Justin reviews a proposal. #2522 touches every install; devhub ran HiGHS 1.16 against 1.15.1 in #2520.
+
 ## [0.103.0] - 2026-11-11
 
 **Fewer false Repairs, the Regret card on your own midnight, and a temperature forecast that survives a reload.**
@@ -17,6 +26,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **A temperature forecast that worked survives a reload** (#2443, for #2442, reviewed by Mark Purcell). The last good forecast is kept per weather entity across a settings save or reload, and a first empty fetch is asked again before it warns, so one reload no longer logs four "yielded 0 forecast entries" warnings at once.
 - Internal: every module, all 137 files, is in the blocking strict type check, and the quality scale's `strict-typing` is done, the last rule left (#2477–#2503 under #2392, reviewed by Mark Purcell). A test runs the device import over three install shapes, the test box, the reference household and Mark Purcell's install (#2504, #2394). Tests 961 → 963.
 - Install shapes (#2394): #2502 touches every shape (any chosen entity); its false Repair was seen live on the reference household, and the change is unseen elsewhere until installed. #2506 touches every shape with a Regret card; the reference household is in Brisbane, so a zone difference is unseen live on any of the three. #2443 touches any install with a temperature forecast; its warnings were seen live on Mark Purcell's install, and the fix is unseen there until he installs it.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.0) at 0974108c** (`release/0.103.0`, installed untagged through Home Assistant's marketplace and restarted at 06:34 AEST, 11 Nov; read through 06:36).
+  - 123 of the 127 Nimbus entities carrying a version read 0.103.0; the other four are the daily reports (0.102.0).
+  - The same 388 Nimbus entity ids as a read at 06:22 before the install, none unavailable, no name changed; plan `optimal` on the first solve after the restart (06:35); all 62 Solver numbers present with the same values as at 06:22.
+  - #2506: the served `nimbus-regret-card.js` carries no `+10:00`; `compute_quality_report` called as the card now calls it (`2026-11-10T00:00:00` to `2026-11-11T00:00:00`, no offset) answered in 5 s with the window 14:00 UTC to 14:00 UTC, local midnight to midnight.
+  - Help's What's New shows 0.103.0. No Nimbus Repairs. Log: no Nimbus ERROR; the four Nimbus WARNING lines are the test box's known ones (the flex-telemetry clamp, the test EV's unreachable departure target and its SoC below floor, an implausible meter row), none from this release.
+  - Not seen live: #2502's skipped Repair (no chosen entity on devhub reads `unknown` for an hour) and #2443's reload path (no temperature forecast went empty). Both are covered by the tests in their PRs; #2502's case was seen on the reference household on 10 Nov.
+- Consumer check: no setting, entity id or name is moved or renamed. A chosen entity reading `unknown` while still reported no longer raises the Repair. Regret days outside Brisbane's zone, or on daylight saving, move to the install's own midnight.
 
 ## [0.102.0] - 2026-11-10
 
