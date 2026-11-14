@@ -592,6 +592,9 @@ def build_price_arrays(
                 grid_times, cfg.get("solver_p2p_matched_rate_forecast_sensor")
             )
         except Exception:  # noqa: BLE001 -- a display figure never breaks a solve
+            solver_shared._LOGGER.debug(
+                "Nimbus: the P2P matched share is unreadable", exc_info=True
+            )
             p2p_share = None
     else:
         # nimbus #1793: the generic arm reads no refresh stamp.
