@@ -900,6 +900,8 @@ A Load you add later appears without any change.
 > **"Custom element doesn't exist"?** Hard-refresh the browser (Ctrl-F5 /
 > Cmd-Shift-R). The cards are registered by the integration at startup, and the
 > browser caches the old resource list. If it persists, restart Home Assistant.
+> The cards never appear under Settings → Dashboards → Resources; that is
+> expected, whether Nimbus came from HACS or the Marketplace.
 
 > The Regret view stays empty until the quality score is switched on and has had
 > a full day to score: see [§15](#15-the-daily-quality-score). An empty Regret card
