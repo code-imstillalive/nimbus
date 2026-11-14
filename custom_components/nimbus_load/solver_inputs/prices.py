@@ -585,7 +585,8 @@ def build_price_arrays(
             max(0.0, p2p_export[i] - spot_export[i]) if p2p_export[i] > 0 else 0.0
             for i in range(n_periods)
         ]
-        p2p_rate = list(p2p_export)
+        p2p_rate: list[float] | None = list(p2p_export)
+        p2p_share: list[float | None] | None
         try:
             p2p_share = p2p.resample_p2p_share(
                 grid_times, cfg.get("solver_p2p_matched_rate_forecast_sensor")
