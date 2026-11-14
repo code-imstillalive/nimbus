@@ -37,7 +37,7 @@ import json
 import math
 import urllib.error
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -67,6 +67,7 @@ from . import (
     price_blend,
     price_consolidation,
     price_error_history,
+    price_trust,
     rrp_crosscheck,
 )
 
@@ -127,6 +128,13 @@ class PriceArrays:
     # offset, as before); and the factor, for `price_consolidation.loss_factor`.
     aemo_source: str = "aemo_markup"
     loss_factor: dict | None = None
+    # nimbus #2534: the primary source's own median price and its spread per
+    # 5-minute of day, from the same 14-day history as the price bands; empty
+    # where there is none, which leaves every price as it is.
+    import_price_typical: dict = field(default_factory=dict)
+    import_price_spread: dict = field(default_factory=dict)
+    export_price_typical: dict = field(default_factory=dict)
+    export_price_spread: dict = field(default_factory=dict)
     # The household, 14 Nov 2026: the matched P2P rate ($/kWh) and the
     # forecast share of export matched, per period, published on each plan
     # row (`p2p_rate`, `p2p_share`) so the Whole Plan table shows P2P
@@ -340,13 +348,25 @@ def build_price_arrays(
         # percentile estimation genuinely benefits from more real samples
         # per bucket than a mean does, and this data has been live and
         # recorder-tracked since well before 14 days ago.
+        import_history_14d = price_blend.fetch_price_history(
+            cfg["solver_import_price_sensor"], days=14
+        )
+        export_history_14d = price_blend.fetch_price_history(
+            cfg["solver_export_price_sensor"], days=14
+        )
         import_price_upper_band = price_blend.compute_price_percentile_band(
-            price_blend.fetch_price_history(cfg["solver_import_price_sensor"], days=14),
-            90.0,
+            import_history_14d, 90.0
         )
         export_price_lower_band = price_blend.compute_price_percentile_band(
-            price_blend.fetch_price_history(cfg["solver_export_price_sensor"], days=14),
-            10.0,
+            export_history_14d, 10.0
+        )
+        # nimbus #2534: what each side usually costs at each time of day, the
+        # reference a forecast past the source's horizon is trusted against.
+        import_price_typical, import_price_spread = price_trust.typical_and_spread(
+            import_history_14d, _bucket_5min
+        )
+        export_price_typical, export_price_spread = price_trust.typical_and_spread(
+            export_history_14d, _bucket_5min
         )
         # nimbus issue #348 (Mark Purcell, codebase review): the "generic"
         # solver_price_forecast_array_sensor field was parsed with these
@@ -684,6 +704,8 @@ def build_price_arrays(
         # this-household-specific enhancement in the fallback branch above.
         import_price_upper_band = {}
         export_price_lower_band = {}
+        import_price_typical, import_price_spread = {}, {}
+        export_price_typical, export_price_spread = {}, {}
         p2p_rate = p2p_share = None
         aemo_import_series = aemo_export_series = None
         aemo_source = "aemo_markup"
@@ -703,6 +725,10 @@ def build_price_arrays(
         aemo_export_series=aemo_export_series,
         aemo_source=aemo_source,
         loss_factor=loss_factor,
+        import_price_typical=import_price_typical,
+        import_price_spread=import_price_spread,
+        export_price_typical=export_price_typical,
+        export_price_spread=export_price_spread,
         p2p_rate=p2p_rate,
         p2p_share=p2p_share,
     )
@@ -1335,6 +1361,65 @@ def apply_price_consolidation(
         return None
 
 
+def apply_price_trust(
+    cfg: dict,
+    now: datetime,
+    grid_times: list[datetime],
+    prices: object,
+    spot_import_raw: list[float],
+    spot_export: list[float],
+    import_price_source: list[str],
+    export_price_source: list[str],
+) -> dict | None:
+    """nimbus #2534: each period priced past the configured source's own rows
+    moves towards its usual price by how far its forecast can be trusted at
+    that lead (`price_trust`). In place; returns what was applied, for the
+    published plan. Never raises: on any failure the prices stand."""
+    try:
+        sw = _solver_writer()
+        threshold, threshold_from = price_error_history.spike_threshold(cfg)
+        summary = price_error_history._summary(price_error_history._load(sw))
+        out: dict = {"threshold": threshold, "threshold_from": threshold_from}
+        # Both sides are computed before either is written, so a failure
+        # leaves both as they were (Mark Purcell, review of #2535).
+        pending: list[tuple[list[float], list[float]]] = []
+        for side, target, labels in (
+            ("import", spot_import_raw, import_price_source),
+            ("export", spot_export, export_price_source),
+        ):
+            before = list(target)
+            adjusted, weights = price_trust.apply(
+                before,
+                labels,
+                grid_times,
+                now,
+                typical=getattr(prices, f"{side}_price_typical", None) or {},
+                spread=getattr(prices, f"{side}_price_spread", None) or {},
+                side_summary=summary.get(side, {}),
+                threshold=threshold,
+                buckets=price_error_history.LEAD_BUCKETS,
+                bucket_5min=_bucket_5min,
+            )
+            pending.append((target, adjusted))
+            moved = [
+                [
+                    grid_times[i].isoformat(),
+                    round(before[i], 4),
+                    round(adjusted[i], 4),
+                    w,
+                ]
+                for i, w in enumerate(weights)
+                if w is not None and w < 1.0
+            ]
+            out[side] = {"periods_moved": len(moved), "moved": moved[:96]}
+        for target, adjusted in pending:
+            target[:] = adjusted
+        return out
+    except Exception as e:  # noqa: BLE001 -- an adjustment must never break a solve
+        solver_shared._LOGGER.debug("Nimbus #2534: price trust failed: %s", e)
+        return None
+
+
 def _with_consolidated(
     series_by_side: dict[str, dict[str, list[float | None]]], result: dict
 ) -> dict[str, dict[str, list[float | None]]]:
@@ -1364,7 +1449,7 @@ def _record_price_errors(
 ) -> dict:
     """nimbus #1797: the consolidation's own series and settled prices,
     kept as signed pairs for price scenarios (price_error_history.py).
-    Recorded only; nothing reads it yet. Never raises."""
+    Read by `apply_price_trust()` (#2534). Never raises."""
     return price_error_history.update(
         _solver_writer(),
         cfg,
