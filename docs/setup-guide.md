@@ -225,9 +225,12 @@ Services → **Add Integration** search.
    solar, the battery and any individual devices, each with the sensors it will
    use. Keep a device ticked to include it; untick anything you don't want.
 5. It then asks **only what it couldn't work out**, one question per screen:
-   which of two sources measures something, or your battery's capacity (the
-   Energy Dashboard doesn't record it). You can leave the capacity empty and
-   set it later.
+   which of two sources measures something, or each battery's capacity, one
+   box per battery, named by its sensor (the Energy Dashboard doesn't record
+   it). You can leave a capacity empty and set it later. If the Energy
+   Dashboard has your grid's import and export the wrong way round (the one
+   it calls export rises overnight, when a house imports), Nimbus swaps them
+   in what it proposes and says why.
 6. Select **Submit** on **Ready to set up**. Nimbus saves the site and fills
    in the settings it implies, so the hub is configured. The device setup is
    kept beside your settings (shadow) until you choose to put it in charge

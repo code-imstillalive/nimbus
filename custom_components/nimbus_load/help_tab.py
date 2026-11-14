@@ -218,6 +218,26 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.105.0",
+        "15 Nov 2026",
+        (
+            (
+                "The Whole Plan's P2P column shows the matched rate and "
+                "share whenever P2P is matched."
+            ),
+            (
+                "Prices more than a day ahead count for more as they get "
+                "closer, so a forecast spike no longer prices the plan at "
+                "full height."
+            ),
+            (
+                "**Device setup** checks the grid's import and export are "
+                "the right way round, and asks each new battery's capacity "
+                "separately."
+            ),
+        ),
+    ),
+    (
         "0.104.0",
         "13 Nov 2026",
         (

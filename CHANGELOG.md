@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.105.0] - 2026-11-15
+
+**The P2P column shows whenever P2P is matched, a day-ahead spike counts for more only as it gets closer, and Device setup gets the grid and each battery right.**
+
+- **Prices past your retailer's own forecast are trusted by how close they are** (#2535, for #2534, reviewed by Mark Purcell). Past the retailer's horizon, the plan used the regional forecast at full height, so a day-ahead spike (98.6c on 13 Nov, gone an hour later) priced the plan, the Prices ahead chart and the next day's summary as if certain. Each such price now moves towards the usual price for that time of day by how far a forecast that far ahead can be trusted: at or above the spike threshold, by how often spikes at that range have settled as spikes, from a cautious start (half at 6 hours, under a fifth a day out); below it, only once that source's error has been measured. The retailer's own prices and the current interval are never changed.
+- **Device setup checks the grid's import and export the right way round** (#2538). Review what Nimbus finds copied the Energy Dashboard's grid pairing as it was; when the counter proposed as export clearly rose more between 01:00 and 05:00 (when a house imports) over several nights, the two are now swapped in the proposal, with a note saying why.
+- **Each new battery gets its own capacity box** (#2537). Review what Nimbus finds had one box for every new battery, so two batteries got the same number each. Each battery's line also names its sensor, so two called "Battery" can be told apart.
+- **The Whole Plan tables show the matched P2P rate and share whenever P2P is matched** (#2540). The P2P column showed a rate only when it beat the spot price, so evenings when spot paid more showed 0 even with P2P volume committed. It now shows the matched rate in every period with matched volume, with the matched share beside it (for example "20.1 · 31%"), on the Solver tab and the dispatch card.
+- Internal: the price error history is now read by the plan (`read_by_dispatch`). Tests 964 → 967 (TBC from CI).
+- Install shapes (#2394): #2535 touches any install whose plan runs past its price source's horizon (seen live on the reference household, 13–14 Nov); #2540 touches any LocalVolts install with matched P2P (seen live on the reference household, 14 Nov; unseen on Mark Purcell's install); #2537 and #2538 touch Device setup's review on any install with an Energy Dashboard (both found on the reference household's walkthrough, 14 Nov; unseen on the test box and Mark Purcell's install).
+
 ## [0.104.0] - 2026-11-13
 
 **Device setup finds a Sigenergy system, and Nimbus runs on HiGHS 1.16.**
@@ -16,6 +27,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **HiGHS 1.16 is allowed** (#2522, evaluated in #2520 with Mark Purcell). The solver library may now be 1.15.1 up to, not including, 1.17. On 1.16 plans cost the same; only ties between equally good plans can break differently.
 - Internal: the support matrix lists equipment profiles, and its test checks them (#2514). Tests 963 → 964.
 - Install shapes (#2394): #2523 and #2526 touch only a Sigenergy install; they were built from keys read live on Mark Purcell's install and are unseen on any install until he or Justin reviews a proposal. #2522 touches every install; devhub ran HiGHS 1.16 against 1.15.1 in #2520.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at d15ab1fa** (`release/0.104.0`, installed untagged through Home Assistant's marketplace and restarted at 15:17 AEST, 13 Nov; read through 15:20).
+  - 123 of the 127 Nimbus entities carrying a version read 0.104.0; the other four are the daily reports (0.103.0).
+  - The same 388 Nimbus entity ids as a read at 15:16 before the install, none unavailable, no name changed; plan `optimal` on the first solve after the restart (15:19); all 62 Solver numbers present with the same values as at 15:16.
+  - #2522: Home Assistant installed HiGHS 1.16.0 on the restart, and that first solve ran on it.
+  - Help's What's New shows 0.104.0. No Repairs at all. Log: no Nimbus ERROR; the Nimbus WARNING lines are the test box's known ones (two P5MIN/AEMO price diagnostics, an implausible meter row), none from this release.
+  - Not seen live: the Sigenergy profile (#2523, #2526), since devhub has no Sigenergy system. It is covered by the tests in its PRs, built from keys read live on Mark Purcell's install.
+- Consumer check: no setting, entity id or name is moved or renamed. A Sigenergy install sees a new proposal in Device setup, applied only when reviewed. Any install may move to HiGHS 1.16 on its next restart.
 
 ## [0.103.0] - 2026-11-11
 

@@ -65,6 +65,8 @@ instead (table below) so you can tune it without re-running this wizard.
 | Price forecast array (optional, on the Solver Sources step) | A per-5-minute price forecast from your retailer. When set, it is the plan's price for every period after the current 5 minutes and replaces the sources' own forecasts above; only the current block is read from source 1's live price. Use the same retailer as source 1. |
 | Site postcode (optional, under Advanced) | Your 4-digit postcode, for the flex telemetry record's NEM region and the first three digits of the postcode. Needed only when Home Assistant has no Companion App geocoded location, or more than one. |
 
+Past the retailer's own forecast, a price from another source counts for more as it gets closer: it moves towards the usual price for that time of day by how far a forecast that far ahead can be trusted. A spike forecast at or above the spike threshold counts by how often spikes at that range have settled as spikes, starting cautious (half at 6 hours, under a fifth a day out); below the threshold, a source is moved only once its error has been measured. The retailer's own prices and the current interval are never changed (#2535).
+
 This step refuses two combinations that can never be right, rather than saving
 them: the TNI and DLF code sensors set on only one side of the pair (set both,
 or clear both to skip the AEMO source), and the same sensor pointed at a
