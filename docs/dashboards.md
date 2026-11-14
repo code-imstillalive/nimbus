@@ -2,9 +2,12 @@
 
 Four ready-made Lovelace cards ship with this integration (issue #364,
 Mark Purcell) — no `www/` file copy, no manual Settings -> Dashboards ->
-Resources step. Installing/updating Nimbus via HACS is the entire setup
-step; see `custom_components/nimbus_load/frontend.py` for how they're
-served and registered. All four are findable in the card picker by
+Resources step. Installing/updating Nimbus via HACS or Home Assistant's
+Marketplace is the entire setup step; see
+`custom_components/nimbus_load/frontend.py` for how they're served and
+registered. The cards are loaded by the integration itself, so they never
+appear under **Settings → Dashboards → Resources**: an empty list there is
+expected, not a failed install (#2513). All four are findable in the card picker by
 searching "nimbus" (issue #519) — each `type` starts with `nimbus-` and
 each picker entry's name says Nimbus.
 
