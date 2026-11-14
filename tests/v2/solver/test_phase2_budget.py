@@ -141,3 +141,48 @@ def test_the_better_switch_assignment_is_kept(prefer_g1, phase1, found, kept):
     assert r.status == "optimal"
     assert round(p.value_of(r, kept)) == 1
     assert p.primary_cost_of(r) == pytest.approx(12.0)
+
+
+def test_a_pinned_lp_stuck_at_the_tight_bound_is_retried_once_wider(caplog):
+    # nimbus #2545: on a real instance the pinned tie-break LP ended `Unknown`
+    # at the primary-bound row's own ~$2e-7 slack and reached optimal with
+    # $3e-7 more. Here the pinned LP fails until that row is opened; the
+    # retry must keep the cost and the continuous tie-break, log nothing as
+    # a failure, and never fall back to the single-objective solve.
+    _solver_lp._lex_calibration_failed_until = 0.0
+    reference = _switch_and_tie()
+    full = reference.solve(options=LexOptions())
+    p = _switch_and_tie()
+    real = lp._ensure_optimal_value
+    seen: dict[str, float | int | None] = {"upper": None, "pinned": 0}
+
+    def thin(h, *, phase="", problem=None, binary_cols=None):
+        if phase == "phase2_secondary_pinned_lp":
+            seen["pinned"] += 1
+            upper = float(h.getLp().row_upper_[h.getNumRow() - 1])
+            if seen["upper"] is None:
+                seen["upper"] = upper
+            if upper < seen["upper"] + 5e-6:
+                raise ValueError("pinned LP ended Unknown on a thin region")
+        value = real(h, phase=phase, problem=problem, binary_cols=binary_cols)
+        if phase == "phase2_secondary":
+            raise lp._Phase2BudgetSpent("phase2_secondary used its budget")
+        return value
+
+    with (
+        caplog.at_level(logging.DEBUG, logger=lp._LOGGER.name),
+        patch.object(lp, "_ensure_optimal_value", thin),
+        _points(p, "g0", None),
+    ):
+        r = p.solve(options=LexOptions())
+    assert r.status == "optimal"
+    assert seen["pinned"] == 2
+    assert p.primary_cost_of(r) == pytest.approx(
+        reference.primary_cost_of(full), abs=2e-5
+    )
+    assert p.value_of(r, "x2") == pytest.approx(10.0, abs=1e-4)
+    assert not [rec for rec in caplog.records if rec.levelno >= logging.ERROR]
+    assert not any(
+        "falling back to a plain single-objective" in rec.getMessage()
+        for rec in caplog.records
+    )
