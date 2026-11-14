@@ -78,6 +78,8 @@ Top-level attributes:
 | `solar_kw` / `load_kw` | float, ≥0 | |
 | `import_price` / `export_price` | float, $/kWh | The full landed price the LP actually optimised against (fees, blending, and the settled-current-block override from issue #220 all already applied). |
 | `import_price_raw` / `export_price_raw` | float, $/kWh | The configured source sensor's own value BEFORE any secondary-source blend (issue #216/#220) — a genuine "what did the source actually say" probe, not the LP's landed price. Byte-identical to the `_price` field on any single-source install with no `_sensor_2`/`_sensor_3` configured. |
+| `p2p_rate` | float or `null`, $/kWh | The matched P2P rate for the period, from the retailer's P2P feed; `null` on an install with no P2P feed (#2540). |
+| `p2p_share` | float 0-1 or `null` | The forecast share of the period's export matched as P2P (matched volume over volume); `null` outside the feed's coverage (#2540). |
 | `net_cost` | float, $ | This period's contribution to `total_cost`. |
 
 ### `sensor.nimbus_solver_config`

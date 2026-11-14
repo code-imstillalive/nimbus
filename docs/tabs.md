@@ -22,6 +22,11 @@ the new design is added beside yours.
     ✅ when set, ⬜ with "not set" or "placeholder 0.1" when not
     ([#1800](https://github.com/code-imstillalive/nimbus/issues/1800)).
 
+On the **Solver** tab, the Whole Plan table's P2P column shows the matched P2P
+rate in gold with the matched share beside it (for example **20.1 · 31%**) in
+every period with P2P matched, also when spot pays more; **0** where none is
+matched ([#2540](https://github.com/code-imstillalive/nimbus/pull/2540)).
+
 More on each card, and how to build your own dashboard instead:
 [Dashboards and cards](dashboards.md). Every setting, field by field:
 [Every setting](configuration-reference.md).
