@@ -86,7 +86,7 @@ def test_review_pre_ticks_fills_renames_and_new_devices_never_an_alternative():
         "0",
         "2",
     ]  # the alternative (1) waits for the household's own tick
-    assert "capacity_kwh" in fields  # a new battery asks for its capacity
+    assert "capacity_kwh_1" in fields  # a new battery asks for its capacity
 
 
 def test_review_confirms_exactly_what_is_ticked_against_the_revision_it_found():
@@ -98,7 +98,7 @@ def test_review_confirms_exactly_what_is_ticked_against_the_revision_it_found():
     ):
         done = asyncio.run(
             flow.async_step_device_setup_review(
-                {"choices": ["2", "1"], "capacity_kwh": 13.5}
+                {"choices": ["2", "1"], "capacity_kwh_1": 13.5}
             )
         )
     assert done["type"] == "create_entry" and done["data"] == {"kept": True}
@@ -117,6 +117,53 @@ def test_review_confirms_exactly_what_is_ticked_against_the_revision_it_found():
             "entity_id": "sensor.meter_b",
         },
     ]
+
+
+def test_two_new_batteries_each_keep_their_own_capacity():
+    # test_two_new_batteries_each_keep_their_own_capacity
+    # #2537 (reference household, 14 Nov 2026): two inverters' batteries, both
+    # named "Battery", shared one capacity box, so each got the same number.
+    def battery(ident, sensor):
+        return {
+            "kind": "new_device",
+            "device": {
+                "id": ident,
+                "kind": "battery",
+                "name": "Battery",
+                "bindings": {"energy": {"source": {"statistic_id": sensor}}},
+            },
+        }
+
+    two = {
+        "revision": 3,
+        "differences": [
+            battery("battery_a", "sensor.discharge_inv1"),
+            battery("battery_b", "sensor.discharge_inv2"),
+        ],
+    }
+    flow, form, confirm, discover = _review(found=two)
+    fields = _schema(form)
+    assert "capacity_kwh_1" in fields and "capacity_kwh_2" in fields
+    labels = [o["label"] for o in fields["choices"][1].config["options"]]
+    assert labels == [
+        "New device: Battery (sensor.discharge_inv1)",
+        "New device: Battery (sensor.discharge_inv2)",
+    ]
+    assert (
+        "battery 2 is Battery (sensor.discharge_inv2)"
+        in (form["description_placeholders"]["batteries"])
+    )
+    with (
+        patch.object(device_contract_ha, "async_discover", discover),
+        patch.object(device_contract_ha, "async_confirm", confirm),
+    ):
+        asyncio.run(
+            flow.async_step_device_setup_review(
+                {"choices": ["0", "1"], "capacity_kwh_1": 25.6, "capacity_kwh_2": 12.8}
+            )
+        )
+    got = {c["device"]: c["capacity"]["value"] for c in confirm.call_args.args[3]}
+    assert got == {"battery_a": 25.6, "battery_b": 12.8}
 
 
 def test_review_shows_a_refusal_and_finishes_untouched_when_nothing_is_ticked():
