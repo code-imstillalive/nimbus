@@ -50,8 +50,35 @@ def _describe(difference: dict[str, Any]) -> str:
         return f"Alternative for {where}: {found} (yours stays unless you tick this)"
     if kind == "new_device":
         device = difference.get("device") or {}
-        return f"New device: {device.get('name') or device.get('id')}"
+        name = device.get("name") or device.get("id")
+        source = _first_source(device)
+        return f"New device: {name} ({source})" if source else f"New device: {name}"
     return f"{kind}: {where}"
+
+
+def _first_source(device: dict[str, Any]) -> str | None:
+    """The first sensor a discovered device is bound to, so two devices with
+    the same name (two inverters' batteries, both "Battery") can be told apart."""
+    for binding in (device.get("bindings") or {}).values():
+        source = (binding or {}).get("source") or {}
+        found = source.get("entity_id") or source.get("statistic_id")
+        if found:
+            return str(found)
+    return None
+
+
+#: Batteries a single review can give a capacity to, one box each (#2537).
+MAX_NEW_BATTERIES = 4
+
+
+def _new_batteries(differences: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The new batteries a review offers, in order, at most MAX_NEW_BATTERIES."""
+    return [
+        d
+        for d in differences
+        if d.get("kind") == "new_device"
+        and (d.get("device") or {}).get("kind") == "battery"
+    ][:MAX_NEW_BATTERIES]
 
 
 def _choice(difference: dict[str, Any], capacity: float | None) -> dict[str, Any]:
@@ -213,8 +240,21 @@ class DeviceSetupSteps:
             ticked = [int(i) for i in user_input.get("choices") or ()]
             if not ticked:
                 return self._finish()
-            capacity = user_input.get("capacity_kwh")
-            choices = [_choice(differences[i], capacity) for i in ticked]
+            # One box per new battery (#2537): a single shared box gave every
+            # new battery the same capacity, so two batteries got the total each.
+            capacities = {
+                d["device"]["id"]: user_input.get(f"capacity_kwh_{n}")
+                for n, d in enumerate(_new_batteries(differences), start=1)
+            }
+            choices = [
+                _choice(
+                    differences[i],
+                    capacities.get((differences[i].get("device") or {}).get("id"))
+                    if differences[i]["kind"] == "new_device"
+                    else None,
+                )
+                for i in ticked
+            ]
             result = await device_contract_ha.async_confirm(
                 self.hass, self.config_entry, self._review["revision"], choices
             )
@@ -250,12 +290,9 @@ class DeviceSetupSteps:
                 selector.SelectSelectorConfig(options=options, multiple=True)
             )
         }
-        if any(
-            d["kind"] == "new_device"
-            and (d.get("device") or {}).get("kind") == "battery"
-            for d in differences
-        ):
-            schema[vol.Optional("capacity_kwh")] = selector.NumberSelector(
+        batteries = _new_batteries(differences)
+        for n, _battery in enumerate(batteries, start=1):
+            schema[vol.Optional(f"capacity_kwh_{n}")] = selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0.1,
                     max=1000,
@@ -264,10 +301,19 @@ class DeviceSetupSteps:
                     mode=selector.NumberSelectorMode.BOX,
                 )
             )
+        listed = "; ".join(
+            f"battery {n} is {_describe(d).removeprefix('New device: ')}"
+            for n, d in enumerate(batteries, start=1)
+        )
         return self.async_show_form(  # type: ignore[attr-defined]
             step_id="device_setup_review",
             data_schema=vol.Schema(schema),
             errors=errors,
+            description_placeholders={
+                "batteries": f" Each new battery's own usable capacity: {listed}."
+                if listed
+                else ""
+            },
         )
 
     async def async_step_device_setup_nothing(
