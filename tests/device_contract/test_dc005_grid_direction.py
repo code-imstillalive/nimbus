@@ -53,14 +53,15 @@ def _proposal(imp: str, exp: str) -> dd.Proposal:
 
 def _daily_counter(per_night_kwh: float, nights: int) -> list:
     """A daily counter: reset at midnight, rising per_night_kwh between 01:00
-    and 05:00 in half-hour steps, flat otherwise."""
+    and 04:30 in half-hour steps (inside the 01:00-05:00 window), flat
+    otherwise."""
     out = []
     day0 = datetime(2026, 11, 8, tzinfo=UTC)
     for n in range(nights):
         day = day0 + timedelta(days=n)
         value = 0.0
         out.append((day, value))  # the midnight reset
-        steps = 8
+        steps = 7
         for k in range(steps + 1):
             out.append((day + timedelta(hours=1, minutes=30 * k), value))
             value += per_night_kwh / steps
