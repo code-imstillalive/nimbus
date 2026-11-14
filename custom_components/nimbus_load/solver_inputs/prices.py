@@ -127,6 +127,13 @@ class PriceArrays:
     # offset, as before); and the factor, for `price_consolidation.loss_factor`.
     aemo_source: str = "aemo_markup"
     loss_factor: dict | None = None
+    # The household, 14 Nov 2026: the matched P2P rate ($/kWh) and the
+    # forecast share of export matched, per period, published on each plan
+    # row (`p2p_rate`, `p2p_share`) so the Whole Plan table shows P2P
+    # whenever it is matched, also when it pays less than spot (the bonus is
+    # clamped at zero then). None on the generic branch.
+    p2p_rate: object = None
+    p2p_share: object = None
 
 
 def _contract_price_forecast(cfg, role, grid_times, now):
@@ -578,6 +585,13 @@ def build_price_arrays(
             max(0.0, p2p_export[i] - spot_export[i]) if p2p_export[i] > 0 else 0.0
             for i in range(n_periods)
         ]
+        p2p_rate = list(p2p_export)
+        try:
+            p2p_share = p2p.resample_p2p_share(
+                grid_times, cfg.get("solver_p2p_matched_rate_forecast_sensor")
+            )
+        except Exception:  # noqa: BLE001 -- a display figure never breaks a solve
+            p2p_share = None
     else:
         # nimbus #1793: the generic arm reads no refresh stamp.
         price_source_freshness = None
@@ -666,6 +680,7 @@ def build_price_arrays(
         # this-household-specific enhancement in the fallback branch above.
         import_price_upper_band = {}
         export_price_lower_band = {}
+        p2p_rate = p2p_share = None
         aemo_import_series = aemo_export_series = None
         aemo_source = "aemo_markup"
         loss_factor = None
@@ -684,6 +699,8 @@ def build_price_arrays(
         aemo_export_series=aemo_export_series,
         aemo_source=aemo_source,
         loss_factor=loss_factor,
+        p2p_rate=p2p_rate,
+        p2p_share=p2p_share,
     )
 
 

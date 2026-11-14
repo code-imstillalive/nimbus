@@ -228,6 +228,60 @@ def _p2p_points_from_triple(raw: list) -> list[tuple[datetime, float]]:
     return pts
 
 
+def resample_p2p_share(
+    grid_times: list[datetime], sensor_id: str | None
+) -> list[float | None] | None:
+    """The forecast share of export matched to P2P per plan period, 0-1,
+    from the same raw-triple feed as the rate: matched volume over volume,
+    across the feed's 5-minute rows starting inside each period. None per
+    period beyond the feed's coverage, and None overall when the feed is
+    missing or not the raw triple (household, 14 Nov 2026: shown beside the
+    P2P rate in the Whole Plan table, e.g. "20.3c - 51%")."""
+    if not sensor_id or not grid_times:
+        return None
+    state = _read_p2p_state(sensor_id)
+    if state is None:
+        return None
+    raw = state["attributes"].get("forecast")
+    raw = raw if isinstance(raw, list) else []
+    if not raw or _p2p_rows_are_rate_shape(raw):
+        return None
+    rows: list[tuple[datetime, float, float]] = []
+    for p in raw:
+        try:
+            end_t = solver_shared.parse_iso(
+                p["time"] if "time" in p else p["intervalEnd"]
+            )
+            rows.append(
+                (
+                    end_t - timedelta(minutes=5),
+                    float(p.get("volume") or 0.0),
+                    float(p.get("proportionP2P") or 0.0),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    out: list[float | None] = []
+    for i, start in enumerate(grid_times):
+        end = (
+            grid_times[i + 1]
+            if i + 1 < len(grid_times)
+            else start + timedelta(minutes=30)
+        )
+        inside = [(v, s) for t, v, s in rows if start <= t < end]
+        if not inside:
+            out.append(None)
+            continue
+        volume = sum(v for v, _ in inside)
+        share = (
+            sum(v * s for v, s in inside) / volume
+            if volume > 0
+            else sum(s for _, s in inside) / len(inside)
+        )
+        out.append(round(min(1.0, max(0.0, share)), 4))
+    return out
+
+
 def _resample_p2p_points(
     pts: list[tuple[datetime, float]],
     grid_times: list[datetime],

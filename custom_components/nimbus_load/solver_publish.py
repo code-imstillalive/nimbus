@@ -1875,10 +1875,19 @@ def _price_consolidation_attribute(result) -> dict | None:
     return {k: v for k, v in result.items() if not k.startswith("consolidated_")}
 
 
+def _p2p_at(series, i):
+    """Period i of a published P2P series, rounded, or None without one."""
+    if series is None or i >= len(series) or series[i] is None:
+        return None
+    return round(float(series[i]), 4)
+
+
 def publish_plan(
     *,
     cfg,
     now,
+    p2p_rate=None,
+    p2p_share=None,
     plan,
     previous_plan,
     solve_started,
@@ -2347,6 +2356,12 @@ def publish_plan(
                 price_consolidation, "export", i
             ),
             "bonus_price": round(export_bonus_price[i], 4),
+            # The household, 14 Nov 2026: the matched P2P rate itself ($/kWh,
+            # 0 where nothing is matched) and the forecast share of export
+            # matched (0-1); unlike bonus_price, shown also when P2P pays less
+            # than spot. None without matched data.
+            "p2p_rate": _p2p_at(p2p_rate, i),
+            "p2p_share": _p2p_at(p2p_share, i),
             "load_kw": round(load_kw[i], 3),
             "solar_kw": round(solar_kw[i], 3),
             # nimbus #1807: calibrated quantiles (None when not built).
