@@ -1128,3 +1128,49 @@ def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
     ((entity, start, end),) = calls
     assert entity == "sensor.price" and end - start == timedelta(days=days)
     assert datetime.now(UTC) - end < timedelta(seconds=10)
+
+
+def test_the_p2p_share_is_matched_volume_over_volume_per_period(monkeypatch):
+    # test_the_p2p_share_is_matched_volume_over_volume_per_period
+    # Household, 14 Nov 2026: the Whole Plan table shows P2P whenever it is
+    # matched, rate and share ("20.3c - 51%"), also below spot.
+    step = timedelta(minutes=5)
+    rows = [  # interval-END stamped, as the raw triple is
+        {
+            "intervalEnd": _iso(T0 + step),
+            "volume": 3.0,
+            "proportionP2P": 0.2,
+            "matchedCost": 0.1,
+        },
+        {
+            "intervalEnd": _iso(T0 + 2 * step),
+            "volume": 1.0,
+            "proportionP2P": 1.0,
+            "matchedCost": 0.4,
+        },
+        {
+            "intervalEnd": _iso(T0 + 7 * step),
+            "volume": 0.0,
+            "proportionP2P": 0.5,
+            "matchedCost": 0.0,
+        },
+    ]
+    with monkeypatch.context() as mp:
+        mp.setattr(
+            solver_shared, "ha_get", lambda eid: {"attributes": {"forecast": rows}}
+        )
+        grid = _grid(3)  # 16:00, 16:30, 17:00
+        # First period: (3 x 0.2 + 1 x 1.0) / 4 = 0.4; the second holds a
+        # zero-volume row only, so its plain share; the third is past the feed.
+        assert p2p.resample_p2p_share(grid, "sensor.p2p") == [0.4, 0.5, None]
+    # No feed, an unreadable one, or rate-shape rows: no share at all.
+    assert p2p.resample_p2p_share(_grid(2), None) is None
+    with monkeypatch.context() as mp:
+        mp.setattr(
+            solver_shared,
+            "ha_get",
+            lambda eid: {
+                "attributes": {"forecast": [{"time": _iso(T0), "value": 0.3}]}
+            },
+        )
+        assert p2p.resample_p2p_share(_grid(2), "sensor.p2p") is None
