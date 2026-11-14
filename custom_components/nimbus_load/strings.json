@@ -325,10 +325,13 @@
       },
       "device_setup_review": {
         "title": "Review what Nimbus finds",
-        "description": "What Nimbus finds now that differs from your device setup. New sources, renames and new devices are ticked; an alternative to a source you confirmed never is. Untick anything you don't want.",
+        "description": "What Nimbus finds now that differs from your device setup. New sources, renames and new devices are ticked; an alternative to a source you confirmed never is. Untick anything you don't want.{batteries}",
         "data": {
           "choices": "Changes to save",
-          "capacity_kwh": "New battery's usable capacity"
+          "capacity_kwh_1": "Battery 1's usable capacity",
+          "capacity_kwh_2": "Battery 2's usable capacity",
+          "capacity_kwh_3": "Battery 3's usable capacity",
+          "capacity_kwh_4": "Battery 4's usable capacity"
         }
       },
       "device_setup_nothing": {

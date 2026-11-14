@@ -3860,6 +3860,8 @@ def _solve_phase(
 
 def _publish_phase(
     _assembly,
+    p2p_rate,
+    p2p_share,
     all_batteries,
     capacity_kwh,
     cfg,
@@ -3935,6 +3937,8 @@ def _publish_phase(
     solver_publish.publish_plan(
         cfg=cfg,
         now=now,
+        p2p_rate=p2p_rate,
+        p2p_share=p2p_share,
         plan=plan,
         previous_plan=previous_plan,
         solve_started=solve_started,
@@ -4200,6 +4204,8 @@ def main() -> None:
     tariff_attributed_cost_by_subentry = _solve.tariff_attributed_cost_by_subentry
     _publish_phase(
         _assembly=_assembly,
+        p2p_rate=_prices.p2p_rate,
+        p2p_share=_prices.p2p_share,
         all_batteries=all_batteries,
         capacity_kwh=capacity_kwh,
         cfg=cfg,

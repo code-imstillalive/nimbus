@@ -728,9 +728,13 @@ class NimbusDispatchCardV4 extends HTMLElement {
     //           definitely better for transparency... in different
     //           colour please").
     //   Sell¢ = export_price * 100             (plain spot, on its own)
-    //   P2P¢  = (export_price + bonus_price) * 100 when bonus_price > 0.01,
-    //           else 0 -- the real, standalone P2P settlement rate, never
-    //           bonus_price bare and never blended into Sell¢.
+    //   P2P¢  = the matched P2P rate, p2p_rate * 100, with the forecast
+    //           share of export matched (p2p_share) beside it, whenever any
+    //           P2P is matched -- also when it pays less than spot
+    //           (household, 14 Nov 2026: "if P2P exists... golden numbers
+    //           should display. PERIOD"). 0 when nothing is matched. A plan
+    //           from before p2p_rate falls back to export_price +
+    //           bonus_price when bonus_price > 0.01, as before.
     //   Batt  = battery_kw, plus a lightning-bolt suffix when
     //           export_bonus_kw > 0 (this period is genuinely counting
     //           toward the P2P-matched volume).
@@ -824,8 +828,14 @@ class NimbusDispatchCardV4 extends HTMLElement {
         : (consC > 0.05 ? '+' : '') + consC.toFixed(1);
       const spotC = (parseFloat(p.export_price) || 0) * 100;
       const bonusRaw = parseFloat(p.bonus_price) || 0;
-      const p2pActive = bonusRaw > 0.01;
-      const p2pFullC = p2pActive ? spotC + bonusRaw * 100 : 0;
+      const hasRate = p.p2p_rate !== undefined && p.p2p_rate !== null;
+      const rateC = hasRate ? (parseFloat(p.p2p_rate) || 0) * 100 : 0;
+      const p2pActive = hasRate ? rateC > 0.1 : bonusRaw > 0.01;
+      const p2pFullC = !p2pActive ? 0 : (hasRate ? rateC : spotC + bonusRaw * 100);
+      const shareRaw = p.p2p_share;
+      const p2pShare = (p2pActive && shareRaw !== undefined && shareRaw !== null)
+        ? ' · ' + Math.round((parseFloat(shareRaw) || 0) * 100) + '%'
+        : '';
       let bkwRow = parseFloat(p.battery_kw) || 0;
       if (idx === 0 && !isNaN(realBattNow)) bkwRow = realBattNow;
       const battColor = bkwRow > 0.05 ? '#3ddc84' : (bkwRow < -0.05 ? '#4fa3ff' : '#5a6070');
@@ -833,7 +843,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       const net = parseFloat(p.net_cost) || 0;
       const netClass = net < -0.001 ? 'net-pos' : (net > 0.001 ? 'net-neg' : '');
       const p2pCell = p2pActive
-        ? '<span class="p2p-pill">' + p2pFullC.toFixed(1) + '</span>'
+        ? '<span class="p2p-pill">' + p2pFullC.toFixed(1) + p2pShare + '</span>'
         : '<span style="opacity:0.35;">0.0</span>';
       // Source split (Solar vs Grid share of this period's dispatch) --
       // direct household ask to bring this back: "i loved the small bar

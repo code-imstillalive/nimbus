@@ -135,6 +135,13 @@ class PriceArrays:
     import_price_spread: dict = field(default_factory=dict)
     export_price_typical: dict = field(default_factory=dict)
     export_price_spread: dict = field(default_factory=dict)
+    # The household, 14 Nov 2026: the matched P2P rate ($/kWh) and the
+    # forecast share of export matched, per period, published on each plan
+    # row (`p2p_rate`, `p2p_share`) so the Whole Plan table shows P2P
+    # whenever it is matched, also when it pays less than spot (the bonus is
+    # clamped at zero then). None on the generic branch.
+    p2p_rate: object = None
+    p2p_share: object = None
 
 
 def _contract_price_forecast(cfg, role, grid_times, now):
@@ -598,6 +605,17 @@ def build_price_arrays(
             max(0.0, p2p_export[i] - spot_export[i]) if p2p_export[i] > 0 else 0.0
             for i in range(n_periods)
         ]
+        p2p_rate: list[float] | None = list(p2p_export)
+        p2p_share: list[float | None] | None
+        try:
+            p2p_share = p2p.resample_p2p_share(
+                grid_times, cfg.get("solver_p2p_matched_rate_forecast_sensor")
+            )
+        except Exception:  # noqa: BLE001 -- a display figure never breaks a solve
+            solver_shared._LOGGER.debug(
+                "Nimbus: the P2P matched share is unreadable", exc_info=True
+            )
+            p2p_share = None
     else:
         # nimbus #1793: the generic arm reads no refresh stamp.
         price_source_freshness = None
@@ -688,6 +706,7 @@ def build_price_arrays(
         export_price_lower_band = {}
         import_price_typical, import_price_spread = {}, {}
         export_price_typical, export_price_spread = {}, {}
+        p2p_rate = p2p_share = None
         aemo_import_series = aemo_export_series = None
         aemo_source = "aemo_markup"
         loss_factor = None
@@ -710,6 +729,8 @@ def build_price_arrays(
         import_price_spread=import_price_spread,
         export_price_typical=export_price_typical,
         export_price_spread=export_price_spread,
+        p2p_rate=p2p_rate,
+        p2p_share=p2p_share,
     )
 
 
