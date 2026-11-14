@@ -61,7 +61,7 @@ import logging
 import math
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -1832,6 +1832,14 @@ _BINARY_INTEGRALITY_TOLERANCE = 1e-6
 # scales with the magnitude being summed.
 _LEX_PRIMARY_TIE_ABS_SLACK = 1e-7
 _LEX_PRIMARY_TIE_REL_SLACK = 1e-9
+# nimbus #2545: a pinned tie-break LP that ends non-optimal is retried once
+# with the primary-bound row opened by this much more ($). Measured on a
+# real dumped instance (HiGHS 1.16.0): the row's own ~$2e-7 slack left a
+# feasible but extremely thin region where every simplex variant ended
+# `Unknown`; +$3e-7 solved it, so $1e-5 (a thousandth of a cent) gives a
+# 30x margin while staying far below any real price difference. Solves
+# that reach optimal at the original slack are untouched.
+_LEX_PINNED_RETRY_ABS_SLACK = 1e-5
 _lex_calibration_failed_until: float = 0.0
 
 
@@ -2112,18 +2120,51 @@ def _feasible_incumbent(h: highspy.Highs) -> list[float] | None:
         return None
 
 
+@contextlib.contextmanager
+def _quiet_diagnostics() -> Iterator[None]:
+    """This thread's #773 diagnostics at DEBUG with no dump, for an attempt
+    whose failure is handled right after (see _QUIET)."""
+    previous = _diagnostics_quiet()
+    _QUIET.on = True
+    try:
+        yield
+    finally:
+        _QUIET.on = previous
+
+
+def _widen_row_upper(h: Any, row: int, extra: float) -> bool:
+    """Raise one row's upper bound by `extra`; False if HiGHS refuses."""
+    try:
+        lp_ = h.getLp()
+        lower = float(lp_.row_lower_[row])
+        upper = float(lp_.row_upper_[row])
+        status = h.changeRowBounds(row, lower, upper + extra)
+        return status != highspy.HighsStatus.kError
+    except Exception:  # a retry must never break a solve
+        _LOGGER.debug("Nimbus #2545: could not widen row %d", row, exc_info=True)
+        return False
+
+
 def _best_pinned_tie_break(
     h: highspy.Highs,
     binary_cols: list[int],
     candidates: list[list[float]],
     problem: LPProblem,
+    *,
+    bound_row: int | None = None,
 ) -> float:
     """Pin each candidate's binaries, minimise the secondary as an LP, and
     leave `h` holding the best. The first candidate is phase 1's point,
-    feasible by construction; a later one that fails is skipped."""
+    feasible by construction; a later one that fails is skipped.
 
-    def solve_pinned(point: list[float]) -> float:
-        _pin_binaries_to_values(h, binary_cols, point)
+    nimbus #2545: with `bound_row` (the primary-bound row), a pinned LP that
+    ends non-optimal is retried once with that row opened by
+    `_LEX_PINNED_RETRY_ABS_SLACK`, before any failure is reported. The
+    first attempt's diagnostics are quiet; only a failed retry logs and
+    dumps, exactly as before."""
+    widened = False
+
+    def attempt() -> float:
         # Same tolerance band as every other pinned re-solve -- the pinned
         # values were accepted by branch-and-bound under
         # mip_feasibility_tolerance, and a pure LP would otherwise re-check
@@ -2135,6 +2176,27 @@ def _best_pinned_tie_break(
                 problem=problem,
                 binary_cols=binary_cols,
             )
+
+    def solve_pinned(point: list[float]) -> float:
+        nonlocal widened
+        _pin_binaries_to_values(h, binary_cols, point)
+        if bound_row is None or widened:
+            return attempt()
+        try:
+            with _quiet_diagnostics():
+                return attempt()
+        except _Phase2BudgetSpent:
+            raise
+        except ValueError:
+            if not _widen_row_upper(h, bound_row, _LEX_PINNED_RETRY_ABS_SLACK):
+                raise
+            widened = True
+            _LOGGER.debug(
+                "Nimbus #2545: the pinned tie-break LP did not reach optimal; "
+                "retrying once with the primary bound opened by $%g",
+                _LEX_PINNED_RETRY_ABS_SLACK,
+            )
+            return attempt()
 
     best: tuple[float, int] | None = None
     last = -1
@@ -2774,6 +2836,11 @@ def _solve_with_options(
         msg = f"lexicographic primary bound row refused by HiGHS: {err}"
         raise ValueError(msg) from err
     extra_row_names = ["_lex_primary_le_optimum"]
+    try:
+        primary_bound_row: int | None = int(h.getNumRow()) - 1
+    except Exception:  # the retry is optional (#2545)
+        _LOGGER.debug("Nimbus #2545: no row count; no pinned retry", exc_info=True)
+        primary_bound_row = None
     _set_cost_vector(h, col_indices, secondary_vec)
 
     # nimbus issue #773, tier 1: hand phase 2 phase 1's integral point as
@@ -2806,7 +2873,9 @@ def _solve_with_options(
         incumbent = _feasible_incumbent(h)
         budget.restore()
         candidates = [phase1_point] + ([incumbent] if incumbent is not None else [])
-        secondary_value = _best_pinned_tie_break(h, binary_cols, candidates, problem)
+        secondary_value = _best_pinned_tie_break(
+            h, binary_cols, candidates, problem, bound_row=primary_bound_row
+        )
         _LOGGER.debug(
             "Nimbus: phase 2's tie-break used its %g s budget; finished as "
             "an LP on %d candidate switch assignment(s), cost unchanged",
@@ -2865,7 +2934,7 @@ def _solve_with_options(
             problem.n_variables,
         )
         secondary_value = _best_pinned_tie_break(
-            h, binary_cols, [phase1_point], problem
+            h, binary_cols, [phase1_point], problem, bound_row=primary_bound_row
         )
     finally:
         # Whatever leaves phase 2 -- including an exception neither handler
