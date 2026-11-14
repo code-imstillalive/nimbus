@@ -166,7 +166,7 @@ _EXPECTED_ATTRS = {
         # scenarios. A first solve has graded nothing; 575 future 5-minute
         # intervals per side are pending (48 h of the horizon).
         "error_history": {
-            "read_by_dispatch": False,
+            "read_by_dispatch": True,
             "threshold": 5.0,
             "threshold_from": "solver_p5min_false_spike_threshold_mwh",
             "keep_days": 21,

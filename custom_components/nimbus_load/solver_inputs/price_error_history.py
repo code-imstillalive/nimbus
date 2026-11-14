@@ -8,8 +8,9 @@ have actually missed: how far, in which direction, at which lead, and
 whether a forecast spike turned up. `price_consolidation.SourceErrorTracker`
 (#1786) keeps only an EWMA of the ABSOLUTE error per (source, lead bucket),
 which has no sign, no spread and no memory of spikes. Forecast history cannot
-be backfilled, so this module starts recording the distribution now. Nothing
-in dispatch reads it yet.
+be backfilled, so this module starts recording the distribution now. Since
+#2534 the plan reads it: `price_trust` weighs a forecast past the configured
+source's own rows by the spike hits and error spread measured here.
 
 ## What is recorded
 
@@ -602,7 +603,7 @@ def update(
             _save(sw, hist)
             sw._PRICE_ERROR_HISTORY_SAVED_AT = now
         return {
-            "read_by_dispatch": False,
+            "read_by_dispatch": True,
             "threshold": threshold,
             "threshold_from": threshold_from,
             "keep_days": KEEP_DAYS,
@@ -618,7 +619,7 @@ def update(
             "Nimbus #1797: price error history failed", exc_info=True
         )
         _warn_once(f"price error history failed: {e}")
-        return {"read_by_dispatch": False, "error": str(e)}
+        return {"read_by_dispatch": True, "error": str(e)}
 
 
 _WARNED: set[str] = set()
