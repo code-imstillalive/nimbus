@@ -889,7 +889,26 @@ async def async_propose(hass: Any) -> tuple[Any, dict[str, str]]:
         proposal, profile_instances(hass), registry_ids=regs
     )
     proposal = await _async_add_history_pairing(hass, proposal, regs)
+    proposal = await _async_check_grid_direction(hass, proposal)
     return proposal, regs
+
+
+async def _async_check_grid_direction(hass: Any, proposal: Any) -> Any:
+    """The grid's import and export energy, swapped when the overnight
+    history shows the Energy Dashboard has them the other way round
+    (`device_discovery.check_grid_direction`). Unchanged when the history
+    can't be read."""
+    pair = device_discovery.grid_energy_pair(proposal)
+    if pair is None or any(":" in sid for sid in pair):
+        return proposal  # an external statistic has no state history
+    end = dt_util.utcnow()
+    try:
+        histories = await _async_history(
+            hass, list(pair), end - timedelta(days=PAIRING_DAYS), end
+        )
+    except Exception:  # noqa: BLE001 -- no recorder: leave the pairing as it is
+        return proposal
+    return device_discovery.check_grid_direction(proposal, histories, dt_util.as_local)
 
 
 async def _async_discovery(hass: Any, entry: Any):

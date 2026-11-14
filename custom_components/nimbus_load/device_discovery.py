@@ -1282,6 +1282,134 @@ Q_REPLACED = "replaced_equipment"
 Q_DEVICE_MATCH = "device_match_ambiguous"
 
 
+# --- Grid direction: import is the counter that rises at night ---------------
+#
+# The Energy Dashboard's grid pairing is copied as it is. On the reference
+# household (14 Nov 2026) it had import and export reversed, so discovery
+# proposed them reversed too. In the small hours a house with no solar output
+# imports; it rarely exports. So when the counter proposed as export rose
+# clearly more overnight than the one proposed as import, on most nights,
+# the two are swapped in the proposal and a finding says why.
+
+F_GRID_REVERSED = "grid_import_export_reversed"
+#: Local hours counted as "night": no solar, after the evening peak.
+NIGHT_HOURS = (1, 5)
+#: Nights needed before the pairing is judged at all.
+MIN_NIGHTS = 3
+#: The export counter must rise at least this many times the import one.
+REVERSED_RATIO = 3.0
+#: kWh the export counter must rise over the nights counted, so a quiet
+#: meter's noise is never read as a reversal.
+MIN_NIGHT_KWH = 1.0
+
+
+def night_rise(
+    series: Sequence[tuple[Any, float | None]], local: Any
+) -> dict[Any, float]:
+    """kWh a counter rose in each night's NIGHT_HOURS, by local date. Drops
+    (a daily counter's midnight reset, a restart) are not counted."""
+    out: dict[Any, float] = {}
+    prev: tuple[Any, float] | None = None
+    for when, value in series:
+        if value is None:
+            prev = None
+            continue
+        t = local(when)
+        if prev is not None:
+            pt = local(prev[0])
+            in_window = NIGHT_HOURS[0] <= pt.hour < NIGHT_HOURS[1] and (
+                NIGHT_HOURS[0] <= t.hour < NIGHT_HOURS[1]
+            )
+            if in_window and pt.date() == t.date() and value > prev[1]:
+                out[t.date()] = out.get(t.date(), 0.0) + (value - prev[1])
+            elif in_window and pt.date() == t.date():
+                out.setdefault(t.date(), 0.0)
+        prev = (when, value)
+    return out
+
+
+def grid_energy_pair(proposal: Proposal) -> tuple[str, str] | None:
+    """The statistic ids proposed for the grid's import and export energy,
+    when both are proposed."""
+    grid = next(
+        (d for d in proposal.document.get("devices", []) if d.get("kind") == "grid"),
+        None,
+    )
+    if grid is None:
+        return None
+    ids = []
+    for role in ("import_energy", "export_energy"):
+        source = ((grid.get("bindings") or {}).get(role) or {}).get("source") or {}
+        if source.get("kind") != "recorder_statistic" or not source.get("statistic_id"):
+            return None
+        ids.append(str(source["statistic_id"]))
+    return ids[0], ids[1]
+
+
+def check_grid_direction(
+    proposal: Proposal,
+    histories: Mapping[str, Sequence[tuple[Any, float | None]]],
+    local: Any,
+) -> Proposal:
+    """`proposal` with the grid's import and export energy swapped when the
+    counter proposed as export clearly rose more at night, and a finding
+    saying so. Unchanged otherwise, or with too little history to tell."""
+    pair = grid_energy_pair(proposal)
+    if pair is None:
+        return proposal
+    imp_id, exp_id = pair
+    if not histories.get(imp_id) or not histories.get(exp_id):
+        return proposal  # one counter has no history at all: nothing to compare
+    imp = night_rise(histories[imp_id], local)
+    exp = night_rise(histories[exp_id], local)
+    # Home Assistant records a counter only when it changes, so a counter
+    # that stayed flat all night has no night of its own: that night is 0.
+    nights = sorted(set(imp) | set(exp))
+    if len(nights) < MIN_NIGHTS:
+        return proposal
+    imp_total = sum(imp.get(n, 0.0) for n in nights)
+    exp_total = sum(exp.get(n, 0.0) for n in nights)
+    export_ahead = sum(1 for n in nights if exp.get(n, 0.0) > imp.get(n, 0.0))
+    if not (
+        exp_total >= MIN_NIGHT_KWH
+        and exp_total >= REVERSED_RATIO * imp_total
+        and export_ahead * 2 > len(nights)
+    ):
+        return proposal
+    out = copy.deepcopy(proposal)
+    grid = next(d for d in out.document["devices"] if d.get("kind") == "grid")
+    bindings = grid["bindings"]
+    bindings["import_energy"], bindings["export_energy"] = (
+        bindings["export_energy"],
+        bindings["import_energy"],
+    )
+    evidence = {
+        "kind": "night_direction",
+        "nights": len(nights),
+        "rose_kwh": {imp_id: round(imp_total, 3), exp_id: round(exp_total, 3)},
+    }
+    for role in ("import_energy", "export_energy"):
+        bindings[role].setdefault("provenance", {}).setdefault("evidence", []).append(
+            dict(evidence)
+        )
+    out.findings.append(
+        {
+            "code": F_GRID_REVERSED,
+            "device": grid["id"],
+            "import_energy": exp_id,
+            "export_energy": imp_id,
+            "nights": len(nights),
+            "message": f"the Energy Dashboard has the grid's import and export "
+            f"the other way round: over {len(nights)} nights, {exp_id} rose "
+            f"{exp_total:.1f} kWh between {NIGHT_HOURS[0]:02d}:00 and "
+            f"{NIGHT_HOURS[1]:02d}:00 and {imp_id} {imp_total:.1f} kWh, when a "
+            f"house imports, so {exp_id} is proposed as import and {imp_id} as "
+            f"export. Worth correcting in the Energy Dashboard too",
+        }
+    )
+    return out
+
+
 @dataclass
 class Rediscovery:
     differences: list[dict[str, Any]] = field(default_factory=list)
