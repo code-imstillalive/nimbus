@@ -2294,6 +2294,17 @@ def _install_stall_rule(h: Any, problem: LPProblem) -> None:
         _LOGGER.debug("Nimbus #2552: stall rule not installed", exc_info=True)
 
 
+def _remove_stall_rule(h: Any, problem: LPProblem) -> None:
+    """Stop the #2552 interrupt callback `_install_stall_rule` started.
+    Leaves the status and solution as they are."""
+    if _stall_rule(problem) is None:
+        return
+    try:
+        h.stopCallback(highspy.cb.HighsCallbackType.kCallbackMipInterrupt)
+    except Exception:  # a rule must never break a solve
+        _LOGGER.debug("Nimbus #2552: stall rule not stopped", exc_info=True)
+
+
 def _accept_stalled_incumbent(h: Any, problem: LPProblem) -> bool:
     """True when `h` was stopped by the #2552 stall rule holding a feasible
     incumbent within the rule's gap. Read before pinning (as #1805's)."""
@@ -3316,9 +3327,17 @@ def _solve_highs(
         )
         if binary_cols:
             _install_stall_rule(h, problem)
-        with _timed_lp_call(h, "primary_minimize", n_vars=n, n_binary=len(binary_cols)):
-            _bound_by_wall_deadline(h)
-            h.minimize(cost_expr)
+        try:
+            with _timed_lp_call(
+                h, "primary_minimize", n_vars=n, n_binary=len(binary_cols)
+            ):
+                _bound_by_wall_deadline(h)
+                h.minimize(cost_expr)
+        finally:
+            # The rule is for this run only: the pinned-LP refresh after it
+            # (and any later run on `h`) goes without it.
+            if binary_cols:
+                _remove_stall_rule(h, problem)
     else:
         col_indices = np.arange(n, dtype=np.int32)
         # nimbus issue #702 (#696's own tracked MIP follow-up):

@@ -31,6 +31,10 @@ def _recording_highs(monkeypatch, calls: list):
             calls.append(("start", kind))
             return super().startCallback(kind)
 
+        def stopCallback(self, kind):
+            calls.append(("stop", kind))
+            return super().stopCallback(kind)
+
     monkeypatch.setattr(lp.highspy, "Highs", Recording)
 
 
@@ -56,8 +60,13 @@ def test_only_a_problem_with_the_stall_rule_gets_the_interrupt_and_it_fires_only
 
     result = _small_mip(stall=True).solve()
     assert result.status == "optimal"  # a fast solve is untouched
-    starts = [c[1] for c in calls if c[0] == "start"]
-    assert starts == [highspy.cb.HighsCallbackType.kCallbackMipInterrupt]
+    interrupt = highspy.cb.HighsCallbackType.kCallbackMipInterrupt
+    # Started for the main run and stopped before anything else runs on `h`
+    # (the pinned-LP refresh included).
+    assert [c for c in calls if c[0] in ("start", "stop")] == [
+        ("start", interrupt),
+        ("stop", interrupt),
+    ]
 
     check = next(c[1] for c in calls if c[0] == "set")
     after, gap = lp.MAIN_PLAN_STALL_SECONDS, lp.MAIN_PLAN_STALL_MIP_GAP
