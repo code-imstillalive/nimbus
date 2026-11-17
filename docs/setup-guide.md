@@ -905,6 +905,23 @@ A Load you add later appears without any change.
 > browser caches the old resource list. If it persists, restart Home Assistant.
 > The cards never appear under Settings → Dashboards → Resources; that is
 > expected, whether Nimbus came from HACS or the Marketplace.
+>
+> **Still missing after a restart?** Add the cards yourself as a last resort:
+> **Settings → Dashboards → ⋮ → Resources → Add resource**, type
+> **JavaScript module**, one entry per card:
+>
+> - `/nimbus_load/nimbus-dispatch-card-v4.js`
+> - `/nimbus_load/nimbus-flow-card.js`
+> - `/nimbus_load/nimbus-forecast-card.js`
+> - `/nimbus_load/nimbus-regret-card.js`
+> - `/nimbus_load/nimbus-tabs-card.js`
+> - `/nimbus_load/nimbus-topology-card.js`
+>
+> Then hard-refresh. Each card guards against being loaded twice, so these
+> entries don't clash with the copy Nimbus loads itself, and they can stay
+> after an update. If you needed this step, please say so on
+> [#2513](https://github.com/code-imstillalive/nimbus/issues/2513) with your
+> Home Assistant version and browser, so the cause can be found.
 
 > The Regret view stays empty until the quality score is switched on and has had
 > a full day to score: see [§15](#15-the-daily-quality-score). An empty Regret card
