@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.105.2] - 2026-11-18
+
+**A plan solve that gets stuck proving its last fraction of a cent stops and keeps its plan.**
+
+- **The main plan stops after 10 s once it is within 0.02% of the best possible** (#2553, for #2552, reviewed by Mark Purcell). On Mark Purcell's install a plan solve took 30 s, and the overlap guard then skipped ticks and the shadow plans ran out of time. The test box's own saved slow solve showed why: the plan was found in about a second, then the solver spent the rest of its 60 s proving the last 0.0123% (about 6 cents of $509) without improving it, on HiGHS 1.15.1 and 1.16.0 alike. Now a main plan that has run 10 s and is within 0.02% stops there with the plan it has: on that saved solve, 10.0–10.8 s instead of 60 s, the identical plan. A solve that finishes in under 10 s is unchanged, and no other solve has the rule.
+- Internal: tests 969 → 972.
+- Install shapes (#2394): #2553 touches any install whose main plan is a MIP; the stall is seen in the test box's saved model and in Mark Purcell's install's log; unseen on the reference household.
+
 ## [0.105.1] - 2026-11-15
 
 **The plan keeps its tie-breaks when the solver gets stuck on a hairline.**
@@ -15,6 +23,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **A stuck tie-break solve is retried once instead of dropped** (#2546, for #2545, reviewed by Mark Purcell). After phase 2 of the plan's solve used its time budget, the tie-break LP on phase 1's own switch choices could end `Unknown`: the row holding the plan's cost at its optimum left only about $2e-7 of room, too thin for the solver. Nimbus then fell back to the plain solve without tie-breaks and skipped the full solve for 5 minutes, about once every 7–11 minutes on the test box. Now that LP is retried once with the row opened by $1e-5 (a thousandth of a cent) before anything is reported. A solve that works today is unchanged.
 - Internal: tests 968 → 969.
 - Install shapes (#2394): #2546 touches any install whose plan uses the phased solve; seen live on the test box (12 fallbacks in 85 minutes on 0.105.0, then 0 fallbacks and 10 recovered retries in 30 minutes with the change); unseen on the reference household and Mark Purcell's install, where the log has not been read.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 9bc91568** (`release/0.105.1`, installed untagged through Home Assistant's marketplace and restarted at 06:15 AEST, 15 Nov; read through 06:23).
+  - 123 of the 127 Nimbus entities carrying a version read 0.105.1; the other four are the daily reports (0.104.0).
+  - The same 388 Nimbus entity ids as a read at 06:14 before the install, none unavailable, no name changed; plan `optimal`; all 62 Solver numbers present with the same values as before the restart.
+  - #2546: three phased solves in the read hit the pinned LP's `Unknown` and each reached `Optimal` on the one retry (15â€“53 iterations); no single-objective fallback and no Nimbus ERROR. The same change ran on devhub 04:03â€“06:14 as a branch: 10 retries in its first 30 minutes, all recovered, no fallback.
+  - Help's What's New shows 0.105.1. No Nimbus Repairs. Log: the Nimbus WARNING lines are the test box's known ones (slow-phase breakdowns, the flex-telemetry clamp, the test EV below its floor and short of its departure target, two implausible imported meter rows dropped, forecaster residual-drift notes after a restart).
+- Consumer check: no setting, entity id or name is moved or renamed. A plan that hit the fallback keeps its tie-breaks instead; its primary cost may differ from the strict optimum by at most $1e-5.
 
 ## [0.105.0] - 2026-11-15
 
