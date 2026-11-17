@@ -14,10 +14,11 @@ Two responsibilities, done at integration setup, once per card:
    HA frontend loads every URL in this set at startup, so any dashboard
    (storage-mode or YAML-mode) resolves `type: custom:<card-type>` the
    moment the user drops it in.
-   Deliberately NOT the `hass.data["lovelace"].resources` collection --
-   that path mutates user-managed Lovelace storage, depends on Lovelace-
-   internal data shape, and skips YAML-mode installs; add_extra_js_url
-   avoids all three.
+   #2513 (17 Nov 2026): each card is now first made a dashboard resource
+   (`hass.data["lovelace"].resources`), the way a HACS card is, because a
+   Marketplace install showed no card until the resources were added by
+   hand. add_extra_js_url remains the path for YAML-mode dashboards, which
+   have no resource store.
 
 Both steps are idempotent -- running through this again on a reload (or
 on every subsequent HA startup) does nothing observable: each static
@@ -162,7 +163,17 @@ async def async_register_frontend(hass: HomeAssistant, version: str) -> None:
             _file_digest, _FRONTEND_DIR / card.filename
         )
         versioned_url = f"{url_path}?v={version}-{digest}"
-        add_extra_js_url(hass, versioned_url)
+        try:
+            as_resource = await _async_card_resource(hass, url_path, versioned_url)
+        except Exception:  # the extra module below still loads it
+            _LOGGER.debug(
+                "Nimbus: %s not registered as a dashboard resource",
+                card.card_type,
+                exc_info=True,
+            )
+            as_resource = False
+        if not as_resource:
+            add_extra_js_url(hass, versioned_url)
         _LOGGER.info(
             "Nimbus: %s registered at %s -- available in every dashboard "
             "as `type: custom:%s`",
@@ -170,3 +181,35 @@ async def async_register_frontend(hass: HomeAssistant, version: str) -> None:
             versioned_url,
             card.card_type,
         )
+
+
+async def _async_card_resource(hass: HomeAssistant, url_path: str, url: str) -> bool:
+    """Make the card a dashboard resource, as a HACS card is; True when done.
+
+    #2513 (17 Nov 2026): on a Marketplace install, HA 2026.11.1, the cards
+    showed only once each had been added under Settings -> Dashboards ->
+    Resources by hand. Loaded only as Home Assistant's extra module, a card
+    can lose the race against a dashboard built a moment earlier; as a
+    resource it is loaded before the dashboard is built. A resource for this
+    file that is already there (one added by hand) is brought to the current
+    version rather than added twice. False when there is no resource store
+    (YAML-mode dashboards): the caller then uses the extra module.
+    """
+    data = hass.data.get("lovelace")
+    resources = getattr(data, "resources", None)
+    if resources is None and isinstance(data, dict):
+        resources = data.get("resources")
+    if resources is None or not hasattr(resources, "async_create_item"):
+        return False
+    if not getattr(resources, "loaded", True):
+        await resources.async_load()
+        resources.loaded = True
+    for item in resources.async_items():
+        if str(item.get("url", "")).split("?")[0] == url_path:
+            if item.get("url") != url or item.get("res_type") != "module":
+                await resources.async_update_item(
+                    item["id"], {"res_type": "module", "url": url}
+                )
+            return True
+    await resources.async_create_item({"res_type": "module", "url": url})
+    return True
