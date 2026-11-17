@@ -295,7 +295,14 @@ from .elements import (
     SolarConfig,
     ThermalLoadConfig,
 )
-from .lp import LPProblem, LPResult, SolveOptions, SweepRangingStep
+from .lp import (
+    MAIN_PLAN_STALL_MIP_GAP,
+    MAIN_PLAN_STALL_SECONDS,
+    LPProblem,
+    LPResult,
+    SolveOptions,
+    SweepRangingStep,
+)
 
 
 class LPSolveHook(Protocol):
@@ -2420,6 +2427,10 @@ def _build_plan_once(
         )
 
     p = LPProblem()
+    # #2552: a main plan that stalls proving its last fraction of a cent keeps
+    # the plan it has (lp.MAIN_PLAN_STALL_SECONDS).
+    p.stall_accept_after_seconds = MAIN_PLAN_STALL_SECONDS
+    p.stall_accept_mip_gap = MAIN_PLAN_STALL_MIP_GAP
 
     # nimbus issue #694: whether the household's price-spike override
     # (#567) is genuinely active for THIS solve's period 0 -- computed

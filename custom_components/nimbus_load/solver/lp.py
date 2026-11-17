@@ -176,16 +176,16 @@ SolveOptions = LexOptions | BlendedOptions | CalibratedOptions
 # tuning knob, a safety backstop.
 DEFAULT_TIME_LIMIT_SECONDS: float = 60.0
 
-# #2552 (17 Nov 2026): when to stop proving a MIP plan is the best. HiGHS's
-# own default (relative gap 1e-4) held saved slow main solves for the whole
-# 60 s budget: the plan was found at the root node in about a second, and
-# every second after went on proving the last 0.0123% (about 6 cents on a
-# $509 objective) without ever improving it. With these, the same model
-# returned the identical objective in 1.1 s on HiGHS 1.15.1 and 1.16.0.
-# HiGHS stops at whichever is met first: within 0.02% of proven best, or
-# within 0.10 in objective units (dollars).
-MIP_REL_GAP: float = 2e-4
-MIP_ABS_GAP: float = 0.10
+# #2552 (17 Nov 2026): a main-plan MIP that has run this long and is
+# within this relative gap of proven best stops and keeps its plan. Saved
+# slow main solves (Mark Purcell's install, the test box) had the plan at the
+# root node in about a second, then spent up to 60 s proving the last 0.0123%
+# (about 6 cents of $509) without improving it. Measured on the test box's
+# saved model: stopped at 10.8 s (HiGHS 1.15.1) and 11.4 s (1.16.0) with the
+# identical objective. A solve that finishes before the stall time never
+# meets the rule, so it can't change one.
+MAIN_PLAN_STALL_SECONDS: float = 10.0
+MAIN_PLAN_STALL_MIP_GAP: float = 2e-4
 
 # nimbus issue #773: per-CALL timing for every HiGHS solve invocation.
 #
@@ -1406,6 +1406,12 @@ class LPProblem:
     # #2025: the gap of the time-limited incumbent the last solve kept, read
     # before the pin refresh resets HiGHS's info. None when none was kept.
     accepted_mip_gap: float | None = None
+    # #2552: when both are set, a MIP that has run `stall_accept_after_seconds`
+    # and is within `stall_accept_mip_gap` of proven best stops there and
+    # keeps its incumbent (`_install_stall_rule`, `_accept_stalled_incumbent`).
+    # None (every caller but the main plan) changes nothing.
+    stall_accept_after_seconds: float | None = None
+    stall_accept_mip_gap: float | None = None
     # nimbus #2047, part 2: a wall-clock deadline (`time.monotonic()`) for
     # the whole solve, every HiGHS run in it included: the pinned-LP
     # refresh after a timed-out incumbent, the IPM retry, the blend
@@ -2253,6 +2259,60 @@ def _accept_timed_out_incumbent(h: Any, problem: LPProblem) -> bool:
         "Nimbus #1805: keeping a time-limited MIP incumbent (mip_gap=%.3g <= %.3g)",
         gap,
         limit,
+    )
+    return True
+
+
+def _stall_rule(problem: LPProblem) -> tuple[float, float] | None:
+    """(seconds, gap) of `problem`'s #2552 stall rule, or None."""
+    after = problem.stall_accept_after_seconds
+    gap = problem.stall_accept_mip_gap
+    if after is None or gap is None:
+        return None
+    return float(after), float(gap)
+
+
+def _install_stall_rule(h: Any, problem: LPProblem) -> None:
+    """Interrupt `h`'s MIP once it has run the stall time within the stall
+    gap (#2552). A callback that can't be installed leaves the solve as it
+    was; it never breaks one."""
+    rule = _stall_rule(problem)
+    if rule is None:
+        return
+    after, limit = rule
+
+    def _check(
+        _type: Any, _message: Any, data_out: Any, data_in: Any, _user: Any
+    ) -> None:
+        if float(data_out.running_time) >= after and float(data_out.mip_gap) <= limit:
+            data_in.user_interrupt = True
+
+    try:
+        h.setCallback(_check, None)
+        h.startCallback(highspy.cb.HighsCallbackType.kCallbackMipInterrupt)
+    except Exception:  # a rule must never break a solve
+        _LOGGER.debug("Nimbus #2552: stall rule not installed", exc_info=True)
+
+
+def _accept_stalled_incumbent(h: Any, problem: LPProblem) -> bool:
+    """True when `h` was stopped by the #2552 stall rule holding a feasible
+    incumbent within the rule's gap. Read before pinning (as #1805's)."""
+    rule = _stall_rule(problem)
+    if rule is None or h.getModelStatus() != highspy.HighsModelStatus.kInterrupt:
+        return False
+    info = h.getInfo()
+    feasible = int(info.primal_solution_status) == int(
+        highspy.SolutionStatus.kSolutionStatusFeasible
+    )
+    gap = float(info.mip_gap)
+    if not feasible or not gap <= rule[1]:
+        return False
+    problem.accepted_mip_gap = gap
+    _LOGGER.info(
+        "Nimbus #2552: main plan kept after %.1f s at mip_gap=%.3g (<= %.3g)",
+        float(h.getRunTime()),
+        gap,
+        rule[1],
     )
     return True
 
@@ -3173,8 +3233,6 @@ def _solve_highs(
         if problem.time_limit_seconds is None
         else float(problem.time_limit_seconds),
     )
-    h.setOptionValue("mip_rel_gap", MIP_REL_GAP)
-    h.setOptionValue("mip_abs_gap", MIP_ABS_GAP)
 
     # Real, confirmed live (2026-08-18): highspy's own batched
     # addVariables(n, lb=array, ub=array) form REJECTS per-variable array
@@ -3256,6 +3314,8 @@ def _solve_highs(
             problem._cost.get(name, 0.0) * var_array[i]
             for i, name in enumerate(problem._var_names)
         )
+        if binary_cols:
+            _install_stall_rule(h, problem)
         with _timed_lp_call(h, "primary_minimize", n_vars=n, n_binary=len(binary_cols)):
             _bound_by_wall_deadline(h)
             h.minimize(cost_expr)
@@ -3416,7 +3476,14 @@ def _solve_highs(
     # same rule the blended one does (#1805). The MIP pin below then
     # re-solves the pinned LP, so it gets time of its own: the limit counts
     # the whole Highs object's run time, already spent.
-    if options is None and binary_cols and _accept_timed_out_incumbent(h, problem):
+    if (
+        options is None
+        and binary_cols
+        and (
+            _accept_timed_out_incumbent(h, problem)
+            or _accept_stalled_incumbent(h, problem)
+        )
+    ):
         h.setOptionValue("time_limit", h.getRunTime() + PIN_REFRESH_SECONDS)
         status = highspy.HighsModelStatus.kOptimal
     iterations = int(h.getInfo().simplex_iteration_count)
