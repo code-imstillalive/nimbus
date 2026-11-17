@@ -270,8 +270,32 @@ def _an_adequacy_load_keeps_to_its_power_window_and_target(site, plan):
     if (
         a["shortfall_price"] >= 20.0
         and a["max_power_kw"] * window >= a["target_kwh"] + 1e-6
+        and _a_top_up_is_cheaper_than_the_shortfall(site, ap)
     ):
         assert ap.shortfall_kwh <= 1e-4
+
+
+def _a_top_up_is_cheaper_than_the_shortfall(site, ap) -> bool:
+    """#2552: the load runs on or off at full power (#616), so a shortfall
+    smaller than one period's worth is the cheaper plan when switching on one
+    more period costs more than the shortfall does. Found by Hypothesis: 3.125
+    kW at $1 for 1 h ($3.125) against 0.125 kWh at $20 ($2.50). Leaves out the
+    battery, which can only make a top-up cheaper, so the target is still
+    required wherever a top-up is worth it on grid power alone."""
+    a = site["adequacy"]
+    penalty = a["shortfall_price"] * ap.shortfall_kwh
+    for t in range(a["earliest_period"], a["deadline_period"] + 1):
+        if ap.power_kw[t] > TOL:
+            continue
+        net_load = site["load"][t] - site["solar"][t] + a["max_power_kw"]
+        if net_load > site["import_limit"] + 1e-9:
+            continue
+        top_up = (
+            a["max_power_kw"] * site["hours"][t] * max(site["import_price"][t], 0.0)
+        )
+        if top_up < penalty - 1e-6:
+            return True
+    return ap.shortfall_kwh <= 1e-4
 
 
 @SETTINGS
