@@ -176,6 +176,17 @@ SolveOptions = LexOptions | BlendedOptions | CalibratedOptions
 # tuning knob, a safety backstop.
 DEFAULT_TIME_LIMIT_SECONDS: float = 60.0
 
+# #2552 (17 Nov 2026): when to stop proving a MIP plan is the best. HiGHS's
+# own default (relative gap 1e-4) held saved slow main solves for the whole
+# 60 s budget: the plan was found at the root node in about a second, and
+# every second after went on proving the last 0.0123% (about 6 cents on a
+# $509 objective) without ever improving it. With these, the same model
+# returned the identical objective in 1.1 s on HiGHS 1.15.1 and 1.16.0.
+# HiGHS stops at whichever is met first: within 0.02% of proven best, or
+# within 0.10 in objective units (dollars).
+MIP_REL_GAP: float = 2e-4
+MIP_ABS_GAP: float = 0.10
+
 # nimbus issue #773: per-CALL timing for every HiGHS solve invocation.
 #
 # Added after three separate hypotheses for this issue's "Time limit
@@ -3162,6 +3173,8 @@ def _solve_highs(
         if problem.time_limit_seconds is None
         else float(problem.time_limit_seconds),
     )
+    h.setOptionValue("mip_rel_gap", MIP_REL_GAP)
+    h.setOptionValue("mip_abs_gap", MIP_ABS_GAP)
 
     # Real, confirmed live (2026-08-18): highspy's own batched
     # addVariables(n, lb=array, ub=array) form REJECTS per-variable array
