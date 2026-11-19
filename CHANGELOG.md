@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.106.0] - 2026-11-19
+
+**Solcast is read for all seven days.**
+
+- **A Solcast-only plan has solar after tomorrow again** (#2561, for #2560). Nimbus read only Solcast's today and tomorrow forecasts. Solcast PV Forecast also has Forecast Day 3 to Day 7, with the same half-hourly forecast, and Nimbus never read them, so with Solcast as the only solar source every period from the day after tomorrow had 0 kW solar: a tester's plan showed 100.2 kWh tomorrow, then 0.0 kWh on each of the next three days, midday included. Now all seven days are read, everywhere Solcast is used: the auto-included source, Device setup's solar binding and the solar-running-low check.
+- Internal: tests 972 → 973.
+- Install shapes (#2394): #2561 touches any install with Solcast PV Forecast; seen in a tester's diagnostics (Solcast as the only solar source); not measured on the reference household or Mark Purcell's install, which also have other solar sources.
+
 ## [0.105.2] - 2026-11-18
 
 **A plan solve that gets stuck proving its last fraction of a cent stops and keeps its plan.**
@@ -15,6 +23,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The main plan stops after 10 s once it is within 0.02% of the best possible** (#2553, for #2552, reviewed by Mark Purcell). On Mark Purcell's install a plan solve took 30 s, and the overlap guard then skipped ticks and the shadow plans ran out of time. The test box's own saved slow solve showed why: the plan was found in about a second, then the solver spent the rest of its 60 s proving the last 0.0123% (about 6 cents of $509) without improving it, on HiGHS 1.15.1 and 1.16.0 alike. Now a main plan that has run 10 s and is within 0.02% stops there with the plan it has: on that saved solve, 10.0–10.8 s instead of 60 s, the identical plan. A solve that finishes in under 10 s is unchanged, and no other solve has the rule.
 - Internal: tests 969 → 972.
 - Install shapes (#2394): #2553 touches any install whose main plan is a MIP; the stall is seen in the test box's saved model and in Mark Purcell's install's log; unseen on the reference household.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 6611281b** (`release/0.105.2`, installed untagged through Home Assistant's marketplace and restarted at 00:45 AEST, 18 Nov; read through 00:47).
+  - 123 of the 127 Nimbus entities carrying a version read 0.105.2; the other four are the daily reports (0.105.1).
+  - The same 388 Nimbus entity ids as a read at 00:44 before the install, none unavailable; plan `optimal` on the first solve after the restart (solved 00:46); all 62 Solver numbers present with the same values as before the restart.
+  - Help's What's New shows 0.105.2. No Nimbus Repairs. Log: no Nimbus ERROR; the Nimbus WARNING lines are the test box's known ones (the flex-telemetry clamp, the test EV below its floor, two implausible imported meter rows dropped).
+  - #2553: the stall rule did not trigger in the read (no main solve ran 10 s); its effect was measured before the release on the test box's saved slow model (stopped at 10.0–10.8 s, identical objective, pinned refresh Optimal in 0.04 s).
+- Consumer check: no setting, entity id or name is moved or renamed. A main plan that stalls 10 s within 0.02% of the best possible keeps the plan it has; any other solve is unchanged.
 
 ## [0.105.1] - 2026-11-15
 

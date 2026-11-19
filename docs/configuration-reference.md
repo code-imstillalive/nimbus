@@ -93,7 +93,8 @@ order and uses whichever is present:
    forecast (a Nimbus Power Signal, a self-trained model) already publishes.
 2. Solcast's own native `detailedForecast: [{period_start, pv_estimate, pv_estimate10,
    pv_estimate90}]` array — point a source directly at
-   `sensor.solcast_pv_forecast_forecast_today` (or `_tomorrow`) and it's read
+   `sensor.solcast_pv_forecast_forecast_today` (or `_tomorrow`, or `_day_3` through
+   `_day_7`) and it's read
    directly, real p10/p90 confidence bounds included.
 3. Open-Meteo Solar Forecast's own native `watts: {timestamp: value}` dict — point a
    source directly at `sensor.home_energy_production_today` (or any of its
@@ -106,10 +107,10 @@ dropped from every solve — the Solver only understood shape 1. If you have a s
 configured that's one of Solcast's or Open-Meteo's own known entities AND
 "auto-include known solar" is on, that source is skipped as its own standalone
 contributor — the auto-include path already reads every one of that integration's
-own entities together (Solcast's real 2-day coverage, Open-Meteo's real 8-day
+own entities together (Solcast's seven days since 0.106.0, Open-Meteo's real 8-day
 coverage), so it's the correctly-covered representative for that integration, not a
 narrower duplicate of it (nimbus issue #546 — an earlier version of this dedup
-excluded just the one overlapping entity, which fragmented Solcast's own 2-day
+excluded just the one overlapping entity, which fragmented Solcast's own
 coverage into two separate, mostly-empty single-day reads and made the plan's solar
 noticeably *worse*, not just double-counted).
 

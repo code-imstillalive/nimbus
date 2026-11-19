@@ -218,6 +218,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.106.0",
+        "19 Nov 2026",
+        (
+            (
+                "Solcast is read for all seven days. With Solcast as your "
+                "only solar forecast, the plan had no solar at all from the "
+                "day after tomorrow; it now has Solcast's forecast there too."
+            ),
+        ),
+    ),
+    (
         "0.105.2",
         "18 Nov 2026",
         (
