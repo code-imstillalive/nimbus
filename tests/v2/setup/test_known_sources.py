@@ -118,7 +118,6 @@ def test_2560_solcast_is_read_for_all_seven_days():
     assert found["solcast"] == list(names.values())
 
 
-
 def test_an_install_that_renamed_nothing_gets_exactly_the_old_entities():
     # test_an_install_that_renamed_nothing_gets_exactly_the_old_entities: The identity on the default path: the registry's answer is the very
     found = _resolve(
