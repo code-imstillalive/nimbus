@@ -12,7 +12,7 @@ returned data. This module states the same thing as contract bindings:
   generic `forecast: [{time, value, lower, upper}]`), `solcast`
   (`detailedForecast`, `pv_estimate` with its p10 and p90) and
   `open_meteo_solar` (`watts: {time: W}`, scaled to kW). A source that spans
-  several entities (Solcast's today and tomorrow, Open-Meteo's eight days)
+  several entities (Solcast's seven days, Open-Meteo's eight days)
   is one `entity_attribute` source whose `continued_by` names the rest; the
   first entity is the anchor, and without it the source does not resolve,
   as today.

@@ -14,7 +14,10 @@ integration matches an external entity_id literal.
 Unique ids, from each integration's own sensor code:
 
 * Solcast PV Forecast (`solcast_solar`): the sensor key itself,
-  `total_kwh_forecast_today` and `total_kwh_forecast_tomorrow`.
+  `total_kwh_forecast_today`, `total_kwh_forecast_tomorrow` and
+  `total_kwh_forecast_d3` to `_d7` ("Forecast Day 3" .. "Day 7"), each with
+  the same half-hourly `detailedForecast`. Reading only today and tomorrow
+  left a Solcast-only plan with 0 kW solar from day 3 (#2560).
 * Open-Meteo Solar Forecast (`open_meteo_solar_forecast`):
   `<config entry id>_<key>`, keys `energy_production_today`, `_tomorrow` and
   `_d2` to `_d7`. One entry per site; with several the site is ambiguous and
@@ -37,7 +40,15 @@ from homeassistant.helpers import entity_registry as er
 _LOGGER = logging.getLogger(__name__)
 
 SOLCAST_DOMAIN = "solcast_solar"
-SOLCAST_KEYS = ("total_kwh_forecast_today", "total_kwh_forecast_tomorrow")
+SOLCAST_KEYS = (
+    "total_kwh_forecast_today",
+    "total_kwh_forecast_tomorrow",
+    "total_kwh_forecast_d3",
+    "total_kwh_forecast_d4",
+    "total_kwh_forecast_d5",
+    "total_kwh_forecast_d6",
+    "total_kwh_forecast_d7",
+)
 
 OPEN_METEO_DOMAIN = "open_meteo_solar_forecast"
 OPEN_METEO_KEYS = (
@@ -106,7 +117,7 @@ def _keyed(found: dict[str, str], uids: tuple[str, ...]) -> list[str]:
 
 
 def solcast_entities(hass: HomeAssistant) -> list[str]:
-    """Solcast's today and tomorrow forecast entities, today first."""
+    """Solcast's forecast entities for today .. day 7, today first."""
     found = registry_sensors(hass, SOLCAST_DOMAIN, lambda u: u in SOLCAST_KEYS)
     return _keyed(found, SOLCAST_KEYS)
 
