@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.106.1] - 2026-11-20
+
+**A plan kept by the 10-second stall rule is no longer logged as a slow-solve alarm.**
+
+- **The stall rule's stop is logged as what it is** (#2567, for #2566, reported by Mark Purcell). When 0.105.2's rule stops the main plan within 0.02% of the best possible, HiGHS reports the solve as "Interrupted by user". The slow-call diagnostic did not know that status, so each such stop logged a WARNING tied to the old #773 investigation and saved the model to `nimbus_diagnostics`, although the plan was kept and correct (seen on Mark Purcell's install at 09:04, 20 Nov: 15.8 s, gap 0.0). Now such a stop is logged at DEBUG as `Stall accepted`, with no file written. A solve that is slow past half its time limit, or stopped outside the rule's gap, still warns and saves the model as before.
+- Internal: tests 973 → 974.
+- Install shapes (#2394): #2567 touches any install whose main plan reaches the 10 s stall; seen on Mark Purcell's install; not seen on the reference household or the test box this release.
+
 ## [0.106.0] - 2026-11-19
 
 **Solcast is read for all seven days.**
@@ -15,6 +23,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **A Solcast-only plan has solar after tomorrow again** (#2561, for #2560). Nimbus read only Solcast's today and tomorrow forecasts. Solcast PV Forecast also has Forecast Day 3 to Day 7, with the same half-hourly forecast, and Nimbus never read them, so with Solcast as the only solar source every period from the day after tomorrow had 0 kW solar: a tester's plan showed 100.2 kWh tomorrow, then 0.0 kWh on each of the next three days, midday included. Now all seven days are read, everywhere Solcast is used: the auto-included source, Device setup's solar binding and the solar-running-low check.
 - Internal: tests 972 → 973.
 - Install shapes (#2394): #2561 touches any install with Solcast PV Forecast; seen in a tester's diagnostics (Solcast as the only solar source); not measured on the reference household or Mark Purcell's install, which also have other solar sources.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 061668fb** (`release/0.106.0`, installed untagged through Home Assistant's marketplace and restarted at 12:15 AEST, 19 Nov; read through 12:17).
+  - 123 of the 127 Nimbus entities carrying a version read 0.106.0; the other four are the daily reports (0.105.2).
+  - The same 388 Nimbus entity ids as a read at 12:01 before the install, none unavailable; plan `optimal` on the first solve after the restart (solved 12:16); all 62 Solver numbers present with the same values as before the restart.
+  - Help's What's New shows 0.106.0. No Nimbus Repairs. Log: no Nimbus ERROR; the Nimbus WARNING lines are the test box's known ones (the flex-telemetry clamp, two implausible imported meter rows dropped).
+  - #2561: the test box has no Solcast PV Forecast, so `known_sources.solcast` is empty there and the change does not run; it is covered by `test_2560_solcast_is_read_for_all_seven_days` (failed before the fix in CI run 44426989322, passes after). Checked live on the reference household after its install.
+- Consumer check: no setting, entity id or name is moved or renamed. An install with Solcast PV Forecast now reads its Forecast Day 3 to Day 7 as well; nothing else changes.
 
 ## [0.105.2] - 2026-11-18
 
