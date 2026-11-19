@@ -541,13 +541,32 @@ def _phase_record(entry: tuple[str, float, object, object, object, object]) -> N
 #: expected outcome, so neither the slow-call diagnostic nor the per-solve
 #: breakdown treats it as alarming, and no model is dumped for it.
 _BUDGET_SPENT = "Budget spent"
-_NOT_ALARMING_STATUSES = frozenset({"Optimal", _BUDGET_SPENT})
+#: The main plan's #2552 stall rule stopped it holding a feasible plan within
+#: the rule's gap: the rule doing its job, not a slow-call alarm (#2566).
+_STALL_ACCEPTED = "Stall accepted"
+_NOT_ALARMING_STATUSES = frozenset({"Optimal", _BUDGET_SPENT, _STALL_ACCEPTED})
 
 
-def _status_label(h: Any, *, budgeted: bool) -> str:
+def _stopped_within_gap(h: Any, limit: float) -> bool:
+    """True when `h` was interrupted holding a feasible incumbent whose
+    mip_gap is within `limit`: the #2552 stall rule's own stop."""
+    if h.getModelStatus() != highspy.HighsModelStatus.kInterrupt:
+        return False
+    info = h.getInfo()
+    feasible = int(info.primal_solution_status) == int(
+        highspy.SolutionStatus.kSolutionStatusFeasible
+    )
+    return feasible and float(info.mip_gap) <= limit
+
+
+def _status_label(
+    h: Any, *, budgeted: bool, stall_accept_gap: float | None = None
+) -> str:
     status = h.getModelStatus()
     if budgeted and status == highspy.HighsModelStatus.kTimeLimit:
         return _BUDGET_SPENT
+    if stall_accept_gap is not None and _stopped_within_gap(h, stall_accept_gap):
+        return _STALL_ACCEPTED
     return str(h.modelStatusToString(status))
 
 
@@ -598,6 +617,7 @@ def _timed_lp_call(
     n_vars: int | None = None,
     n_binary: int | None = None,
     budgeted: bool = False,
+    stall_accept_gap: float | None = None,
 ):
     """Time one HiGHS solve invocation, logging at WARNING when it exceeds
     `_SLOW_LP_CALL_SECONDS`. See that constant's own comment for why this
@@ -632,7 +652,9 @@ def _timed_lp_call(
             iterations = int(_info.simplex_iteration_count)
             nodes = _info.mip_node_count
             gap = _info.mip_gap
-            status = _status_label(h, budgeted=budgeted)
+            status = _status_label(
+                h, budgeted=budgeted, stall_accept_gap=stall_accept_gap
+            )
         except Exception:  # noqa: BLE001, S110 - diagnostics never fail a solve
             pass
         _phase_record((label, elapsed, iterations, nodes, gap, status))
@@ -657,7 +679,9 @@ def _timed_lp_call(
                 # slow-call line, which is the one that actually fires.
                 nodes = info.mip_node_count
                 gap = info.mip_gap
-                status = _status_label(h, budgeted=budgeted)
+                status = _status_label(
+                    h, budgeted=budgeted, stall_accept_gap=stall_accept_gap
+                )
             except Exception:  # noqa: BLE001, S110 -- a diagnostic must
                 # never be the reason a solve cycle dies, and the elapsed
                 # time plus the label are worth logging without it.
@@ -2309,15 +2333,9 @@ def _accept_stalled_incumbent(h: Any, problem: LPProblem) -> bool:
     """True when `h` was stopped by the #2552 stall rule holding a feasible
     incumbent within the rule's gap. Read before pinning (as #1805's)."""
     rule = _stall_rule(problem)
-    if rule is None or h.getModelStatus() != highspy.HighsModelStatus.kInterrupt:
+    if rule is None or not _stopped_within_gap(h, rule[1]):
         return False
-    info = h.getInfo()
-    feasible = int(info.primal_solution_status) == int(
-        highspy.SolutionStatus.kSolutionStatusFeasible
-    )
-    gap = float(info.mip_gap)
-    if not feasible or not gap <= rule[1]:
-        return False
+    gap = float(h.getInfo().mip_gap)
     problem.accepted_mip_gap = gap
     _LOGGER.info(
         "Nimbus #2552: main plan kept after %.1f s at mip_gap=%.3g (<= %.3g)",
@@ -3328,8 +3346,13 @@ def _solve_highs(
         if binary_cols:
             _install_stall_rule(h, problem)
         try:
+            stall = _stall_rule(problem) if binary_cols else None
             with _timed_lp_call(
-                h, "primary_minimize", n_vars=n, n_binary=len(binary_cols)
+                h,
+                "primary_minimize",
+                n_vars=n,
+                n_binary=len(binary_cols),
+                stall_accept_gap=stall[1] if stall else None,
             ):
                 _bound_by_wall_deadline(h)
                 h.minimize(cost_expr)
