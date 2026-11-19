@@ -334,7 +334,7 @@ def read_solcast_points(
     sw: Any, cfg: dict
 ) -> tuple[list[tuple[datetime, float]], bool]:
     """(period_start, p50) for every Solcast detailedForecast period, and
-    whether every one of them also carries a p10. Reads Solcast's own two
+    whether every one of them also carries a p10. Reads Solcast's own
     entities, as the entity registry finds them (nimbus #1994; the same ones
     the auto-include path reads). A missing or malformed forecast reads as
     no points."""

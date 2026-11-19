@@ -194,8 +194,8 @@ def _fetch_solcast_solar_raw(
     n_periods: int,
     cfg: dict,
 ) -> tuple[list[float], list[float], list[float]] | None:
-    """Real, DIRECT read of Solcast's own 2 native entities
-    (today/tomorrow) -- reshaped from their native detailedForecast
+    """Real, DIRECT read of Solcast's own native entities
+    (today, tomorrow and days 3-7, #2560) -- reshaped from their native detailedForecast
     list shape (30-min resolution, period_start/pv_estimate/
     pv_estimate10/pv_estimate90) via the same
     _solar_entries_from_attributes() every solar reader in this file
@@ -975,7 +975,7 @@ def update_solar_nowcast_disagreement(
 # accessor each, so the auto-include fetch, the #546 dedup and the #1784
 # running-low gate can never read two different lists.
 def known_solcast_entities(cfg: dict) -> list[str]:
-    """Solcast's today and tomorrow forecast entities, today first."""
+    """Solcast's forecast entities for today .. day 7, today first (#2560)."""
     known = (cfg or {}).get("known_sources") or {}
     return [e for e in (known.get("solcast") or []) if isinstance(e, str)]
 

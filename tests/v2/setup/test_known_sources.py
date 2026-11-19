@@ -100,6 +100,24 @@ def _open_meteo(entry_id, names):
 # --- the registry lookup ------------------------------------------------------
 
 
+def test_2560_solcast_is_read_for_all_seven_days():
+    # Solcast PV Forecast creates today, tomorrow and Forecast Day 3..7, each
+    # with the same half-hourly detailedForecast. Reading only today and
+    # tomorrow left a Solcast-only plan with 0 kW solar from day 3 (#2560).
+    names = {
+        "total_kwh_forecast_today": "sensor.solcast_pv_forecast_forecast_today",
+        "total_kwh_forecast_tomorrow": "sensor.solcast_pv_forecast_forecast_tomorrow",
+        **{
+            f"total_kwh_forecast_d{d}": f"sensor.solcast_pv_forecast_forecast_day_{d}"
+            for d in range(3, 8)
+        },
+    }
+    rows = [_reg(uid, eid) for uid, eid in reversed(names.items())]
+    rows.append(_reg("peak_w_tomorrow", "sensor.solcast_peak_tomorrow"))
+    found = _resolve({ks.SOLCAST_DOMAIN: [("S1", rows)]})
+    assert found["solcast"] == list(names.values())
+
+
 def test_an_install_that_renamed_nothing_gets_exactly_the_old_entities():
     # test_an_install_that_renamed_nothing_gets_exactly_the_old_entities: The identity on the default path: the registry's answer is the very
     found = _resolve(
