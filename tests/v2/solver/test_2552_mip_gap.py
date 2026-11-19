@@ -12,6 +12,7 @@ the main plan carries it.
 from __future__ import annotations
 
 import inspect
+import logging
 from types import SimpleNamespace
 
 import highspy
@@ -116,3 +117,61 @@ def test_the_main_plan_is_the_problem_that_carries_the_rule():
     assert "p.stall_accept_mip_gap = MAIN_PLAN_STALL_MIP_GAP" in source
     assert lp.MAIN_PLAN_STALL_SECONDS == 10.0
     assert lp.MAIN_PLAN_STALL_MIP_GAP == 2e-4
+
+
+def test_2566_a_stall_accepted_main_plan_is_not_a_773_slow_call_alarm(
+    monkeypatch, caplog
+):
+    # Live 20 Nov: the rule stopped a 15.8 s main solve at mip_gap=0.0 and kept
+    # the plan, but the slow-call diagnostic still logged a #773 WARNING and
+    # dumped the model, because "Interrupted by user" was not a status it knew.
+    dumps: list = []
+    monkeypatch.setattr(
+        lp, "_dump_failing_model", lambda h, label, **_k: dumps.append(label) or "x"
+    )
+    monkeypatch.setattr(lp, "_diagnostics_quiet", lambda: False)
+
+    def interrupted(gap: float):
+        info = SimpleNamespace(
+            simplex_iteration_count=121846,
+            mip_node_count=3926,
+            mip_gap=gap,
+            primal_solution_status=int(highspy.SolutionStatus.kSolutionStatusFeasible),
+        )
+        return SimpleNamespace(
+            getInfo=lambda: info,
+            getModelStatus=lambda: highspy.HighsModelStatus.kInterrupt,
+            modelStatusToString=lambda _s: "Interrupted by user",
+        )
+
+    def run(h, stall_gap):
+        clock = iter([0.0, 15.8])
+        monkeypatch.setattr(lp, "time", SimpleNamespace(monotonic=lambda: next(clock)))
+        with lp._timed_lp_call(
+            h, "primary_minimize", n_vars=9750, n_binary=995, stall_accept_gap=stall_gap
+        ):
+            pass
+
+    caplog.set_level(logging.DEBUG, logger=lp._LOGGER.name)
+    run(interrupted(0.0), lp.MAIN_PLAN_STALL_MIP_GAP)
+    assert dumps == []
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert "Stall accepted" in caplog.text
+
+    # The same interrupt outside the rule's gap, or with no rule, is still an
+    # alarm with a model dump.
+    caplog.clear()
+    run(interrupted(5e-3), lp.MAIN_PLAN_STALL_MIP_GAP)
+    run(interrupted(0.0), None)
+    assert dumps == ["slow_primary_minimize", "slow_primary_minimize"]
+    warned = [
+        r
+        for r in caplog.records
+        if r.levelno >= logging.WARNING and "#773 diag" in r.getMessage()
+    ]
+    assert len(warned) == 2
+
+    # The main plan's timed call is the one that passes its rule's gap.
+    source = inspect.getsource(lp)
+    call = source[source.index('"primary_minimize"') :][:200]
+    assert "stall_accept_gap=" in call
