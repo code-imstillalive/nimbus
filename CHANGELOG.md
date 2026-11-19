@@ -15,6 +15,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The stall rule's stop is logged as what it is** (#2567, for #2566, reported by Mark Purcell). When 0.105.2's rule stops the main plan within 0.02% of the best possible, HiGHS reports the solve as "Interrupted by user". The slow-call diagnostic did not know that status, so each such stop logged a WARNING tied to the old #773 investigation and saved the model to `nimbus_diagnostics`, although the plan was kept and correct (seen on Mark Purcell's install at 09:04, 20 Nov: 15.8 s, gap 0.0). Now such a stop is logged at DEBUG as `Stall accepted`, with no file written. A solve that is slow past half its time limit, or stopped outside the rule's gap, still warns and saves the model as before.
 - Internal: tests 973 → 974.
 - Install shapes (#2394): #2567 touches any install whose main plan reaches the 10 s stall; seen on Mark Purcell's install; not seen on the reference household or the test box this release.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at cbbd73af** (`release/0.106.1`, installed untagged through Home Assistant's marketplace and restarted at 09:31 AEST, 20 Nov; read through 09:33).
+  - 123 of the 127 Nimbus entities carrying a version read 0.106.1; the other four are the daily reports (0.106.0).
+  - The same 388 Nimbus entity ids as a read at 09:22 before the install, none unavailable; plan `optimal` on the first solve after the restart (solved 09:33); all 62 Solver numbers present with the same values as before the restart.
+  - Help's What's New shows 0.106.1. No Nimbus Repairs. Log: no Nimbus ERROR and no `#773` line.
+  - #2567: the stall rule did not fire in the read (no main solve reached 10 s), so the new label was not seen live here; it is covered by `test_2566_a_stall_accepted_main_plan_is_not_a_773_slow_call_alarm` (failed before the fix in CI run 44634559928, passes after).
+- Consumer check: no setting, entity id or name is moved or renamed. Only logging changes: a stall-accepted main solve logs at DEBUG with no model file; the plan itself is unchanged.
 
 ## [0.106.0] - 2026-11-19
 
