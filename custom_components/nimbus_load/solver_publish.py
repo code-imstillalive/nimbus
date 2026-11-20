@@ -46,7 +46,7 @@ import time
 # through the deferred `sw` accessor for the reason this module's own
 # docstring and solver_inputs/__init__.py both set out.
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -1265,6 +1265,51 @@ def _dispatch_solar_charge(
     return grid_export_kw <= DISPATCH_SOLAR_CHARGE_GRID_KW
 
 
+def home_battery_net_kw(
+    net_battery: NDArray[np.float64], plan: Any
+) -> NDArray[np.float64]:
+    """The home battery's own planned power per period (+ discharge,
+    - charge): the fleet figure less every battery participant's (#2573).
+
+    `net_battery` is the fleet aggregate after the #923 clamp, which only
+    ever touches `plan.batteries[0]` (the home battery); each participant's
+    charge and discharge survive it unchanged, so subtracting them leaves
+    exactly the home battery. A site with no participant gets the fleet
+    figure back unchanged.
+    """
+    net = np.asarray(net_battery, dtype=np.float64)
+    batteries = list(getattr(plan, "batteries", None) or [])
+    if len(batteries) <= 1:
+        return net
+    participants = np.zeros_like(net)
+    for b in batteries[1:]:
+        participants += np.asarray(b.discharge_kw, dtype=np.float64)[: len(net)]
+        participants -= np.asarray(b.charge_kw, dtype=np.float64)[: len(net)]
+    return net - participants
+
+
+def dispatch_flags(
+    *,
+    home_kw: float,
+    grid_import_kw: float,
+    grid_export_kw: float,
+    grid_to_battery_kw: float,
+) -> tuple[bool, bool]:
+    """`(dispatch_hold, dispatch_solar_charge)` for one period, from the HOME
+    battery's own power (#2573): they tell the house inverter what to do,
+    and a car charging from the grid while the home battery is idle is a
+    hold for it, not a charge.
+
+    `grid_to_battery_kw` is still the fleet's: the flow decomposition does
+    not split it per battery. Grid energy into any battery keeps a solar
+    charge off, which is the conservative side (a forced charge, as before
+    #2573)."""
+    return (
+        _dispatch_hold(home_kw, grid_import_kw, grid_export_kw),
+        _dispatch_solar_charge(home_kw, grid_to_battery_kw, grid_export_kw),
+    )
+
+
 # nimbus #2138 (household, 28 Oct 2026, option 2): with solar near the house
 # load, period 0 alternated each minute between a solar-only charge (Self-
 # Consume) and idle with the grid supplying the house (Hold), and a dispatcher
@@ -2173,6 +2218,8 @@ def publish_plan(
             "are not gated here and are not counted, see nimbus issue #923.)",
             int(np.sum(_violation_mask)),
         )
+    # nimbus #2573: the house inverter's own share of the plan.
+    home_net = home_battery_net_kw(net_battery, plan)
 
     # Physical, post-efficiency energy rate at the battery terminals
     # (2026-08-27, nimbus issue #229, Mark Purcell) -- battery_kw above is
@@ -2222,7 +2269,7 @@ def publish_plan(
         else 0.0
     )
     absorb_now = absorb_surplus(
-        battery_kw=float(net_battery[0]) if len(net_battery) else 0.0,
+        battery_kw=float(home_net[0]) if len(home_net) else 0.0,
         grid_to_battery_kw=float(flow_decomp[0]["grid_to_battery"])
         if flow_decomp
         else 0.0,
@@ -2376,18 +2423,23 @@ def publish_plan(
             # nimbus #1654 (Mark Purcell, 16 Oct): the battery idle while the
             # grid still flows means "hold": a dispatcher should preserve the
             # battery, not self-consume (which would serve that load from it).
-            "dispatch_hold": _dispatch_hold(
-                float(net_battery[i]),
-                float(corrected_grid_import[i]),
-                float(plan.grid_export_kw[i]),
-            ),
             # nimbus #2066: a charge the plan takes from solar alone, for a
             # dispatcher to self-consume rather than force (see
-            # _dispatch_solar_charge()).
-            "dispatch_solar_charge": _dispatch_solar_charge(
-                float(net_battery[i]),
-                float(flow_decomp[i]["grid_to_battery"]) if flow_decomp else 0.0,
-                float(plan.grid_export_kw[i]),
+            # _dispatch_solar_charge()). Both from the home battery's own
+            # power (#2573, see dispatch_flags()).
+            **dict(
+                zip(
+                    ("dispatch_hold", "dispatch_solar_charge"),
+                    dispatch_flags(
+                        home_kw=float(home_net[i]),
+                        grid_import_kw=float(corrected_grid_import[i]),
+                        grid_export_kw=float(plan.grid_export_kw[i]),
+                        grid_to_battery_kw=float(flow_decomp[i]["grid_to_battery"])
+                        if flow_decomp
+                        else 0.0,
+                    ),
+                    strict=True,
+                )
             ),
             "dispatch_source_a_label": dispatch_breakdown[i][1],
             "dispatch_source_a_pct": dispatch_breakdown[i][2],
@@ -2623,6 +2675,11 @@ def publish_plan(
             # are provably the same object, not two independent
             # computations that could theoretically diverge.
             "batteries": _diag_757_battery_forecast,
+            # nimbus #2573: the home battery's own planned power now (+
+            # discharge, - charge). The state stays the fleet total; a
+            # dispatcher driving the house inverter follows this one. On a
+            # site with no battery participant it equals the state.
+            "home_battery_kw": round(float(home_net[0]), 3) if len(home_net) else 0.0,
             "status": plan.status,
             # nimbus #1751: whether the plan is one-way (#238 / #1535), and
             # how many direction pairs are still two-way when it is not.

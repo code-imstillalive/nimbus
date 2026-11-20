@@ -315,7 +315,12 @@ variables:
     {{ s is not none and is_number(plan_raw)
        and state_attr(plan_entity, 'status') == 'optimal'
        and age_s <= (stale_min | float(10)) * 60 }}
-  plan_kw: "{{ plan_raw | float(0) if plan_ok else 0 }}"
+  # nimbus #2573: the HOME battery's own planned power when the plan carries
+  # it (a site with a car or second battery as a participant); the state is
+  # the whole fleet. Plans from before #2573 have no home_battery_kw.
+  plan_kw: >-
+    {% set h = state_attr(plan_entity, 'home_battery_kw') %}
+    {{ ((h if is_number(h) else plan_raw) | float(0)) if plan_ok else 0 }}
   allowed_entity: !input allowed_charge_sensor
   allowed_raw: "{{ states(allowed_entity) if allowed_entity else 'unavailable' }}"
   plan_power_kw: "{{ [plan_kw | abs, max_kw | float(0)] | min }}"

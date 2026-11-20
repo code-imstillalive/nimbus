@@ -1144,6 +1144,12 @@ EV-specific fields worth knowing:
 | Shared charger group + max kW | Constrains combined planned charging power for a shared charger. Its batteries all charge or all discharge in a period: one is never charged from another through the charger |
 | Report as | What flex telemetry calls this battery. *Automatic* (the default): a vehicle when a Departure hour or a Trip calendar is set, otherwise a stationary battery. *Vehicle* or *Stationary battery* overrides that, for a car without departure settings or a house battery given a departure deadline for another reason. Changes nothing in the plan |
 
+Each battery's planned power now is on its own sensor,
+`sensor.nimbus_solver_battery_N_kw` (positive = discharge, negative = charge),
+beside `sensor.nimbus_solver_battery_N_soc_pct`; slot 0 is the home battery.
+When Nimbus drives the house inverter ([Going live](going-live.md)), it follows
+the home battery's own share only.
+
 ## 15. The daily quality score
 
 Nimbus can score **yesterday's real dispatch against a perfect-foresight oracle**

@@ -27,6 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.const import UnitOfPower
 
 from .const import (
     CONF_BATTERY_PARTICIPANT_NAME,
@@ -117,6 +118,64 @@ class NimbusBatterySlotSocSensor(_FlattenedAttributeSensor):
         super().update_from_parent({"soc_pct": rows[0]["soc_pct"]})
 
 
+class NimbusBatterySlotPowerSensor(_FlattenedAttributeSensor):
+    """One battery's own planned power now, in kW (+ discharge, - charge),
+    on a site with battery participants (#2573; Mark Purcell's review: one
+    sensor per battery, named like the SoC sensors).
+
+    The home battery's comes from the plan's `home_battery_kw`, the figure
+    the dispatch blueprint drives the house inverter with; each participant's
+    from its own row in `batteries` (period 0), for a charger automation to
+    follow.
+    """
+
+    _unrecorded_attributes = _FlattenedAttributeSensor._unrecorded_attributes | {
+        "battery_name",
+    }
+
+    def __init__(
+        self, entry: Any, sw_version: str | None, slot: int, battery_name: str
+    ) -> None:
+        super().__init__(
+            entry,
+            sw_version,
+            FlattenedAttrSpec(
+                source_key="planned_kw",
+                name=f"Planned power {_label(battery_name)}",
+                entity_id_suffix=f"battery_{slot}_kw",
+                entity_category=None,
+                device_class=SensorDeviceClass.POWER,
+                state_class=SensorStateClass.MEASUREMENT,
+                unit_of_measurement=UnitOfPower.KILO_WATT,
+                suggested_display_precision=2,
+            ),
+        )
+        self._battery_name = battery_name
+
+    def update_from_parent(
+        self, attributes: dict, parent_attributes: dict | None = None
+    ) -> None:
+        """Leaves the previous value when the plan carries no figure for this
+        battery, so the staleness contract takes it to unavailable."""
+        source = parent_attributes if parent_attributes is not None else attributes
+        value: Any = None
+        if self._battery_name == HOME_BATTERY_NAME:
+            value = source.get("home_battery_kw")
+        else:
+            rows = _forecast_of(source, self._battery_name)
+            if rows:
+                try:
+                    value = float(rows[0].get("discharge_kw") or 0.0) - float(
+                        rows[0].get("charge_kw") or 0.0
+                    )
+                except (TypeError, ValueError):
+                    value = None
+        if value is None:
+            return
+        self._extra_attrs = {"battery_name": self._battery_name}
+        super().update_from_parent({"planned_kw": round(float(value), 3)})
+
+
 def _hours(plan: Any, i: int) -> float | None:
     row = plan[i] if i < len(plan) else None
     return row.get("hours") if isinstance(row, dict) else None
@@ -139,5 +198,16 @@ def create(entry: Any, sw_version: str | None) -> list[NimbusBatterySlotSocSenso
     site."""
     return [
         NimbusBatterySlotSocSensor(entry, sw_version, slot, name)
+        for slot, name in enumerate(battery_names(entry))
+    ]
+
+
+def create_power(
+    entry: Any, sw_version: str | None
+) -> list[NimbusBatterySlotPowerSensor]:
+    """The per-battery planned-power sensors (#2573); [] on a single-battery
+    site."""
+    return [
+        NimbusBatterySlotPowerSensor(entry, sw_version, slot, name)
         for slot, name in enumerate(battery_names(entry))
     ]

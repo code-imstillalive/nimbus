@@ -1198,6 +1198,10 @@ async def async_setup_entry(
     flattened_current_entities = flattened_current_entities + list(
         sensor_battery_soc.create(entry, sw_version)
     )
+    # nimbus #2573: and one planned-power sensor per battery, same slots.
+    flattened_current_entities = flattened_current_entities + list(
+        sensor_battery_soc.create_power(entry, sw_version)
+    )
     # nimbus #1797: the stochastic solve on an entity of its own, fed from
     # this process's plan publish (sensor_stochastic.py).
     flattened_current_entities = flattened_current_entities + list(
