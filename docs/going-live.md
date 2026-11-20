@@ -191,6 +191,59 @@ Settings → Devices & services → Helpers → Create helper:
    - **Mode helper:** `input_text.nimbus_dispatch_mode` (Behaviour section).
 3. Save. With the arm switch off, it does nothing.
 
+### Or fill it in as YAML
+
+The blueprint holds all the logic: the arm switch, the fallback, the stale-plan
+check, the power cap and the minimum dwell. An automation made from it only
+fills in its inputs. If you would rather paste than click through the form,
+create an automation, choose ⋮ → **Edit in YAML**, and paste something like
+this, with your own entities and actions. The blueprint must be imported first;
+check its path under Settings → Automations & scenes → Blueprints.
+
+```yaml
+alias: Nimbus battery dispatch
+use_blueprint:
+  path: code-imstillalive/battery_dispatch.yaml
+  input:
+    plan_sensor: sensor.nimbus_solver_battery_forecast
+    hold_sensor: sensor.nimbus_solver_current_dispatch_hold
+    solar_charge_sensor: sensor.nimbus_solver_current_dispatch_solar_charge
+    allowed_charge_sensor: sensor.nimbus_battery_allowed_charge_kw
+    arm_switch: input_boolean.nimbus_dispatch_armed
+    mode_helper: input_text.nimbus_dispatch_mode
+    max_power_kw: 10
+    charge_actions:
+      - action: select.select_option
+        target:
+          entity_id: select.my_inverter_mode
+        data:
+          option: "Charge"
+    discharge_actions:
+      - action: select.select_option
+        target:
+          entity_id: select.my_inverter_mode
+        data:
+          option: "Discharge"
+    set_power_actions:
+      - action: number.set_value
+        target:
+          entity_id: number.my_inverter_power
+        data:
+          value: "{{ (power_kw * 1000) | int }}"
+    self_consume_actions:
+      - action: select.select_option
+        target:
+          entity_id: select.my_inverter_mode
+        data:
+          option: "Self-consumption"
+    fallback_actions:
+      - action: select.select_option
+        target:
+          entity_id: select.my_inverter_mode
+        data:
+          option: "Self-consumption"
+```
+
 ### Your site's supply limit (strongly recommended)
 
 The plan keeps the battery and the *forecast* house load under **Grid Max
