@@ -328,6 +328,52 @@ entities:
     name: Holding the battery
 ```
 
+## Driving the car's charger (optional)
+
+With a car added as a Battery Participant, Nimbus plans its charging (departure
+hour, required charge, the car's live charge limit, trips in a calendar) and
+publishes it on the car's own sensor, `sensor.nimbus_solver_battery_N_kw`
+(negative = charge). The **Nimbus EV charger dispatch** blueprint makes the
+charger follow it:
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fcode-imstillalive%2Fnimbus%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fnimbus%2Fev_charger_dispatch.yaml)
+
+or import `https://github.com/code-imstillalive/nimbus/blob/main/blueprints/automation/nimbus/ev_charger_dispatch.yaml`.
+
+| Input | Give it |
+|---|---|
+| The cars' planned power | `sensor.nimbus_solver_battery_N_kw` for the car (its `battery_name` attribute names it), or for every car that uses this charger |
+| Which car is plugged in | only for a charger shared by several cars: for each car, in the same order, a binary sensor that is on while that car is the one plugged in |
+| Arm switch | a new Toggle helper, for example *Nimbus EV charging armed* |
+| Start / Stop charging | your charger's own start and stop (a switch, a button, an OCPP or Tesla action) |
+| Set the charging current | your charger's current setting, using `{{ amps }}` (whole amps) or `{{ power_kw }}` |
+| Supply voltage, phases, minimum and maximum current | your supply and charger (230 V, 1 phase, 6 A and 32 A by default) |
+| Fallback actions | what the charger does when Nimbus is not in control: stop, or its own schedule |
+| Hold at the minimum before stopping | how long to keep charging at the minimum current when the plan drops below it (5 minutes by default) |
+| Charger state helper | a new Text helper, so start and stop run only on a change and the hold can be timed |
+
+Every minute it starts the charger when the plan charges the car, sets the
+current to the planned power (kept between your minimum and maximum), and stops
+it when the plan stops charging. When the plan drops below your minimum
+current while charging, it holds the minimum for the hold time and then stops,
+so a plan moving either side of the minimum does not start and stop the charger
+every cycle; a plan of no charge, or a discharge, stops it at once. Off, failed
+or stale: the fallback.
+
+Use **one automation per charger**, and turn off the charger's own solar or
+price modes, and the car's own scheduled charging, while it is armed. Two cars
+taking turns on one charger are one automation: give it both cars and both
+plugged-in sensors, and it follows the car that is plugged in. With no car
+plugged in the charger is stopped; if both read as plugged in, or the sensors
+and cars do not pair up, it runs the fallback rather than guess. Never give
+one charger two automations.
+
+Nimbus plans the car's charge up to its configured **Max charge** kW and its
+live charge limit (the SoC ceiling). A car that slows its own charging as it
+fills simply draws less than the current set; and a car that was asleep can
+take a little while to accept the first new current after it wakes, so the
+charger may show the old current briefly.
+
 ## Manual modes (optional)
 
 To take over by hand without disarming, create a **Dropdown** helper
@@ -374,9 +420,10 @@ What happens when something goes wrong, with the blueprint as shipped:
 |---|---|
 | you turn the arm switch **off** | runs your fallback once, then does nothing until you arm it again |
 | Nimbus stops publishing a plan (it is disabled, removed, or stuck) | sees the plan go stale after 10 minutes (*Stale plan after*) and runs the fallback |
-| the plan is `unknown`, `unavailable` or not a number | runs the fallback, never a power command |
+| you save a Nimbus setting (Nimbus reloads, and its plan is unavailable for a few seconds) | keeps the last command for up to 2 minutes (*Ride through a Nimbus reload*); if the plan is still missing after that, runs the fallback |
+| the plan is `unknown`, `unavailable` or not a number for longer than that | runs the fallback, never a power command |
 | the plan did not solve properly (`status` is not `optimal`) | runs the fallback |
-| Home Assistant restarts | runs again at start: re-sends the mode for a valid plan, or the fallback for one that isn't valid yet |
+| Home Assistant restarts | runs again at start: re-sends the mode for a valid plan; while the plan is still loading, keeps the inverter as it is for up to 2 minutes, then runs the fallback if it still isn't valid |
 | a mode command is lost, or the inverter reverts on its own | re-sends the mode every 10 minutes (*Re-send the mode command*) |
 | the plan asks for more power than your inverter can give | caps the power at your *Maximum battery power* |
 | a car, oven or kettle switches on while the battery grid-charges | caps the charge at `sensor.nimbus_battery_allowed_charge_kw`, so grid import stays under your **Site Import Limit**; the site import guard trims a manual charge too |

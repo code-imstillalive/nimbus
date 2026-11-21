@@ -184,6 +184,7 @@ def run(
     now: datetime = NOW,
     attrs: dict | None = None,
     extra: dict[str, str] | None = None,
+    plan_changed_s: float = 3600,
     **inputs: Any,
 ) -> tuple[list[str], dict[str, Any]]:
     """Fire `trigger`; return the actions that ran and the variables."""
@@ -199,7 +200,9 @@ def run(
     gen = (now - timedelta(seconds=plan_age_s)).isoformat()
     states = {
         PLAN: _State(
-            plan, {"status": status, "generated_at": gen, **(attrs or {})}, now
+            plan,
+            {"status": status, "generated_at": gen, **(attrs or {})},
+            now - timedelta(seconds=plan_changed_s),
         ),
         ARM: _State("on" if armed else "off", {}, now),
     }
@@ -441,3 +444,30 @@ def test_a_manual_mode_overrides_the_plan_until_automatic():
         "disarmed", plan="2.0", armed=False, mode_select=sel, extra={sel: "Charge"}
     )
     assert ran == FALLBACK
+
+
+def test_a_nimbus_reload_does_not_trip_the_fallback():
+    """A tester, 21 Nov 2026: saving a Nimbus setting reloads Nimbus, the
+    plan sensor is unavailable for a few seconds, and a minute tick landing
+    in that gap ran the fallback (the inverter's own mode) mid-export. A plan
+    that has only just gone unavailable keeps the last command; once the gap
+    outlasts the grace, the fallback runs as before."""
+    for gone in ("unavailable", "unknown"):
+        ran, _ = run("tick", plan=gone, helper="DIS", plan_changed_s=20)
+        assert ran == [], gone
+        ran, _ = run("plan", plan=gone, helper="DIS", plan_changed_s=20)
+        assert ran == [], gone
+        ran, _ = run("tick", plan=gone, helper="DIS", plan_changed_s=150)
+        assert ran == FALLBACK, gone
+    # Grace 0: the fallback at once, as before.
+    ran, _ = run(
+        "tick",
+        plan="unavailable",
+        helper="DIS",
+        plan_changed_s=20,
+        reload_grace_minutes=0,
+    )
+    assert ran == FALLBACK
+    # Disarming never waits.
+    ran, _ = run("disarmed", plan="unavailable", armed=False, plan_changed_s=20)
+    assert ran[0] == "fallback_actions"
