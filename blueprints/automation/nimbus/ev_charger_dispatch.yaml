@@ -107,6 +107,21 @@ blueprint:
               max: 60
               unit_of_measurement: min
               mode: box
+        reload_grace_minutes:
+          name: Ride through a Nimbus reload
+          description: >-
+            Saving a Nimbus setting reloads it, and its plan sensor is
+            unavailable for a few seconds. For this long after the plan goes
+            unavailable the automation keeps the last command instead of
+            running the fallback; if the plan is still missing after that,
+            the fallback runs. 0 runs the fallback at once.
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 10
+              unit_of_measurement: min
+              mode: box
     charger:
       name: Your charger
       icon: mdi:ev-station
@@ -226,6 +241,7 @@ variables:
   plan_entity: !input plan_sensor
   state_entity: !input state_helper
   stale_min: !input stale_after_minutes
+  grace_min: !input reload_grace_minutes
   v: !input volts
   ph: !input phases
   min_a: !input min_amps
@@ -252,6 +268,20 @@ variables:
           else ('' if ns.on | count == 0 else '!') -}}
     {%- endif -%}
   car_raw: "{{ states(car_entity) if car_entity not in ['', '!'] else '' }}"
+  # A Nimbus reload (any settings save) leaves its sensors unavailable for a
+  # few seconds. True while the plan or the car's figure has only just gone
+  # missing: keep the last command rather than run the fallback.
+  plan_gap: >-
+    {% set ns = namespace(gap=false) %}
+    {% for e in [plan_entity, car_entity] %}
+      {% set s = states[e] if e not in ['', '!'] else none %}
+      {% if s is not none and s.state in ['unavailable', 'unknown']
+            and (now() - s.last_changed).total_seconds()
+                < (grace_min | float(2)) * 60 %}
+        {% set ns.gap = true %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.gap }}
   plan_ok: >-
     {% set gen = state_attr(plan_entity, 'generated_at') %}
     {% set gen_t = as_datetime(gen) if gen else none %}
@@ -296,6 +326,9 @@ conditions:
       - condition: state
         entity_id: !input arm_switch
         state: "on"
+  # Riding through a Nimbus reload: no command this cycle (never on disarm).
+  - condition: template
+    value_template: "{{ trigger.id == 'disarmed' or not plan_gap }}"
 
 actions:
   - choose:

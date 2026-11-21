@@ -48,6 +48,7 @@ def run(
     helper: str | None = "STOPPED",
     helper_age_s: float = 0,
     extra: dict[str, str] | None = None,
+    changed_s: float = 3600,
     **inputs: Any,
 ) -> tuple[list[str], dict[str, Any]]:
     bp = yaml.load(BLUEPRINT.read_text(encoding="utf-8"), Loader=_Loader)
@@ -61,8 +62,12 @@ def run(
     }
     gen = (NOW - timedelta(seconds=plan_age_s)).isoformat()
     states = {
-        CAR: _State(car, {}, NOW),
-        PLAN: _State("0", {"status": status, "generated_at": gen}, NOW),
+        CAR: _State(car, {}, NOW - timedelta(seconds=changed_s)),
+        PLAN: _State(
+            "0",
+            {"status": status, "generated_at": gen},
+            NOW - timedelta(seconds=changed_s),
+        ),
         ARM: _State("on" if armed else "off", {}, NOW),
     }
     for entity, value in (extra or {}).items():
@@ -193,3 +198,16 @@ def test_a_shared_charger_follows_the_car_plugged_in_and_never_two():
         connected_sensors=[PLUG1],
     )
     assert ctx["want"] == "STOPPED"
+
+
+def test_a_nimbus_reload_does_not_trip_the_fallback():
+    """The car's planned-power sensor goes unavailable for a few seconds when
+    Nimbus reloads: keep the last command until that outlasts the grace."""
+    ran, _ = run("tick", car="unavailable", helper="CHARGING", changed_s=20)
+    assert ran == []
+    ran, ctx = run("tick", car="unavailable", helper="CHARGING", changed_s=150)
+    assert ctx["want"] == "FALLBACK" and ran[0] == "fallback_actions"
+    ran, _ = run(
+        "disarmed", car="unavailable", armed=False, helper="CHARGING", changed_s=20
+    )
+    assert ran[0] == "fallback_actions"

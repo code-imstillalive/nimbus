@@ -115,6 +115,21 @@ blueprint:
               max: 60
               unit_of_measurement: min
               mode: box
+        reload_grace_minutes:
+          name: Ride through a Nimbus reload
+          description: >-
+            Saving a Nimbus setting reloads it, and its plan sensor is
+            unavailable for a few seconds. For this long after the plan goes
+            unavailable the automation keeps the last command instead of
+            running the fallback; if the plan is still missing after that,
+            the fallback runs. 0 runs the fallback at once.
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 10
+              unit_of_measurement: min
+              mode: box
         max_power_kw:
           name: Maximum battery power
           description: >-
@@ -314,6 +329,7 @@ variables:
   arm_entity: !input arm_switch
   mode_entity: !input mode_helper
   stale_min: !input stale_after_minutes
+  grace_min: !input reload_grace_minutes
   max_kw: !input max_power_kw
   dead_kw: !input deadband_kw
   dwell_min: !input min_dwell_minutes
@@ -322,6 +338,14 @@ variables:
   resend_min: !input resend_minutes
   hold_has_actions: !input hold_actions
   plan_raw: "{{ states(plan_entity) }}"
+  # A tester, 21 Nov 2026: a Nimbus reload (any settings save) leaves the plan
+  # unavailable for a few seconds. True while it has only just gone missing:
+  # keep the last command rather than run the fallback.
+  plan_gap: >-
+    {% set s = states[plan_entity] %}
+    {{ s is not none and plan_raw in ['unavailable', 'unknown']
+       and (now() - s.last_changed).total_seconds()
+           < (grace_min | float(2)) * 60 }}
   plan_ok: >-
     {% set s = states[plan_entity] %}
     {% set gen = state_attr(plan_entity, 'generated_at') %}
@@ -407,6 +431,10 @@ conditions:
       - condition: state
         entity_id: !input arm_switch
         state: "on"
+  # Riding through a Nimbus reload: no command this cycle (never on disarm,
+  # and a manual mode does not need the plan).
+  - condition: template
+    value_template: "{{ trigger.id == 'disarmed' or manual != '' or not plan_gap }}"
   # An allowance change matters only while it caps (or just stopped
   # capping) the charge, and by at least 0.5 kW: no write on every meter tick.
   - condition: template
