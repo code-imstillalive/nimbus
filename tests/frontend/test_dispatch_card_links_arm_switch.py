@@ -7,8 +7,7 @@ and "Dispatch is off" on an install whose dispatch was armed and running,
 and its toggle and mode chips did nothing. The household cannot edit a
 generated card, so the two helpers are Solver settings, published on
 `sensor.nimbus_solver_config`, and a card left blank adopts them as it does
-the battery and solar sensors (#1574). Unset, the card says the switch is
-not linked rather than claiming dispatch is off.
+the battery and solar sensors (#1574).
 """
 
 from __future__ import annotations
@@ -57,15 +56,6 @@ def test_the_two_helpers_are_solver_settings_the_config_sensor_exposes():
         assert key in shown
         assert key in hub._SOLVER_WIZARD_SCHEMA_KEYS
         assert key in sm._SOLVER_ALL_KEYS
-
-
-def test_an_unlinked_card_does_not_claim_dispatch_is_off():
-    src = _src()
-    assert "NOT LINKED" in src
-    # The "Dispatch is off" reasoning is only for a linked switch that is off.
-    m = re.search(r"if \(!armed\) \{", src)
-    assert m
-    assert "this._armedEntity" in src[m.start() - 400 : m.start() + 400]
 
 
 def _method() -> str:

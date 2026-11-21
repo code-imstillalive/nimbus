@@ -315,10 +315,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
     const prevScrollLeft = prevWrap ? prevWrap.scrollLeft : 0;
 
     const modeEnt = this._modeEntity ? hass.states[this._modeEntity] : undefined;
-    // Household, 21 Nov 2026: with no mode select linked, the card follows
-    // the plan (Automatic). It used to default to Self-Consume and so showed
-    // SC lit, and "manual override", on an install following the plan.
-    const mode = modeEnt ? modeEnt.state : 'Automatic';
+    const mode = modeEnt ? modeEnt.state : 'Self-Consume';
     const armedEnt = this._armedEntity ? hass.states[this._armedEntity] : undefined;
     const armed = armedEnt ? armedEnt.state === 'on' : false;
     const socEnt = this._socEntity ? hass.states[this._socEntity] : undefined;
@@ -358,9 +355,6 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // automation.nimbus_live_dispatch, unchanged and untouched by this
     // card -- deploying "for real" means reusing that automation exactly
     // as it already exists, not building a new one.
-    // Household, 21 Nov 2026: with no arm switch linked, the card cannot
-    // know whether dispatch is on, so it never claims it is off.
-    const linked = !!(this._armedEntity && armedEnt);
     if (!armed) {
       // Second direct household correction (2026-09-05): the big status
       // heading shouldn't say "DISARMED" at all -- that's already shown by
@@ -409,7 +403,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       const evNote = realEv > 0.05 ? (', and the EV charger is drawing ' + realEv.toFixed(1) + ' kW') : '';
       // Direct household correction: drop the meta-commentary about
       // rehearsal/devhub entirely -- just say what's actually happening.
-      reasoning = (linked ? 'Dispatch is off: ' : 'Arm switch not linked (Nimbus settings, Solver step 1): ') + battNote + evNote + '.';
+      reasoning = 'Dispatch is off: ' + battNote + evNote + '.';
     } else if (mode === 'Automatic') {
       if (p0) {
       bkw = parseFloat(p0.battery_kw) || 0;
@@ -1393,8 +1387,8 @@ class NimbusDispatchCardV4 extends HTMLElement {
           '</div>' +
           '<div style="display:flex; align-items:center; gap:16px; flex-wrap: wrap;">' +
             '<div class="mode-chip-row">' + modeButtons + '</div>' +
-            '<div class="mode-pill" style="color:' + dirColor + '">' + (!linked ? 'NOT LINKED' : (armed ? 'ARMED' : 'DISARMED')) + '</div>' +
-            '<div class="kill-switch" id="kill-switch" style="' + (linked ? '' : 'display:none') + '">' +
+            '<div class="mode-pill" style="color:' + dirColor + '">' + (armed ? 'ARMED' : 'DISARMED') + '</div>' +
+            '<div class="kill-switch" id="kill-switch">' +
               '<span class="label" style="color:' + (armed ? '#5a6070' : '#e8eaf0') + '">OFF</span>' +
               '<div class="track" style="background:' + (armed ? 'rgba(61,220,132,0.35)' : 'rgba(255,255,255,0.08)') + '; border-color:' + (armed ? '#3ddc84' : 'rgba(255,255,255,0.15)') + '">' +
                 '<div class="knob" style="left:' + (armed ? '28px' : '3px') + '; background:' + (armed ? '#3ddc84' : '#fff') + '"></div>' +

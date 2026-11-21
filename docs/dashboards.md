@@ -211,8 +211,7 @@ On the generated **Control Panel** tab, whose YAML you do not edit, any field
 left blank follows Nimbus's own settings: the battery, SoC and solar sensors
 from the Solver settings, the grid meter from the Forecaster or Topology
 settings, and the arm switch and mode select from **Solver settings, step 1:
-Dispatch arm switch / Dispatch mode select**. With no arm switch linked the
-card says **NOT LINKED** rather than DISARMED, and hides its ON/OFF toggle.
+Dispatch arm switch / Dispatch mode select**.
 
 ```yaml
 type: custom:nimbus-dispatch-card-v4
