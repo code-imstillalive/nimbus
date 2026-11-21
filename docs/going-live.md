@@ -342,20 +342,37 @@ or import `https://github.com/code-imstillalive/nimbus/blob/main/blueprints/auto
 
 | Input | Give it |
 |---|---|
-| The car's planned power | `sensor.nimbus_solver_battery_N_kw` for the car (its `battery_name` attribute names it) |
+| The cars' planned power | `sensor.nimbus_solver_battery_N_kw` for the car (its `battery_name` attribute names it), or for every car that uses this charger |
+| Which car is plugged in | only for a charger shared by several cars: for each car, in the same order, a binary sensor that is on while that car is the one plugged in |
 | Arm switch | a new Toggle helper, for example *Nimbus EV charging armed* |
 | Start / Stop charging | your charger's own start and stop (a switch, a button, an OCPP or Tesla action) |
 | Set the charging current | your charger's current setting, using `{{ amps }}` (whole amps) or `{{ power_kw }}` |
 | Supply voltage, phases, minimum and maximum current | your supply and charger (230 V, 1 phase, 6 A and 32 A by default) |
 | Fallback actions | what the charger does when Nimbus is not in control: stop, or its own schedule |
-| Charger state helper | a new Text helper, so start and stop run only on a change |
+| Hold at the minimum before stopping | how long to keep charging at the minimum current when the plan drops below it (5 minutes by default) |
+| Charger state helper | a new Text helper, so start and stop run only on a change and the hold can be timed |
 
 Every minute it starts the charger when the plan charges the car, sets the
 current to the planned power (kept between your minimum and maximum), and stops
-it when the plan stops or plans less than your minimum current. Off, failed or
-stale: the fallback. Use **one controller per charger**: turn off the charger's
-own solar or price modes, and the car's own scheduled charging, while this is
-armed.
+it when the plan stops charging. When the plan drops below your minimum
+current while charging, it holds the minimum for the hold time and then stops,
+so a plan moving either side of the minimum does not start and stop the charger
+every cycle; a plan of no charge, or a discharge, stops it at once. Off, failed
+or stale: the fallback.
+
+Use **one automation per charger**, and turn off the charger's own solar or
+price modes, and the car's own scheduled charging, while it is armed. Two cars
+taking turns on one charger are one automation: give it both cars and both
+plugged-in sensors, and it follows the car that is plugged in. With no car
+plugged in the charger is stopped; if both read as plugged in, or the sensors
+and cars do not pair up, it runs the fallback rather than guess. Never give
+one charger two automations.
+
+Nimbus plans the car's charge up to its configured **Max charge** kW and its
+live charge limit (the SoC ceiling). A car that slows its own charging as it
+fills simply draws less than the current set; and a car that was asleep can
+take a little while to accept the first new current after it wakes, so the
+charger may show the old current briefly.
 
 ## Manual modes (optional)
 
