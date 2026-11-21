@@ -17,6 +17,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Dispatch arm switch help text** matches what the card does when it is blank (#2580).
 - Internal: tests 977 → 980.
 - Install shapes (#2394): #2575 touches installs with Battery Participants (an EV or a second battery), the dispatch blueprint's users among them; a tester's EV install prompted it; Mark Purcell's install has two cars as participants but drives them with its own automation; single-battery installs see only the new attribute.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 534ecc84** (`release/0.108.0`, installed untagged through Home Assistant's marketplace by commit and restarted at 12:24 AEST, 21 Nov; read through 12:26).
+  - 125 of the 129 Nimbus entities carrying a version read 0.108.0; the other four are the daily reports (0.106.1). No Nimbus entity unavailable; plan `optimal`; all 62 Solver numbers present.
+  - The test box has a Test EV participant: `home_battery_kw` and the two new sensors are published (`sensor.nimbus_solver_battery_0_kw` -40.0 "home", `sensor.nimbus_solver_battery_1_kw` 0.0 "Test EV"). The car was idle in the read, so home equalled the state; the car-charging case is covered by `test_the_home_battery_is_the_fleet_less_its_participants` and the regenerated `rich_site_native_with_ev` snapshot.
+  - Road test asked for by Mark Purcell's review: an automation from the current blueprint (actions writing only to text helpers; the test box has no inverter), armed with the test box's own helpers. Following the plan it took CHG at 40 kW from `home_battery_kw`; the manual mode select gave DIS, HOLD, SC and CHG in turn, back to the plan on Automatic; disarming ran the fallback.
+- Consumer check: no setting, entity id or name is moved or renamed. The plan sensor's state is unchanged; it gains the attribute `home_battery_kw`. Sites with Battery Participants gain `sensor.nimbus_solver_battery_N_kw`. A blueprint automation follows the home battery's share where it differed (sites with participants); single-battery sites dispatch exactly as before.
 
 ## [0.107.0] - 2026-11-21
 
