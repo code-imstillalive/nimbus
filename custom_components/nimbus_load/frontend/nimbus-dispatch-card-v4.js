@@ -108,6 +108,15 @@ class NimbusDispatchCardV4 extends HTMLElement {
     }
     this._socEntity = pick(this.config.battery_soc_entity, "solver_battery_soc_sensor");
     this._solarEntity = pick(this.config.solar_power_entity, "solver_solar_power_sensor");
+    // Household, 21 Nov 2026: the generated Control Panel tab's card has no
+    // YAML a household can edit, so the dispatch helpers and the grid meter
+    // come from Nimbus's own settings too (Solver settings, step 1).
+    this._armedEntity = pick(this.config.armed_entity, "solver_dispatch_arm_switch");
+    this._modeEntity = pick(this.config.mode_select_entity, "solver_dispatch_mode_select");
+    this._gridEntity = pick(
+      this.config.grid_power_entity,
+      attrs.switchboard_grid_meter_sensor ? "switchboard_grid_meter_sensor" : "grid_sensor"
+    );
   }
 
   // Clears the render throttle so the very next hass update (arriving once

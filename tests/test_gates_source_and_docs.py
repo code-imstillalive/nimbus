@@ -877,7 +877,10 @@ EXPECTED_KEY_COUNTS = {
     # (pricing_autodetect.LV_V2_OPTIONAL_PROFILE), as #1537 did. The factor
     # values themselves are never a field: they come from AEMO's tables.
     # nimbus #2136: 31 -> 32, the site postcode (#2133) it had left out.
-    "_SOLVER_WIZARD_SCHEMA_KEYS": 33,
+    # Household, 21 Nov 2026: 33 -> 35, the dispatch arm switch and mode
+    # select for the generated Control Panel card (#449: they are the
+    # household's own helpers with no fixed name, so nothing to discover).
+    "_SOLVER_WIZARD_SCHEMA_KEYS": 35,
 }
 
 
@@ -895,7 +898,8 @@ EXPECTED_SPLIT = {
     # 15 -> 16 (TD944, 30 Oct 2026): "on while away", a boolean defaulting
     # off, so a presence sensor reads as before.
     "_forecaster_schema": (0, 16),
-    "_solver_battery_schema": (1, 1),
+    # Household, 21 Nov 2026: 1 -> 3 optional, the same two helpers.
+    "_solver_battery_schema": (1, 3),
     # nimbus issue #1213: 6 -> 7 optional. The two Required price fields
     # are unchanged, which is the property this row exists to watch.
     # Household, 20 Oct 2026: 7 -> 11 optional, a MOVE, not an addition:

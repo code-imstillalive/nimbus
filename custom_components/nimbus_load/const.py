@@ -839,6 +839,12 @@ CONF_SOLVER_MAX_DISCHARGE_KW: Final = "solver_max_discharge_kw"
 # with that name clamped discharge to 1.93 kW instead of 24 kW, so it's a
 # per-install setting now.
 CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY: Final = "solver_max_discharge_live_entity"
+# The household's own dispatch helpers, for the generated Control Panel card
+# (household, 21 Nov 2026): the input_boolean that arms dispatch and the
+# input_select of dispatch modes. Optional; Nimbus never commands with them,
+# the card shows and flips them. Published on sensor.nimbus_solver_config.
+CONF_SOLVER_DISPATCH_ARM_SWITCH: Final = "solver_dispatch_arm_switch"
+CONF_SOLVER_DISPATCH_MODE_SELECT: Final = "solver_dispatch_mode_select"
 # ONE blended round-trip efficiency number (battery chemistry loss +
 # inverter AC-DC conversion loss combined) -- HAEO models these as two
 # separate numbers on two separate elements; Nimbus deliberately doesn't,
