@@ -2675,11 +2675,6 @@ def publish_plan(
             # are provably the same object, not two independent
             # computations that could theoretically diverge.
             "batteries": _diag_757_battery_forecast,
-            # nimbus #2573: the home battery's own planned power now (+
-            # discharge, - charge). The state stays the fleet total; a
-            # dispatcher driving the house inverter follows this one. On a
-            # site with no battery participant it equals the state.
-            "home_battery_kw": round(float(home_net[0]), 3) if len(home_net) else 0.0,
             "status": plan.status,
             # nimbus #1751: whether the plan is one-way (#238 / #1535), and
             # how many direction pairs are still two-way when it is not.
@@ -2690,6 +2685,11 @@ def publish_plan(
             # nimbus #1654: what the period-0 direction hysteresis did.
             "period0_hysteresis": getattr(plan, "period0_hysteresis", "off"),
             "period0_hysteresis_delta": getattr(plan, "period0_hysteresis_delta", None),
+            # nimbus #2573: the home battery's own planned power now (+
+            # discharge, - charge). The state stays the fleet total; a
+            # dispatcher driving the house inverter follows this one. On a
+            # site with no battery participant it equals the state.
+            "home_battery_kw": round(float(home_net[0]), 3) if len(home_net) else 0.0,
             # nimbus #1753: the last period each side's price comes from the
             # provider's own forecast; later periods are Nimbus's estimate.
             "import_price_provider_until": import_price_provider_until,
