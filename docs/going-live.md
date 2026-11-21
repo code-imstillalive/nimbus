@@ -328,6 +328,35 @@ entities:
     name: Holding the battery
 ```
 
+## Driving the car's charger (optional)
+
+With a car added as a Battery Participant, Nimbus plans its charging (departure
+hour, required charge, the car's live charge limit, trips in a calendar) and
+publishes it on the car's own sensor, `sensor.nimbus_solver_battery_N_kw`
+(negative = charge). The **Nimbus EV charger dispatch** blueprint makes the
+charger follow it:
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fcode-imstillalive%2Fnimbus%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fnimbus%2Fev_charger_dispatch.yaml)
+
+or import `https://github.com/code-imstillalive/nimbus/blob/main/blueprints/automation/nimbus/ev_charger_dispatch.yaml`.
+
+| Input | Give it |
+|---|---|
+| The car's planned power | `sensor.nimbus_solver_battery_N_kw` for the car (its `battery_name` attribute names it) |
+| Arm switch | a new Toggle helper, for example *Nimbus EV charging armed* |
+| Start / Stop charging | your charger's own start and stop (a switch, a button, an OCPP or Tesla action) |
+| Set the charging current | your charger's current setting, using `{{ amps }}` (whole amps) or `{{ power_kw }}` |
+| Supply voltage, phases, minimum and maximum current | your supply and charger (230 V, 1 phase, 6 A and 32 A by default) |
+| Fallback actions | what the charger does when Nimbus is not in control: stop, or its own schedule |
+| Charger state helper | a new Text helper, so start and stop run only on a change |
+
+Every minute it starts the charger when the plan charges the car, sets the
+current to the planned power (kept between your minimum and maximum), and stops
+it when the plan stops or plans less than your minimum current. Off, failed or
+stale: the fallback. Use **one controller per charger**: turn off the charger's
+own solar or price modes, and the car's own scheduled charging, while this is
+armed.
+
 ## Manual modes (optional)
 
 To take over by hand without disarming, create a **Dropdown** helper

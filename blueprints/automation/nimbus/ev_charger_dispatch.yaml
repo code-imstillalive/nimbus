@@ -1,0 +1,261 @@
+blueprint:
+  name: Nimbus EV charger dispatch
+  description: >-
+    Makes a car's charger follow Nimbus's plan for that car. Add the car as a
+    Battery Participant first: Nimbus then plans its charging (departure hour,
+    required charge, live charge limit, trip calendar) and publishes it on the
+    car's own sensor, sensor.nimbus_solver_battery_N_kw (negative = charge).
+    Every minute, and shortly after each new plan, this automation starts the
+    charger at the planned power (as amps for your supply), changes the
+    current as the plan moves, and stops it when the plan says not to charge.
+
+
+    Nimbus never commands your charger itself. This blueprint is the step that
+    does: you give it your charger's start, stop and set-current actions.
+
+
+    Safety, built in: nothing happens unless your arm switch is on; turning it
+    off runs your fallback actions; an unknown, failed or stale plan runs the
+    fallback instead of a charge command; the current is kept between your
+    charger's minimum and maximum; a plan below the minimum current stops the
+    charger rather than ask for less than it can do.
+    https://code-imstillalive.github.io/nimbus/going-live/
+  domain: automation
+  author: Nimbus
+  source_url: https://github.com/code-imstillalive/nimbus/blob/main/blueprints/automation/nimbus/ev_charger_dispatch.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    nimbus:
+      name: Nimbus
+      icon: mdi:cloud-outline
+      input:
+        car_power_sensor:
+          name: The car's planned power
+          description: >-
+            The car's own planned-power sensor, sensor.nimbus_solver_battery_N_kw
+            (N = the car's slot; its battery_name attribute names it).
+            Negative = charge.
+          selector:
+            entity:
+              filter:
+                - integration: nimbus_load
+                  domain: sensor
+        plan_sensor:
+          name: Nimbus plan sensor
+          description: >-
+            Nimbus's battery plan, normally
+            sensor.nimbus_solver_battery_forecast. Read for its status and
+            age only: a failed or stale plan is not followed.
+          default: sensor.nimbus_solver_battery_forecast
+          selector:
+            entity:
+              filter:
+                - integration: nimbus_load
+                  domain: sensor
+    safety:
+      name: Arming and safety
+      icon: mdi:shield-check
+      input:
+        arm_switch:
+          name: Arm switch
+          description: >-
+            An input_boolean you create (for example "Nimbus EV charging
+            armed"). Off: the automation commands nothing except your fallback,
+            once.
+          selector:
+            entity:
+              filter:
+                - domain: input_boolean
+        fallback_actions:
+          name: Fallback actions
+          description: >-
+            What the charger should do when Nimbus is not in control: on
+            disarm, and whenever the plan is unknown, failed or stale. For
+            example stop it, or hand it back to the charger's own schedule.
+          selector:
+            action: {}
+        stale_after_minutes:
+          name: Stale plan after
+          default: 10
+          selector:
+            number:
+              min: 2
+              max: 60
+              unit_of_measurement: min
+              mode: box
+    charger:
+      name: Your charger
+      icon: mdi:ev-station
+      input:
+        start_actions:
+          name: Start charging
+          description: Runs when the plan starts a charge.
+          selector:
+            action: {}
+        stop_actions:
+          name: Stop charging
+          description: Runs when the plan stops charging.
+          selector:
+            action: {}
+        set_current_actions:
+          name: Set the charging current
+          description: >-
+            Runs every cycle while charging. Use {{ amps }} (whole amps,
+            already between your minimum and maximum) or {{ power_kw }}.
+          selector:
+            action: {}
+        volts:
+          name: Supply voltage
+          default: 230
+          selector:
+            number:
+              min: 100
+              max: 260
+              unit_of_measurement: V
+              mode: box
+        phases:
+          name: Phases
+          default: 1
+          selector:
+            select:
+              options:
+                - "1"
+                - "3"
+        min_amps:
+          name: Minimum current
+          default: 6
+          selector:
+            number:
+              min: 1
+              max: 63
+              unit_of_measurement: A
+              mode: box
+        max_amps:
+          name: Maximum current
+          default: 32
+          selector:
+            number:
+              min: 1
+              max: 63
+              unit_of_measurement: A
+              mode: box
+    behaviour:
+      name: Behaviour
+      icon: mdi:tune
+      collapsed: true
+      input:
+        state_helper:
+          name: Charger state helper (recommended)
+          description: >-
+            An input_text you create. The automation records CHARGING, STOPPED
+            or FALLBACK here, so start and stop run only when that changes.
+            Without it they run every cycle.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: input_text
+
+mode: queued
+max: 3
+max_exceeded: warning
+
+triggers:
+  - trigger: state
+    entity_id: !input car_power_sensor
+    for: "00:00:10"
+    id: plan
+  - trigger: time_pattern
+    minutes: /1
+    id: tick
+  - trigger: homeassistant
+    event: start
+    id: start
+  - trigger: state
+    entity_id: !input arm_switch
+    to: "on"
+    id: armed
+  - trigger: state
+    entity_id: !input arm_switch
+    to: "off"
+    id: disarmed
+
+variables:
+  car_entity: !input car_power_sensor
+  plan_entity: !input plan_sensor
+  state_entity: !input state_helper
+  stale_min: !input stale_after_minutes
+  v: !input volts
+  ph: !input phases
+  min_a: !input min_amps
+  max_a: !input max_amps
+  car_raw: "{{ states(car_entity) }}"
+  plan_ok: >-
+    {% set gen = state_attr(plan_entity, 'generated_at') %}
+    {% set gen_t = as_datetime(gen) if gen else none %}
+    {% set age_s = (now() - gen_t).total_seconds() if gen_t else 999999 %}
+    {{ is_number(car_raw)
+       and state_attr(plan_entity, 'status') == 'optimal'
+       and age_s <= (stale_min | float(10)) * 60 }}
+  # The plan's charge for the car now, kW (positive here).
+  charge_kw: "{{ [0, -(car_raw | float(0))] | max if plan_ok else 0 }}"
+  watts_per_amp: "{{ (v | float(230)) * (ph | int(1)) }}"
+  want_amps: "{{ ((charge_kw | float(0)) * 1000 / (watts_per_amp | float(230))) | round(0) | int }}"
+  amps: "{{ [[want_amps | int, min_a | int(6)] | max, max_a | int(32)] | min }}"
+  power_kw: "{{ ((amps | int) * (watts_per_amp | float(230)) / 1000) | round(2) }}"
+  want: >-
+    {%- if not plan_ok -%}FALLBACK
+    {%- elif (want_amps | int) >= (min_a | int(6)) -%}CHARGING
+    {%- else -%}STOPPED{%- endif -%}
+  current: "{{ states(state_entity) if state_entity != '' else 'unknown' }}"
+  changed: "{{ state_entity == '' or want != current or trigger.id == 'start' }}"
+
+conditions:
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: disarmed
+      - condition: state
+        entity_id: !input arm_switch
+        state: "on"
+
+actions:
+  - choose:
+      - alias: Disarmed, or the plan cannot be followed
+        conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'disarmed' or want == 'FALLBACK' }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ trigger.id == 'disarmed' or changed }}"
+            then: !input fallback_actions
+      - alias: Charge
+        conditions:
+          - condition: template
+            value_template: "{{ want == 'CHARGING' }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ changed }}"
+            then: !input start_actions
+          - sequence: !input set_current_actions
+    default:
+      - alias: Stop
+        if:
+          - condition: template
+            value_template: "{{ changed }}"
+        then: !input stop_actions
+  - alias: Record the charger state
+    if:
+      - condition: template
+        value_template: >-
+          {{ state_entity != ''
+             and (want != current or trigger.id == 'disarmed') }}
+    then:
+      - action: input_text.set_value
+        target:
+          entity_id: "{{ state_entity }}"
+        data:
+          value: "{{ 'FALLBACK' if trigger.id == 'disarmed' else want }}"
