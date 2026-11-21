@@ -94,6 +94,8 @@
         "data": {
           "solver_battery_soc_sensor": "🔴 Battery State of Charge sensor (%) -- the live sensor your system already reports, e.g. from your inverter's own integration",
           "solver_max_discharge_live_entity": "Live max-discharge setpoint entity (optional, advanced)",
+          "solver_dispatch_arm_switch": "Dispatch arm switch (optional)",
+          "solver_dispatch_mode_select": "Dispatch mode select (optional)",
           "live_solver_battery_capacity_kwh": "Battery capacity (kWh)",
           "live_solver_max_charge_kw": "Max charge power (kW)",
           "live_solver_max_discharge_kw": "Max discharge power (kW)"
@@ -101,6 +103,8 @@
         "data_description": {
           "solver_battery_soc_sensor": "The Solver reads this at the start of every solve to know your real current State of Charge -- must be a genuine measurement (0-100%), not a target/setpoint entity. Everything else about your battery (capacity, power limits, efficiency) is configured separately as live number.* entities so you can tune them without re-running this wizard.",
           "solver_max_discharge_live_entity": "Optional -- leave blank unless your own inverter/logger exposes a real, live number.* entity whose 'max' attribute tracks your hardware's actual current discharge ceiling (not every system has this). When set, the Solver prefers that live value over your plain Max Discharge Power number above, as an extra safety margin against a real hardware limit changing without you updating the number entity. Leaving this blank is the correct choice for almost every install.",
+          "solver_dispatch_arm_switch": "The input_boolean helper that arms your own battery dispatch automation, if you have one. The Control Panel card shows whether it is on and its ON/OFF toggle flips it. Nimbus itself never commands your battery with it. Blank: the card says the switch is not linked.",
+          "solver_dispatch_mode_select": "The input_select helper of your dispatch modes (for example Automatic, Charge, Discharge), if you have one. The Control Panel card's mode buttons set it. Blank: the buttons do nothing.",
           "live_solver_battery_capacity_kwh": "Usable capacity of the whole system. Blank keeps the current value.",
           "live_solver_max_charge_kw": "The system's AC charge limit, from the inverter. Blank keeps the current value.",
           "live_solver_max_discharge_kw": "The system's AC discharge limit, from the inverter. Blank keeps the current value."

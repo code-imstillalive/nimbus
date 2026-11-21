@@ -85,6 +85,8 @@ from ..const import (
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
+    CONF_SOLVER_DISPATCH_ARM_SWITCH,
+    CONF_SOLVER_DISPATCH_MODE_SELECT,
     CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
     CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
@@ -432,6 +434,21 @@ def _solver_battery_schema(defaults: dict[str, Any]) -> vol.Schema:
                     )
                 },
             ): _entity(domain="number"),
+            # Household, 21 Nov 2026: the dispatch helpers the generated
+            # Control Panel card shows and flips (it cannot be edited).
+            # Optional and blank by default, like the field above.
+            vol.Optional(
+                CONF_SOLVER_DISPATCH_ARM_SWITCH,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_DISPATCH_ARM_SWITCH)
+                },
+            ): _entity(domain="input_boolean"),
+            vol.Optional(
+                CONF_SOLVER_DISPATCH_MODE_SELECT,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_DISPATCH_MODE_SELECT)
+                },
+            ): _entity(domain="input_select"),
         }
     )
 
@@ -1312,6 +1329,8 @@ _FORECASTER_SCHEMA_KEYS = (
 _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
+    CONF_SOLVER_DISPATCH_ARM_SWITCH,
+    CONF_SOLVER_DISPATCH_MODE_SELECT,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
     CONF_SOLVER_IMPORT_PRICE_SENSOR_3,

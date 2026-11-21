@@ -378,6 +378,8 @@ Pick **Solver settings**. It is a three-screen wizard.
 | Max charge power (kW) | The system's AC charge limit, from the inverter. |
 | Max discharge power (kW) | The system's AC discharge limit, from the inverter. |
 | Live max-discharge setpoint entity | **Leave blank.** Correct for almost every install. |
+| Dispatch arm switch | The `input_boolean` that arms your own dispatch automation (for example the going-live guide's `input_boolean.nimbus_dispatch_armed`). The Control Panel tab's card shows ARMED or DISARMED from it, and its ON/OFF toggle flips it. Blank: the card says **NOT LINKED**. |
+| Dispatch mode select | The `input_select` of your dispatch modes, if you have one. The Control Panel card's mode buttons set it. Blank: the buttons do nothing. |
 
 The three numbers are written to the same live `number.*` entities the Solver
 tab shows, so you can change them there later without re-running the wizard. A
