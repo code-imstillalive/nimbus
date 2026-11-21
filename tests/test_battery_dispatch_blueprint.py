@@ -372,6 +372,26 @@ def test_disarming_runs_the_fallback_whatever_the_plan_says():
 SOLAR = "sensor.nimbus_solver_current_dispatch_solar_charge"
 
 
+def test_the_house_inverter_follows_the_home_battery_not_the_fleet():
+    # #2573: a car participant charging 7 kW while the home battery holds.
+    # The plan's state is the fleet (-7); home_battery_kw is the home's own (0).
+    _, ctx = run("plan", plan="-7.0", attrs={"home_battery_kw": 0.0})
+    assert ctx["plan_kw"] == 0.0
+    assert ctx["want"] != "CHG"
+    # The home battery's own discharge is followed even when the fleet nets
+    # out at zero.
+    _, ctx = run("plan", plan="0.0", attrs={"home_battery_kw": 3.0})
+    assert ctx["want"] == "DIS"
+    # A plan from before #2573 (no home_battery_kw): the state, as before.
+    _, ctx = run("plan", plan="-4.0")
+    assert ctx["want"] == "CHG"
+    # A refused plan stays refused whatever home_battery_kw says.
+    ran, _ = run(
+        "plan", plan="-4.0", status="infeasible", attrs={"home_battery_kw": 2.0}
+    )
+    assert ran == FALLBACK
+
+
 def test_a_manual_mode_overrides_the_plan_until_automatic():
     # Household, 21 Nov 2026: the Control Panel card's manual buttons set an
     # input_select; the blueprint obeys it. "Automatic" (or no select) is the

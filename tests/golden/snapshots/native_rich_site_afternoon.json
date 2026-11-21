@@ -16554,6 +16554,7 @@
       ],
       "friendly_name": "Nimbus Solver Battery Forecast",
       "generated_at": "2026-09-20T15:40:00+10:00",
+      "home_battery_kw": -2.454,
       "horizon_hours": 96.3,
       "import_price_provider_until": "2026-09-21T15:30:00+10:00",
       "import_price_risk_aversion": 0.0,

@@ -76,6 +76,7 @@ something looks wrong.
 | Entity / attribute | Meaning |
 |---|---|
 | `sensor.nimbus_solver_battery_forecast` (state) | Planned battery power **now**, in kW, AC side. **Positive = discharge, negative = charge**, 0 = idle. |
+| … attribute `home_battery_kw` | The **home battery's own** planned power now, same sign. With a car or second battery added as a Battery Participant, the state above is every battery together and this is the house inverter's share; with no participant the two are equal. The blueprint follows this one. |
 | … attribute `status` | `optimal` when the plan solved properly. Anything else: do not follow it. |
 | … attribute `generated_at` | When this plan was made. A plan that stops updating must not be followed. |
 | … attribute `absorb_surplus` (`absorb_surplus_reason`) | True when there is spare solar the plan did not count on, and exporting it pays less than your *Don't sell below* price: put the inverter in self-consumption so the spare goes into the battery. See [Configuration reference](configuration-reference.md). |
@@ -89,6 +90,20 @@ The sign convention is fixed and declared on the plan itself
 (`battery_kw_sign_convention: positive_discharge_negative_charge`). Your
 inverter's own sign may differ: the blueprint always hands your actions a
 **positive** power, and you choose charge or discharge by which action runs.
+
+## With an EV or a second battery
+
+Add a car or a second battery as a **Battery Participant** (setup guide,
+section 14) and Nimbus plans all of them together. The blueprint still drives
+only your **house inverter**, with the home battery's own share of the plan
+(`home_battery_kw`); a car's planned charging never reaches it. The hold and
+solar-charge signals are worked out for the home battery alone too.
+
+Each battery also gets its own planned-power sensor,
+`sensor.nimbus_solver_battery_N_kw` (N = 0 for the home battery, then each
+participant in order, each with a `battery_name` attribute), next to its SoC
+sensor `sensor.nimbus_solver_battery_N_soc_pct`. Positive is discharge,
+negative is charge. A charger automation can follow its car's sensor.
 
 ## Step 1: watch it in shadow (at least a few days)
 
