@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.108.0] - 2026-11-21
+
+**With a car or second battery as a participant, the house inverter follows the home battery's own plan.**
+
+- **The dispatch blueprint drives the house inverter with the home battery's own share** (#2575, for #2573, reviewed by Mark Purcell). With an EV or second battery added as a Battery Participant, the plan sensor's state is every battery together, and the blueprint sent that to the house inverter: a car charging 7 kW from the grid made the house battery charge 7 kW too. The plan now publishes `home_battery_kw` (the home battery's own planned power now, same sign; equal to the state with no participant) and the blueprint follows it. The hold, solar-charge and spare-solar signals are worked out from the home battery alone. The state itself is unchanged.
+- **Each battery's planned power on its own sensor**: `sensor.nimbus_solver_battery_N_kw` (positive = discharge), beside `sensor.nimbus_solver_battery_N_soc_pct`, on sites with participants. A charger automation can follow its car's.
+- **Dispatch arm switch help text** matches what the card does when it is blank (#2580).
+- Internal: tests 977 → 980.
+- Install shapes (#2394): #2575 touches installs with Battery Participants (an EV or a second battery), the dispatch blueprint's users among them; a tester's EV install prompted it; Mark Purcell's install has two cars as participants but drives them with its own automation; single-battery installs see only the new attribute.
+
 ## [0.107.0] - 2026-11-21
 
 **The Control Panel card shows whether dispatch is really armed again, and its manual mode buttons work.**
@@ -16,6 +26,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The battery dispatch blueprint obeys a manual mode select** (#2577). With the optional **Manual mode select** set (Automatic, Charge, Discharge, Preserve, Self-Consume), anything but Automatic overrides the plan until Automatic is chosen again: Charge and Discharge at the maximum battery power (a charge never above the allowed charge), Preserve your Hold actions, Self-Consume your Self-Consume actions. Never delayed by the minimum dwell; disarming still runs the fallback. See the going-live guide.
 - Internal: tests 974 → 977.
 - Install shapes (#2394): #2576 touches every install with the generated Control Panel tab; seen on the reference household (Control Panel read DISARMED while armed) and a tester's blueprint install. #2577 touches installs running the dispatch blueprint; seen on a tester's install.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 39e7089e** (`release/0.107.0`, installed untagged through Home Assistant's marketplace by commit and restarted at 10:50 AEST, 21 Nov; read through 10:53).
+  - 123 of the 127 Nimbus entities carrying a version read 0.107.0; the other four are the daily reports (0.106.1). No Nimbus entity unavailable; plan `optimal` (10:52, and again after the settings change, 10:53).
+  - Solver settings step 1 shows the two new fields; set to the test box's own `input_boolean.nimbus_test_dispatch_armed` and `input_select.nimbus_test_dispatch_mode` through the options flow, both appear on `sensor.nimbus_solver_config`, and every other Solver setting read back unchanged.
+  - The served `nimbus-dispatch-card-v4.js` carries the adoption of the two settings. The card on screen was not opened here (the test box's browser session needs a sign-in); the adoption is covered by `test_blank_arm_mode_and_grid_fields_follow_nimbus_settings`, and the household checks it on screen after install.
+  - #2577: the test box runs no dispatch automation, so the manual mode was not driven live; covered by `test_a_manual_mode_overrides_the_plan_until_automatic`.
+- Consumer check: no setting, entity id or name is moved or renamed. Two optional settings are added, blank by default; the card and the blueprint behave exactly as before until they are set.
 
 ## [0.106.1] - 2026-11-20
 
