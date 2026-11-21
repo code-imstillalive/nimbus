@@ -420,9 +420,10 @@ What happens when something goes wrong, with the blueprint as shipped:
 |---|---|
 | you turn the arm switch **off** | runs your fallback once, then does nothing until you arm it again |
 | Nimbus stops publishing a plan (it is disabled, removed, or stuck) | sees the plan go stale after 10 minutes (*Stale plan after*) and runs the fallback |
-| the plan is `unknown`, `unavailable` or not a number | runs the fallback, never a power command |
+| you save a Nimbus setting (Nimbus reloads, and its plan is unavailable for a few seconds) | keeps the last command for up to 2 minutes (*Ride through a Nimbus reload*); if the plan is still missing after that, runs the fallback |
+| the plan is `unknown`, `unavailable` or not a number for longer than that | runs the fallback, never a power command |
 | the plan did not solve properly (`status` is not `optimal`) | runs the fallback |
-| Home Assistant restarts | runs again at start: re-sends the mode for a valid plan, or the fallback for one that isn't valid yet |
+| Home Assistant restarts | runs again at start: re-sends the mode for a valid plan; while the plan is still loading, keeps the inverter as it is for up to 2 minutes, then runs the fallback if it still isn't valid |
 | a mode command is lost, or the inverter reverts on its own | re-sends the mode every 10 minutes (*Re-send the mode command*) |
 | the plan asks for more power than your inverter can give | caps the power at your *Maximum battery power* |
 | a car, oven or kettle switches on while the battery grid-charges | caps the charge at `sensor.nimbus_battery_allowed_charge_kw`, so grid import stays under your **Site Import Limit**; the site import guard trims a manual charge too |
