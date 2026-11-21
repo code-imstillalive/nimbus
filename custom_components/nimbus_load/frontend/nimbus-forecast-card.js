@@ -86,6 +86,36 @@ class NimbusForecastCard extends HTMLElement {
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
   }
 
+  // Household, 21 Nov 2026: with a car or second battery as a Battery
+  // Participant the plan's battery_kw and soc_pct are every battery together.
+  // Chips above the charts (House / each participant / All) pick which the
+  // battery and SoC lines show; House by default, shared with the Control
+  // Panel's chips. No participant: no chips, the plan's own rows.
+  _batteryViewKey() {
+    if (this._bview === undefined) {
+      let v = null;
+      try { v = window.localStorage.getItem("nimbus_battery_view"); } catch (e) { v = null; }
+      this._bview = v || "home";
+    }
+    return this._bview;
+  }
+
+  _batteryNames(f) {
+    const b = f && f.solver && f.solver.attributes && f.solver.attributes.batteries;
+    return Array.isArray(b) && b.length > 1 ? b.map((x) => x && x.name).filter(Boolean) : [];
+  }
+
+  // apexcharts-card data_generator prelude: the rows for the chosen battery.
+  _rowsCode() {
+    const v = JSON.stringify(this._batteryViewKey());
+    return (
+      "const v=" + v + ";const bs=entity.attributes.batteries||[];" +
+      "const b=(bs.length>1&&v!=='all')?(bs.find(x=>x&&x.name===v)||bs.find(x=>x&&x.name==='home')):null;" +
+      "const rows=entity.attributes.forecast.map((p,i)=>{const x=b&&b.forecast&&b.forecast[i];" +
+      "return x?Object.assign({},p,{battery_kw:(parseFloat(x.discharge_kw)||0)-(parseFloat(x.charge_kw)||0),soc_pct:x.soc_pct}):p;});"
+    );
+  }
+
   getCardSize() {
     return this._which === "both" ? 20 : 12;
   }
@@ -120,6 +150,8 @@ class NimbusForecastCard extends HTMLElement {
       found.house && found.house.entity_id,
       found.weather.map((s) => s.entity_id),
       !!found.solver,
+      this._batteryNames(found),
+      this._batteryNames(found).length ? this._batteryViewKey() : "",
     ]);
     if (sig !== this._signature) {
       this._signature = sig;
@@ -327,7 +359,7 @@ class NimbusForecastCard extends HTMLElement {
     }
     if (f.solver) {
       const g = (field, neg) =>
-        "return entity.attributes.forecast.map(p => [new Date(p.time).getTime(), " +
+        this._rowsCode() + "return rows.map(p => [new Date(p.time).getTime(), " +
         (neg ? "-" : "") + "p." + field + "]);";
       // Each plan row is the START of its period, held until the next row.
       // Drawn as a smooth/straight line, the block's last 30-minute period
@@ -361,7 +393,7 @@ class NimbusForecastCard extends HTMLElement {
           // 2026: "purple should be sitting same period over the sell event").
           entity: f.solver.entity_id, name: "Solver SoC % (proposed)", extend_to: false,
           data_generator:
-            "return entity.attributes.forecast.map(p => [new Date(p.time).getTime() + (p.hours || 0) * 3600000, p.soc_pct]);", yaxis_id: "soc", color: "#C2185B", stroke_width: 4, stroke_dash: 8,
+            this._rowsCode() + "return rows.map(p => [new Date(p.time).getTime() + (p.hours || 0) * 3600000, p.soc_pct]);", yaxis_id: "soc", color: "#C2185B", stroke_width: 4, stroke_dash: 8,
           // The plan sensor's own unit is kW; this series is a percentage.
           unit: "%", show: { in_header: true, in_legend: true },
         }
@@ -434,9 +466,32 @@ class NimbusForecastCard extends HTMLElement {
     const root = this.shadowRoot;
     root.innerHTML =
       "<style>:host{display:block;width:100%}.wrap{display:flex;flex-direction:column;gap:12px;width:100%}.wrap>*{display:block;width:100%}" +
-      ".empty{padding:16px;color:var(--secondary-text-color);font-size:13px}</style><div class=\"wrap\"></div>";
+      ".empty{padding:16px;color:var(--secondary-text-color);font-size:13px}" +
+      ".bview-row{display:flex;gap:6px;flex-wrap:wrap}" +
+      ".bview-chip{background:rgba(255,255,255,0.03);border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;" +
+      "color:var(--primary-text-color);font-size:12px;font-weight:600;padding:5px 12px;cursor:pointer}" +
+      ".bview-chip.active{background:rgba(79,163,255,0.18);border-color:#4fa3ff}</style><div class=\"wrap\"></div>";
     const wrap = root.querySelector(".wrap");
     this._charts = [];
+    const names = this._batteryNames(f);
+    if (names.length) {
+      const view = names.concat(["all"]).includes(this._batteryViewKey()) ? this._batteryViewKey() : "home";
+      const row = document.createElement("div");
+      row.className = "bview-row";
+      for (const n of names.concat(["all"])) {
+        const btn = document.createElement("button");
+        btn.className = "bview-chip" + (n === view ? " active" : "");
+        btn.textContent = n === "home" ? "House" : n === "all" ? "All" : n;
+        btn.addEventListener("click", () => {
+          this._bview = n;
+          try { window.localStorage.setItem("nimbus_battery_view", n); } catch (e) { /* per-viewer */ }
+          this._signature = null;
+          if (this._hass) this.hass = this._hass;
+        });
+        row.appendChild(btn);
+      }
+      wrap.appendChild(row);
+    }
     const configs = [];
     if (this._which !== "loads" && (f.signals.length || f.solver || f.weather.length)) {
       configs.push(this._signalsConfig(f));
