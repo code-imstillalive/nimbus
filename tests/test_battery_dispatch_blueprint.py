@@ -370,3 +370,54 @@ def test_disarming_runs_the_fallback_whatever_the_plan_says():
 
 
 SOLAR = "sensor.nimbus_solver_current_dispatch_solar_charge"
+
+
+def test_a_manual_mode_overrides_the_plan_until_automatic():
+    # Household, 21 Nov 2026: the Control Panel card's manual buttons set an
+    # input_select; the blueprint obeys it. "Automatic" (or no select) is the
+    # plan.
+    sel = "input_select.dispatch_mode"
+    for mode, want in (
+        ("Charge", "CHG"),
+        ("Discharge", "DIS"),
+        ("Preserve", "HOLD"),
+        ("Self-Consume", "SC"),
+    ):
+        _, ctx = run("tick", plan="2.0", mode_select=sel, extra={sel: mode})
+        assert ctx["want"] == want, mode
+    # A manual charge or discharge runs at the maximum battery power...
+    _, ctx = run("tick", plan="0.3", mode_select=sel, extra={sel: "Discharge"})
+    assert ctx["power_kw"] == 5.0
+    # ...a manual charge never above the live allowance...
+    _, ctx = run(
+        "tick",
+        plan="0.0",
+        mode_select=sel,
+        allowed_charge_sensor="sensor.allowed",
+        extra={sel: "Charge", "sensor.allowed": "2.5"},
+    )
+    assert ctx["power_kw"] == 2.5
+    # ...is never held back by the dwell, and works on a stale plan.
+    _, ctx = run(
+        "tick",
+        plan="2.0",
+        helper="DIS",
+        helper_age_s=10,
+        mode_select=sel,
+        extra={sel: "Charge"},
+    )
+    assert ctx["target_mode"] == "CHG"
+    _, ctx = run(
+        "tick", plan="2.0", plan_age_s=3600, mode_select=sel, extra={sel: "Charge"}
+    )
+    assert ctx["want"] == "CHG"
+    # Automatic, or no select: the plan, as before.
+    _, ctx = run("tick", plan="2.0", mode_select=sel, extra={sel: "Automatic"})
+    assert ctx["want"] == "DIS"
+    _, ctx = run("tick", plan="2.0")
+    assert ctx["want"] == "DIS"
+    # Disarming still runs the fallback whatever the select says.
+    ran, _ = run(
+        "disarmed", plan="2.0", armed=False, mode_select=sel, extra={sel: "Charge"}
+    )
+    assert ran == FALLBACK
