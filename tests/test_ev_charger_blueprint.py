@@ -95,7 +95,7 @@ def test_the_charger_follows_the_cars_plan_and_stops_safely():
     assert ctx["amps"] == 32
     # Below the minimum current: never ask for less than it can do.
     ran, ctx = run("tick", car="-1.0")
-    assert ctx["want"] == "STOPPED" and ran[0] == "stop_actions"
+    assert ctx["want"] == "STOPPED" and ran == []
     # A planned discharge (V2G) is not a charge: stop.
     _, ctx = run("tick", car="2.0")
     assert ctx["want"] == "STOPPED"
