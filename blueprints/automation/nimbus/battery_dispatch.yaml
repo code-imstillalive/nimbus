@@ -233,6 +233,22 @@ blueprint:
               step: 0.5
               unit_of_measurement: kW
               mode: box
+        mode_select:
+          name: Manual mode select (optional)
+          description: >-
+            An input_select with the options Automatic, Charge, Discharge,
+            Preserve and Self-Consume (the Control Panel card's AUTO, CH, DIS,
+            PRE and SC buttons set it). Anything but Automatic overrides the
+            plan until Automatic is chosen again: Charge and Discharge at the
+            maximum battery power (a charge never above the allowed charge),
+            Preserve holds the battery, Self-Consume hands it to the inverter.
+            The arm switch still gates everything. Leave empty to always
+            follow the plan.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: input_select
         use_absorb:
           name: Soak up spare solar
           description: >-
@@ -321,13 +337,24 @@ variables:
   plan_kw: >-
     {% set h = state_attr(plan_entity, 'home_battery_kw') %}
     {{ ((h if is_number(h) else plan_raw) | float(0)) if plan_ok else 0 }}
+  manual_entity: !input mode_select
+  # Household, 21 Nov 2026: a manual mode from the select, or '' to follow
+  # the plan.
+  manual: >-
+    {% set m = states(manual_entity) if manual_entity else '' %}
+    {%- if m == 'Charge' -%}CHG{%- elif m == 'Discharge' -%}DIS
+    {%- elif m == 'Preserve' -%}HOLD{%- elif m == 'Self-Consume' -%}SC
+    {%- endif -%}
   allowed_entity: !input allowed_charge_sensor
   allowed_raw: "{{ states(allowed_entity) if allowed_entity else 'unavailable' }}"
-  plan_power_kw: "{{ [plan_kw | abs, max_kw | float(0)] | min }}"
+  plan_power_kw: >-
+    {{ max_kw | float(0) if manual in ['CHG', 'DIS']
+       else [plan_kw | abs, max_kw | float(0)] | min }}
   # nimbus #2257: a charge is never above the live allowance.
   power_kw: >-
     {% set p = plan_power_kw | float(0) %}
-    {% if plan_kw < 0 and is_number(allowed_raw) %}
+    {% if (manual == 'CHG' or (manual == '' and plan_kw < 0))
+          and is_number(allowed_raw) %}
       {% set p = [p, allowed_raw | float(0)] | min %}
     {% endif %}
     {{ p | round(2) }}
@@ -339,7 +366,9 @@ variables:
     {{ solar_charge_entity != ''
        and states(solar_charge_entity) in ['True', 'true', 'on'] }}
   want: >-
-    {%- if not plan_ok -%}FALLBACK
+    {%- if manual == 'HOLD' and hold_has_actions | length == 0 -%}SC
+    {%- elif manual -%}{{ manual }}
+    {%- elif not plan_ok -%}FALLBACK
     {%- elif absorb -%}SC
     {%- elif plan_kw > dead_kw | float(0.05) -%}DIS
     {%- elif plan_kw < -(dead_kw | float(0.05)) and solar_charge -%}SC
@@ -354,7 +383,7 @@ variables:
     {% set spike = state_attr(plan_entity, 'price_spike_active') == true %}
     {% set reversal = current in ['CHG', 'DIS'] and want in ['CHG', 'DIS']
        and current != want and (plan_kw | abs) >= reversal_min_kw | float(5) %}
-    {{ spike or reversal or want == 'FALLBACK' }}
+    {{ spike or reversal or want == 'FALLBACK' or manual != '' }}
   may_switch: >-
     {{ want == current or current not in ['CHG', 'DIS', 'SC', 'HOLD']
        or mode_entity == '' or (dwell_min | float(0)) == 0

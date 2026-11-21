@@ -328,6 +328,28 @@ entities:
     name: Holding the battery
 ```
 
+## Manual modes (optional)
+
+To take over by hand without disarming, create a **Dropdown** helper
+(Settings → Devices & services → Helpers → Create helper → Dropdown) named
+*Nimbus dispatch manual mode*, with exactly these options: `Automatic`,
+`Charge`, `Discharge`, `Preserve`, `Self-Consume`. Set it on the blueprint as
+**Manual mode select**, and in Nimbus's settings (Solver step 1) as
+**Dispatch mode select**, so the Control Panel card's AUTO, CH, DIS, PRE and SC
+buttons set it.
+
+| Option | The automation |
+|---|---|
+| Automatic | follows the plan, as without the select |
+| Charge | forced charge at your *Maximum battery power*, never above the allowed charge |
+| Discharge | forced discharge at your *Maximum battery power* |
+| Preserve | your Hold actions (Self-Consume if you gave none) |
+| Self-Consume | your Self-Consume actions |
+
+A manual mode holds until you choose Automatic again, takes effect within a
+minute, and is never delayed by the minimum dwell. The arm switch still gates
+everything: disarmed, nothing runs but the fallback.
+
 ## What the arm switch does, and why it is separate
 
 The arm switch is the **only** thing that lets the plan move your battery.
