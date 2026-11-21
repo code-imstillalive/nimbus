@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.107.0] - 2026-11-21
+
+**The Control Panel card shows whether dispatch is really armed again, and its manual mode buttons work.**
+
+- **The Control Panel card links your dispatch arm switch and mode select from Nimbus's settings** (#2576). Since the generated Control Panel tab arrived (3 Nov) its card carried no arm switch or mode select, and it cannot be edited, so it read DISARMED / OFF and "Dispatch is off" on an install whose dispatch was armed and running, and its toggle and mode buttons did nothing. Two optional settings on Solver settings step 1, **Dispatch arm switch** and **Dispatch mode select**, link them; the card also takes the grid meter from Nimbus's settings. The card looks and works exactly as it did before 3 Nov once they are picked.
+- **The battery dispatch blueprint obeys a manual mode select** (#2577). With the optional **Manual mode select** set (Automatic, Charge, Discharge, Preserve, Self-Consume), anything but Automatic overrides the plan until Automatic is chosen again: Charge and Discharge at the maximum battery power (a charge never above the allowed charge), Preserve your Hold actions, Self-Consume your Self-Consume actions. Never delayed by the minimum dwell; disarming still runs the fallback. See the going-live guide.
+- Internal: tests 974 → 977.
+- Install shapes (#2394): #2576 touches every install with the generated Control Panel tab; seen on the reference household (Control Panel read DISARMED while armed) and a tester's blueprint install. #2577 touches installs running the dispatch blueprint; seen on a tester's install.
+
 ## [0.106.1] - 2026-11-20
 
 **A plan kept by the 10-second stall rule is no longer logged as a slow-solve alarm.**
@@ -15,6 +24,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The stall rule's stop is logged as what it is** (#2567, for #2566, reported by Mark Purcell). When 0.105.2's rule stops the main plan within 0.02% of the best possible, HiGHS reports the solve as "Interrupted by user". The slow-call diagnostic did not know that status, so each such stop logged a WARNING tied to the old #773 investigation and saved the model to `nimbus_diagnostics`, although the plan was kept and correct (seen on Mark Purcell's install at 09:04, 20 Nov: 15.8 s, gap 0.0). Now such a stop is logged at DEBUG as `Stall accepted`, with no file written. A solve that is slow past half its time limit, or stopped outside the rule's gap, still warns and saves the model as before.
 - Internal: tests 973 → 974.
 - Install shapes (#2394): #2567 touches any install whose main plan reaches the 10 s stall; seen on Mark Purcell's install; not seen on the reference household or the test box this release.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at cbbd73af** (`release/0.106.1`, installed untagged through Home Assistant's marketplace and restarted at 09:31 AEST, 20 Nov; read through 09:33).
+  - 123 of the 127 Nimbus entities carrying a version read 0.106.1; the other four are the daily reports (0.106.0).
+  - The same 388 Nimbus entity ids as a read at 09:22 before the install, none unavailable; plan `optimal` on the first solve after the restart (solved 09:33); all 62 Solver numbers present with the same values as before the restart.
+  - Help's What's New shows 0.106.1. No Nimbus Repairs. Log: no Nimbus ERROR and no `#773` line.
+  - #2567: the stall rule did not fire in the read (no main solve reached 10 s), so the new label was not seen live here; it is covered by `test_2566_a_stall_accepted_main_plan_is_not_a_773_slow_call_alarm` (failed before the fix in CI run 44634559928, passes after).
+- Consumer check: no setting, entity id or name is moved or renamed. Only logging changes: a stall-accepted main solve logs at DEBUG with no model file; the plan itself is unchanged.
 
 ## [0.106.0] - 2026-11-19
 
