@@ -1763,10 +1763,10 @@ _QUALITY_STYLE: Any = {
 
 
 _DAILY_CALLS = (
-    "{{ day_table('Today', now().strftime('%Y-%m-%d'), periods) }}\n",
+    "{{ day_table('Today', now().strftime('%Y-%m-%d'), periods, hb) }}\n",
     (
         "{{ day_table('Tomorrow', (now() + timedelta(days=1)).strftime"
-        "('%Y-%m-%d'), periods) }}\n"
+        "('%Y-%m-%d'), periods, hb) }}\n"
     ),
 )
 
@@ -1785,7 +1785,7 @@ def _daily(offset: int) -> dict[str, Any]:
         if offset < len(_DAILY_CALLS)
         else f"{when}.strftime('%A')"
     )
-    call = f"{{{{ day_table({label}, {when}.strftime('%Y-%m-%d'), periods) }}}}\n"
+    call = f"{{{{ day_table({label}, {when}.strftime('%Y-%m-%d'), periods, hb) }}}}\n"
     first, second = _DAILY_CALLS
     return {
         **_HOUSEHOLD_DAILY,
