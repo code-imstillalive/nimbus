@@ -218,6 +218,22 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.107.0",
+        "21 Nov 2026",
+        (
+            (
+                "The Control Panel card shows whether dispatch is really "
+                "armed again: pick your arm switch and mode select under "
+                "Nimbus settings, Solver step 1."
+            ),
+            (
+                "The battery dispatch blueprint obeys a manual mode select: "
+                "the Control Panel's CH, DIS, PRE and SC buttons override the "
+                "plan until AUTO."
+            ),
+        ),
+    ),
+    (
         "0.106.1",
         "20 Nov 2026",
         (
