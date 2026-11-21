@@ -128,6 +128,76 @@ class NimbusDispatchCardV4 extends HTMLElement {
     this._lastRenderAt = 0;
   }
 
+  // Household, 21 Nov 2026: with a car or second battery as a Battery
+  // Participant, the plan's battery_kw and soc_pct are every battery
+  // together. Chips above the table (House / each participant / All) pick
+  // which battery the table and chart show; House by default. Single-battery
+  // installs get no chips and the plan's own rows, unchanged.
+  _batteries(fcEnt) {
+    const b = fcEnt && fcEnt.attributes && fcEnt.attributes.batteries;
+    return Array.isArray(b) ? b : [];
+  }
+
+  _batteryViewKey() {
+    let v = this._batteryViewSel;
+    if (v === undefined) {
+      try { v = window.localStorage.getItem('nimbus_battery_view'); } catch (e) { v = null; }
+      this._batteryViewSel = v || 'home';
+    }
+    return this._batteryViewSel;
+  }
+
+  _viewRows(fcEnt) {
+    const rows = (fcEnt && fcEnt.attributes && fcEnt.attributes.forecast) || [];
+    const bats = this._batteries(fcEnt);
+    const view = this._batteryViewKey();
+    if (bats.length < 2 || view === 'all') return rows;
+    const b = bats.find(x => x && x.name === view) || bats.find(x => x && x.name === 'home');
+    if (!b || !Array.isArray(b.forecast)) return rows;
+    return rows.map((r, i) => {
+      const x = b.forecast[i];
+      if (!x) return r;
+      return Object.assign({}, r, {
+        battery_kw: (parseFloat(x.discharge_kw) || 0) - (parseFloat(x.charge_kw) || 0),
+        soc_pct: x.soc_pct,
+      });
+    });
+  }
+
+  _setBatteryView(v) {
+    this._clearRenderThrottle();
+    this._batteryViewSel = v;
+    try { window.localStorage.setItem('nimbus_battery_view', v); } catch (e) { /* per-viewer only */ }
+    this._render();
+  }
+
+  _batteryChips(fcEnt) {
+    const bats = this._batteries(fcEnt);
+    if (bats.length < 2) return '';
+    const view = this._batteryViewKey();
+    const chips = bats.map(b => b && b.name).filter(Boolean).concat(['all']);
+    // Household, 21 Nov 2026: "House. EV. All", and EV 1, EV 2 for more cars.
+    // Which participants are cars comes from their own "Report as" setting
+    // (sensor.nimbus_solver_config flex_vehicle_participants); a stationary
+    // battery, or a list not readable yet, keeps the participant's name.
+    const cfg = this._hass && this._hass.states && this._hass.states['sensor.nimbus_solver_config'];
+    const veh = cfg && cfg.attributes && cfg.attributes.flex_vehicle_participants;
+    const cars = Array.isArray(veh) ? chips.filter(n => veh.indexOf(n) >= 0) : [];
+    const label = n => {
+      if (n === 'home') return 'House';
+      if (n === 'all') return 'All';
+      const i = cars.indexOf(n);
+      if (i < 0) return n;
+      return cars.length === 1 ? 'EV' : 'EV ' + (i + 1);
+    };
+    const known = chips.indexOf(view) >= 0 ? view : 'home';
+    return '<div class="mode-chip-row bview-row">' + chips.map(n =>
+      '<button class="mode-chip bview-chip ' + (n === known ? 'active' : '') + '" data-bview="' +
+      String(n).replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '">' +
+      String(label(n)).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</button>'
+    ).join('') + '</div>';
+  }
+
   _setMode(mode) {
     this._clearRenderThrottle();
     if (!this._modeEntity) return;
@@ -323,7 +393,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
     const minSoc = this._num('number.nimbus_solver_battery_min_soc_percent', 2);
     const maxSoc = this._num('number.nimbus_solver_battery_max_soc_percent', 100);
     const fcEnt = hass.states['sensor.nimbus_solver_battery_forecast'];
-    const fc = (fcEnt && fcEnt.attributes && fcEnt.attributes.forecast) || [];
+    const fc = this._viewRows(fcEnt);
     const p0 = fc[0];
     const solverStatus = fcEnt ? (fcEnt.attributes.status || '?') : '?';
     const clamped = fcEnt ? fcEnt.attributes.n_clamped_periods : undefined;
@@ -991,6 +1061,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.mode-pill { font-size: 1.0em; padding: 6px 14px; border-radius: 20px; font-weight:700; letter-spacing:0.06em;' +
           ' background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); white-space: nowrap; }' +
         '.mode-chip-row { display:flex; gap: 6px; flex-wrap: wrap; }' +
+        '.bview-row { margin: 4px 0 6px; }' +
         '.mode-chip { background: rgba(255,255,255,0.03); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 10px;' +
           ' padding: 6px 11px; color: #cfd3dc; font-size: 0.95em; font-weight: 700; letter-spacing: 0.03em;' +
           ' cursor: pointer; transition: all 0.2s ease; }' +
@@ -1465,6 +1536,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
           '<span class="source-bar" style="display:inline-flex; vertical-align:middle; width:28px;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
           'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; Cons&cent; = how far price consolidation moved Buy&cent; (violet, blank when it did not) &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
         '</div>' +
+        this._batteryChips(fcEnt) +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
             // nimbus #459: each header cell carries a .hdr-name and .hdr-unit
@@ -1564,8 +1636,11 @@ class NimbusDispatchCardV4 extends HTMLElement {
       if (prevScrollLeft) newWrap.scrollLeft = prevScrollLeft;
     }
 
-    this.shadowRoot.querySelectorAll('.mode-chip').forEach(btn => {
+    this.shadowRoot.querySelectorAll('.mode-chip:not(.bview-chip)').forEach(btn => {
       if (fresh(btn)) btn.addEventListener('click', () => this._setMode(btn.dataset.mode));
+    });
+    this.shadowRoot.querySelectorAll('.bview-chip').forEach(btn => {
+      if (fresh(btn)) btn.addEventListener('click', () => this._setBatteryView(btn.dataset.bview));
     });
     const killSwitch = this.shadowRoot.getElementById('kill-switch');
     if (fresh(killSwitch)) killSwitch.addEventListener('click', () => this._toggleArmed());

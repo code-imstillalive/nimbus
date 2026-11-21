@@ -213,6 +213,18 @@ from the Solver settings, the grid meter from the Forecaster or Topology
 settings, and the arm switch and mode select from **Solver settings, step 1:
 Dispatch arm switch / Dispatch mode select**.
 
+**With a car (or a second battery) added as a Battery Participant**, the
+plan table shows the **house battery** by default, with chips above it:
+**House**, **EV** and **All** (everything together). With more than one
+car the chips read **EV 1**, **EV 2** and so on, in the order the
+participants were added. A participant counts as a car by its own
+**Report as** setting (automatic: a car when it has a departure hour or a
+trip calendar); a stationary second battery keeps its own name. The choice is
+remembered on that device and shared with the Forecaster card's chips. The
+Power Flow card and the Solver tab (Whole Plan, Daily Summary, Energy Plan
+sums) always show the house battery. A house with no participant sees no
+chips and no change.
+
 ```yaml
 type: custom:nimbus-dispatch-card-v4
 mode_select_entity: input_select.nimbus_dispatch_mode
@@ -347,6 +359,9 @@ The Forecaster's own charts (issue #1529): **"Nimbus Power Signals"** and
 **"Nimbus Load Forecasts"**, the reference household's own Forecaster view,
 built automatically for any install. Needs **ApexCharts Card**
 (`apexcharts-card`, from HACS → Frontend); without it the card says so.
+
+With a Battery Participant, the battery and SoC lines follow the same
+**House / EV / All** chips as the Control Panel table (House by default).
 
 **A new install gets it without doing anything** — see "The Nimbus
 dashboard on a new install" above. On an install that already had a Nimbus

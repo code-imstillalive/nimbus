@@ -230,8 +230,24 @@ class NimbusFlowCard extends HTMLElement {
   }
 
   _plan() {
-    const fc = this._attrs("sensor.nimbus_solver_battery_forecast").forecast;
-    return Array.isArray(fc) && fc.length ? fc : null;
+    const attrs = this._attrs("sensor.nimbus_solver_battery_forecast");
+    const fc = attrs.forecast;
+    if (!Array.isArray(fc) || !fc.length) return null;
+    // Household, 21 Nov 2026: the battery node is the house battery, and a
+    // car participant has its own node, so the plan's battery figures here
+    // are the house battery's own (the plan's battery_kw and soc_pct are
+    // every battery together when a participant exists).
+    const bats = Array.isArray(attrs.batteries) ? attrs.batteries : [];
+    const home = bats.length > 1 ? bats.find(b => b && b.name === "home") : null;
+    if (!home || !Array.isArray(home.forecast)) return fc;
+    return fc.map((r, i) => {
+      const x = home.forecast[i];
+      if (!x) return r;
+      return Object.assign({}, r, {
+        battery_kw: (parseFloat(x.discharge_kw) || 0) - (parseFloat(x.charge_kw) || 0),
+        soc_pct: x.soc_pct,
+      });
+    });
   }
 
   // --- the model: nodes and flows for this moment ---------------------------
