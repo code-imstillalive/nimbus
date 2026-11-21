@@ -1,8 +1,8 @@
 blueprint:
   name: Nimbus EV charger dispatch
   description: >-
-    Makes a charger follow Nimbus's plan for the car plugged into it. Add the car as a
-    Battery Participant first: Nimbus then plans its charging (departure hour,
+    Makes a charger follow Nimbus's plan for the car plugged into it. Add the
+    car as a Battery Participant first: Nimbus then plans its charging (departure hour,
     required charge, live charge limit, trip calendar) and publishes it on the
     car's own sensor, sensor.nimbus_solver_battery_N_kw (negative = charge).
     Every minute, and shortly after each new plan, this automation starts the
