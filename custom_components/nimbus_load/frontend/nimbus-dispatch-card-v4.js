@@ -176,10 +176,20 @@ class NimbusDispatchCardV4 extends HTMLElement {
     if (bats.length < 2) return '';
     const view = this._batteryViewKey();
     const chips = bats.map(b => b && b.name).filter(Boolean).concat(['all']);
-    // Household, 21 Nov 2026: "House. EV. All". One participant is the EV;
-    // with several, each keeps its own name (a car and a second battery).
-    const single = chips.length === 3;
-    const label = n => (n === 'home' ? 'House' : (n === 'all' ? 'All' : (single ? 'EV' : n)));
+    // Household, 21 Nov 2026: "House. EV. All", and EV 1, EV 2 for more cars.
+    // Which participants are cars comes from their own "Report as" setting
+    // (sensor.nimbus_solver_config flex_vehicle_participants); a stationary
+    // battery, or a list not readable yet, keeps the participant's name.
+    const cfg = this._hass && this._hass.states && this._hass.states['sensor.nimbus_solver_config'];
+    const veh = cfg && cfg.attributes && cfg.attributes.flex_vehicle_participants;
+    const cars = Array.isArray(veh) ? chips.filter(n => veh.indexOf(n) >= 0) : [];
+    const label = n => {
+      if (n === 'home') return 'House';
+      if (n === 'all') return 'All';
+      const i = cars.indexOf(n);
+      if (i < 0) return n;
+      return cars.length === 1 ? 'EV' : 'EV ' + (i + 1);
+    };
     const known = chips.indexOf(view) >= 0 ? view : 'home';
     return '<div class="mode-chip-row bview-row">' + chips.map(n =>
       '<button class="mode-chip bview-chip ' + (n === known ? 'active' : '') + '" data-bview="' +

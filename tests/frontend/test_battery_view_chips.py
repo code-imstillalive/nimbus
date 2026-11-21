@@ -67,9 +67,13 @@ def test_the_dispatch_card_shows_the_house_battery_and_offers_chips():
         "const plan = {attributes: " + json.dumps(PLAN) + "};\n"
         "const single = {attributes: {forecast: plan.attributes.forecast, batteries: [plan.attributes.batteries[0]]}};\n"
         "const out = {};\n"
-        "let c = new C();\n"
+        "const cfgState = (veh) => ({states: {'sensor.nimbus_solver_config': {attributes: {flex_vehicle_participants: veh}}}});\n"
+        "let c = new C(); c._hass = cfgState(['Our EV']);\n"
         "out.home = c._viewRows(plan).map(r => [r.battery_kw, r.soc_pct]);\n"
         "out.chips = c._batteryChips(plan);\n"
+        "const two = {attributes: {forecast: plan.attributes.forecast, batteries: plan.attributes.batteries.concat([{name: 'Second car', forecast: []}, {name: 'Garage battery', forecast: []}])}};\n"
+        "c._hass = cfgState(['Our EV', 'Second car']); out.twoCars = c._batteryChips(two);\n"
+        "c._hass = {states: {}}; out.unknown = c._batteryChips(plan);\n"
         "c._batteryViewSel = 'Our EV'; out.ev = c._viewRows(plan).map(r => [r.battery_kw, r.soc_pct]);\n"
         "c._batteryViewSel = 'all'; out.all = c._viewRows(plan).map(r => [r.battery_kw, r.soc_pct]);\n"
         "c = new C(); out.single = c._viewRows(single).map(r => [r.battery_kw, r.soc_pct]);\n"
@@ -85,10 +89,14 @@ def test_the_dispatch_card_shows_the_house_battery_and_offers_chips():
     assert out["all"] == [[-38.0, 50.0], [0.0, 60.0]]
     assert out["single"] == [[-38.0, 50.0], [0.0, 60.0]]
     assert out["singleChips"] == ""
-    # Household, 21 Nov 2026: "House. EV. All".
+    # Household, 21 Nov 2026: "House. EV. All", and EV 1, EV 2 for more cars.
     for label in ("House", "EV", "All"):
         assert ">" + label + "<" in out["chips"]
     assert ">Our EV<" not in out["chips"]
+    for label in ("House", "EV 1", "EV 2", "Garage battery", "All"):
+        assert ">" + label + "<" in out["twoCars"], label
+    # The vehicle list not readable yet: the participant's own name.
+    assert ">Our EV<" in out["unknown"]
 
 
 def test_every_card_and_the_solver_tab_use_the_house_battery():

@@ -105,6 +105,17 @@ class NimbusForecastCard extends HTMLElement {
     return Array.isArray(b) && b.length > 1 ? b.map((x) => x && x.name).filter(Boolean) : [];
   }
 
+  // A participant's chip label: "EV", or "EV 1", "EV 2" with several cars;
+  // a stationary battery, or before the vehicle list is readable, its name.
+  _carLabel(n, names) {
+    const cfg = this._hass && this._hass.states && this._hass.states["sensor.nimbus_solver_config"];
+    const veh = cfg && cfg.attributes && cfg.attributes.flex_vehicle_participants;
+    const cars = Array.isArray(veh) ? names.filter((x) => veh.indexOf(x) >= 0) : [];
+    const i = cars.indexOf(n);
+    if (i < 0) return n;
+    return cars.length === 1 ? "EV" : "EV " + (i + 1);
+  }
+
   // apexcharts-card data_generator prelude: the rows for the chosen battery.
   _rowsCode() {
     const v = JSON.stringify(this._batteryViewKey());
@@ -152,6 +163,7 @@ class NimbusForecastCard extends HTMLElement {
       !!found.solver,
       this._batteryNames(found),
       this._batteryNames(found).length ? this._batteryViewKey() : "",
+      this._batteryNames(found).map((n) => this._carLabel(n, this._batteryNames(found))),
     ]);
     if (sig !== this._signature) {
       this._signature = sig;
@@ -481,9 +493,10 @@ class NimbusForecastCard extends HTMLElement {
       for (const n of names.concat(["all"])) {
         const btn = document.createElement("button");
         btn.className = "bview-chip" + (n === view ? " active" : "");
-        // Household, 21 Nov 2026: "House. EV. All" (one participant is the
-        // EV; with several, each keeps its own name).
-        btn.textContent = n === "home" ? "House" : n === "all" ? "All" : names.length === 2 ? "EV" : n;
+        // Household, 21 Nov 2026: "House. EV. All", and EV 1, EV 2 for more
+        // cars; cars from their "Report as" setting (the Control Panel card
+        // labels the same way).
+        btn.textContent = n === "home" ? "House" : n === "all" ? "All" : this._carLabel(n, names);
         btn.addEventListener("click", () => {
           this._bview = n;
           try { window.localStorage.setItem("nimbus_battery_view", n); } catch (e) { /* per-viewer */ }
