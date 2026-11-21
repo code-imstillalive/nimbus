@@ -85,8 +85,10 @@ def test_the_dispatch_card_shows_the_house_battery_and_offers_chips():
     assert out["all"] == [[-38.0, 50.0], [0.0, 60.0]]
     assert out["single"] == [[-38.0, 50.0], [0.0, 60.0]]
     assert out["singleChips"] == ""
-    for label in ("House", "Our EV", "All"):
+    # Household, 21 Nov 2026: "House. EV. All".
+    for label in ("House", "EV", "All"):
         assert ">" + label + "<" in out["chips"]
+    assert ">Our EV<" not in out["chips"]
 
 
 def test_every_card_and_the_solver_tab_use_the_house_battery():

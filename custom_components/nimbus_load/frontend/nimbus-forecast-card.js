@@ -481,7 +481,9 @@ class NimbusForecastCard extends HTMLElement {
       for (const n of names.concat(["all"])) {
         const btn = document.createElement("button");
         btn.className = "bview-chip" + (n === view ? " active" : "");
-        btn.textContent = n === "home" ? "House" : n === "all" ? "All" : n;
+        // Household, 21 Nov 2026: "House. EV. All" (one participant is the
+        // EV; with several, each keeps its own name).
+        btn.textContent = n === "home" ? "House" : n === "all" ? "All" : names.length === 2 ? "EV" : n;
         btn.addEventListener("click", () => {
           this._bview = n;
           try { window.localStorage.setItem("nimbus_battery_view", n); } catch (e) { /* per-viewer */ }

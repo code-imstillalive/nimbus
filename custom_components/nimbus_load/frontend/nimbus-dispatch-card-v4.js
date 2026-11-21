@@ -176,7 +176,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
     if (bats.length < 2) return '';
     const view = this._batteryViewKey();
     const chips = bats.map(b => b && b.name).filter(Boolean).concat(['all']);
-    const label = n => (n === 'home' ? 'House' : (n === 'all' ? 'All' : n));
+    // Household, 21 Nov 2026: "House. EV. All". One participant is the EV;
+    // with several, each keeps its own name (a car and a second battery).
+    const single = chips.length === 3;
+    const label = n => (n === 'home' ? 'House' : (n === 'all' ? 'All' : (single ? 'EV' : n)));
     const known = chips.indexOf(view) >= 0 ? view : 'home';
     return '<div class="mode-chip-row bview-row">' + chips.map(n =>
       '<button class="mode-chip bview-chip ' + (n === known ? 'active' : '') + '" data-bview="' +
