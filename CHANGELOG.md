@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.109.0] - 2026-11-21
+
+**With a car added, the plan tables show the house battery, with House / EV / All chips; a charger can follow its car's plan; dispatch rides through a Nimbus reload.**
+
+- **House battery by default, with House / EV / All chips** (#2585; household, 21 Nov: "I like that chips change. Perfect. But for all tables." and "House. EV. All"). With a car or second battery as a Battery Participant, the plan's battery power and SoC are every battery together, so the plan table read about 75 % when the house battery was planned at 99 %. The Control Panel plan table and the Forecaster's battery and SoC lines now show the house battery, with chips for **House**, **EV** and **All** (with several participants, each chip carries its own name). The Power Flow card and the Solver tab (Whole Plan, Daily Summary, Energy Plan sums) show the house battery. No new columns; a house with no participant sees no chips and no change.
+- **EV charger dispatch blueprint** (#2583, reviewed by Mark Purcell). A charger follows its car's own plan (`sensor.nimbus_solver_battery_N_kw`): starts, sets the current in amps for your supply, and stops. One automation per charger: a charger shared by several cars takes each car's plugged-in sensor and follows the car that is connected. Below the charger's minimum current while charging, it holds the minimum for a few minutes before stopping. Arm switch, fallback and stale-plan checks as the battery blueprint. Blueprints are imported from `main`, so it has been usable since 21 Nov.
+- **Dispatch rides through a Nimbus reload** (#2588, fix). Saving any Nimbus setting reloads Nimbus and its plan is unavailable for a few seconds; a minute tick in that gap ran the fallback (a tester's inverter went to its own mode for a minute mid-export). Both blueprints now keep the last command while the plan has only just gone missing, for up to *Ride through a Nimbus reload* (2 minutes). Re-import the blueprint to get it.
+- Internal: tests 980 → 987.
+- Install shapes (#2394): #2585 touches installs with Battery Participants (the test box's Test EV; a tester's car); the reference household has no participant and sees no change. #2583 and #2588 touch blueprint users (testers); the reference household and Mark Purcell's install drive their batteries and cars with their own automations, so unseen there.
+
 ## [0.108.0] - 2026-11-21
 
 **With a car or second battery as a participant, the house inverter follows the home battery's own plan.**
@@ -17,6 +27,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Dispatch arm switch help text** matches what the card does when it is blank (#2580).
 - Internal: tests 977 → 980.
 - Install shapes (#2394): #2575 touches installs with Battery Participants (an EV or a second battery), the dispatch blueprint's users among them; a tester's EV install prompted it; Mark Purcell's install has two cars as participants but drives them with its own automation; single-battery installs see only the new attribute.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 534ecc84** (`release/0.108.0`, installed untagged through Home Assistant's marketplace by commit and restarted at 12:24 AEST, 21 Nov; read through 12:26).
+  - 125 of the 129 Nimbus entities carrying a version read 0.108.0; the other four are the daily reports (0.106.1). No Nimbus entity unavailable; plan `optimal`; all 62 Solver numbers present.
+  - The test box has a Test EV participant: `home_battery_kw` and the two new sensors are published (`sensor.nimbus_solver_battery_0_kw` -40.0 "home", `sensor.nimbus_solver_battery_1_kw` 0.0 "Test EV"). The car was idle in the read, so home equalled the state; the car-charging case is covered by `test_the_home_battery_is_the_fleet_less_its_participants` and the regenerated `rich_site_native_with_ev` snapshot.
+  - Road test asked for by Mark Purcell's review: an automation from the current blueprint (actions writing only to text helpers; the test box has no inverter), armed with the test box's own helpers. Following the plan it took CHG at 40 kW from `home_battery_kw`; the manual mode select gave DIS, HOLD, SC and CHG in turn, back to the plan on Automatic; disarming ran the fallback.
+- Consumer check: no setting, entity id or name is moved or renamed. The plan sensor's state is unchanged; it gains the attribute `home_battery_kw`. Sites with Battery Participants gain `sensor.nimbus_solver_battery_N_kw`. A blueprint automation follows the home battery's share where it differed (sites with participants); single-battery sites dispatch exactly as before.
 
 ## [0.107.0] - 2026-11-21
 

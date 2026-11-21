@@ -218,6 +218,24 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.109.0",
+        "21 Nov 2026",
+        (
+            (
+                "With a car added, the plan table and Forecaster show your "
+                "house battery, with House / EV / All chips to switch."
+            ),
+            (
+                "New EV charger blueprint: your charger follows its car's "
+                "plan, including a charger shared by two cars."
+            ),
+            (
+                "Dispatch blueprints keep their last command through a "
+                "Nimbus reload instead of falling back; re-import them."
+            ),
+        ),
+    ),
+    (
         "0.108.0",
         "21 Nov 2026",
         (
