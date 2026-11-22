@@ -1429,7 +1429,7 @@ Everything you left blank in Part 1, in rough order of usefulness:
 | 2nd/3rd price or solar source | You have an independent forecast. Differences between sources inform the model's uncertainty. |
 | Richer per-5-minute price forecast | Your retailer publishes one |
 | Regional wholesale spot forecast / history | Australian NEM only: extends the price plan beyond your retailer's horizon |
-| Whole-house cross-check sensor | A diagnostic comparison for the first forecast period, not a dispatch input |
+| Whole-house cross-check sensor | The house load for the plan's current period (less what Battery Participants are charging now), and a live check against the forecast |
 | DNSP dynamic import/export limits | You are on a dynamic connection (e.g. Open Dynamic Export) |
 | Price-spike alert entity | Your retailer has a named spike product. The plain $/kWh threshold works without it |
 | P2P/VPP settlement history | Your retailer pays a real export bonus: improves score accuracy |
