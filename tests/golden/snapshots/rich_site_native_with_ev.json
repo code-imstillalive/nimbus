@@ -20123,6 +20123,16 @@
     },
     {
      "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_ev_power",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_ev_power",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
      "path": "/api/states/sensor.fake_weather_hourly",
      "query": ""
     },
@@ -40536,6 +40546,16 @@
     {
      "method": "NATIVE_GET",
      "path": "/api/states/sensor.fake_house_power",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_ev_power",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_ev_power",
      "query": ""
     },
     {
