@@ -358,9 +358,47 @@ variables:
   # nimbus #2573: the HOME battery's own planned power when the plan carries
   # it (a site with a car or second battery as a participant); the state is
   # the whole fleet. Plans from before #2573 have no home_battery_kw.
+  # A tester, 22 Nov 2026: discharge planned for a 17:00 price rise started
+  # at 17:01:45, after the next plan landed, though the plan made at 16:59
+  # already had its 17:00 row. Index of the plan row for the current minute
+  # when it is past period 0 AND a price (import, export or P2P rate) changes
+  # there; otherwise 0, period 0 as before, so between price changes period
+  # 0's anti-flap hysteresis (#1654) still decides.
+  now_i: >-
+    {% set f = state_attr(plan_entity, 'forecast') %}
+    {% set ns = namespace(i=0) %}
+    {% if plan_ok and f is iterable and f is not string and f | length > 1 %}
+      {% for e in f[:15] %}
+        {% set t = as_datetime(e.time) if e.time is defined and e.time else none %}
+        {% if t is not none and t <= now() %}{% set ns.i = loop.index0 %}{% endif %}
+      {% endfor %}
+      {% if ns.i > 0 %}
+        {% set a = f[0] %}{% set b = f[ns.i] %}
+        {% if a.import_price == b.import_price and a.export_price == b.export_price
+              and a.p2p_rate == b.p2p_rate %}{% set ns.i = 0 %}{% endif %}
+      {% endif %}
+    {% endif %}
+    {{ ns.i }}
+  row_kw: >-
+    {% set i = now_i | int(0) %}
+    {% set ns = namespace(v='') %}
+    {% if i > 0 %}
+      {% for b in state_attr(plan_entity, 'batteries') or [] %}
+        {% if b.name == 'home' and b.forecast | length > i %}
+          {% set ns.v = (b.forecast[i].discharge_kw | float(0))
+                        - (b.forecast[i].charge_kw | float(0)) %}
+        {% endif %}
+      {% endfor %}
+      {% if ns.v == '' %}
+        {% set ns.v = state_attr(plan_entity, 'forecast')[i].battery_kw | float(0) %}
+      {% endif %}
+    {% endif %}
+    {{ ns.v }}
   plan_kw: >-
     {% set h = state_attr(plan_entity, 'home_battery_kw') %}
-    {{ ((h if is_number(h) else plan_raw) | float(0)) if plan_ok else 0 }}
+    {% if not plan_ok %}0
+    {% elif is_number(row_kw) %}{{ row_kw | float(0) }}
+    {% else %}{{ (h if is_number(h) else plan_raw) | float(0) }}{% endif %}
   manual_entity: !input mode_select
   # Household, 21 Nov 2026: a manual mode from the select, or '' to follow
   # the plan.
@@ -382,13 +420,22 @@ variables:
       {% set p = [p, allowed_raw | float(0)] | min %}
     {% endif %}
     {{ p | round(2) }}
+  # absorb_surplus describes period 0; on a later row it still applies
+  # unless that row discharges.
   absorb: >-
-    {{ absorb_on and state_attr(plan_entity, 'absorb_surplus') == true }}
+    {{ absorb_on and state_attr(plan_entity, 'absorb_surplus') == true
+       and (now_i | int(0) == 0 or plan_kw <= dead_kw | float(0.05)) }}
+  # On a later row, that row's own hold and solar-charge flags.
   hold_signal: >-
-    {{ hold_entity != '' and states(hold_entity) in ['True', 'true', 'on'] }}
+    {% set i = now_i | int(0) %}
+    {% if hold_entity == '' %}{{ false }}
+    {% elif i > 0 %}{{ state_attr(plan_entity, 'forecast')[i].dispatch_hold == true }}
+    {% else %}{{ states(hold_entity) in ['True', 'true', 'on'] }}{% endif %}
   solar_charge: >-
-    {{ solar_charge_entity != ''
-       and states(solar_charge_entity) in ['True', 'true', 'on'] }}
+    {% set i = now_i | int(0) %}
+    {% if solar_charge_entity == '' %}{{ false }}
+    {% elif i > 0 %}{{ state_attr(plan_entity, 'forecast')[i].dispatch_solar_charge == true }}
+    {% else %}{{ states(solar_charge_entity) in ['True', 'true', 'on'] }}{% endif %}
   want: >-
     {%- if manual == 'HOLD' and hold_has_actions | length == 0 -%}SC
     {%- elif manual -%}{{ manual }}

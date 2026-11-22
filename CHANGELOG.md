@@ -8,6 +8,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Battery dispatch acts on the minute at a price change** (blueprint fix). A tester's discharge planned for a 17:00 price rise started at 17:01:45, two days running: the plan made at 16:59 already had its 17:00 row, but the blueprint followed the plan's first minute until the next plan landed. When the clock has moved past the plan's first minute to a minute where a price (import, export or P2P rate) changes, the minute tick now follows the plan's row for that minute: its power, house-battery share, hold and solar-charge flags. Between price changes the plan's first minute still decides, so Nimbus's own anti-flap margin is untouched. Blueprints are imported from `main`; re-import it to get the fix.
+- Internal: tests +1.
+
 ## [0.110.0] - 2026-11-22
 
 **A car charging inside the house is counted once: the house battery no longer holds while the car charges.**
