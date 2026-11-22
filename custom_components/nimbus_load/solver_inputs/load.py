@@ -104,6 +104,16 @@ def _solver_writer():
     return solver_writer
 
 
+def _participants_charging_now_kw() -> float:
+    """What battery participants are charging now, kW (a car charging inside
+    the whole-house meter); imported late, like `_solver_writer()`."""
+    try:
+        from .extra_batteries import participants_charging_now_kw
+    except ImportError:  # pragma: no cover - standalone/cron path
+        from solver_inputs.extra_batteries import participants_charging_now_kw
+    return participants_charging_now_kw()
+
+
 @dataclass(frozen=True)
 class LoadArrays:
     """Everything the load slice produces, in one value.
@@ -547,7 +557,11 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
             live_load_kw = float(
                 sw.ha_get(whole_house_cross_check_sensor)["state"]
             ) * sw._kw_scale_factor(whole_house_cross_check_sensor)
-            load_kw[0] = max(0.0, live_load_kw)
+            # A tester, 22 Nov 2026: a car charging inside the house meter
+            # is also planned as a battery participant; take its live
+            # charging off so it is counted once (extra_batteries.
+            # participants_charging_now_kw). live_load_kw stays the meter.
+            load_kw[0] = max(0.0, live_load_kw - _participants_charging_now_kw())
             load_lower_kw[0] = load_kw[0]
             load_upper_kw[0] = load_kw[0]
         except (ValueError, KeyError, TypeError):

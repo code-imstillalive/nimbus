@@ -147,6 +147,66 @@ def _solver_writer():
     return solver_writer
 
 
+def participants_charging_now_kw() -> float:
+    """What the battery participants are charging right now, kW, from each
+    one's own power sensor (a required participant field).
+
+    A tester, 22 Nov 2026 (0.109.0): period 0's house load is the live
+    whole-house meter, and that meter already carries a car charging inside
+    the house (13.0 kW with the car's 11 kW in it). The car's charge is also
+    planned as the participant's own battery, so the plan counted it twice,
+    saw no spare solar, held the house battery and exported at -0.1c every
+    minute the car charged. `build_load_arrays()` takes this off the meter.
+
+    Charging only (a participant discharging is not taken off). An unreadable
+    sensor counts as nothing, so the meter is used as before.
+    """
+    sw = _solver_writer()
+    hass = solver_shared.NATIVE.hass
+    if hass is None:
+        return 0.0
+    try:
+        from ..const import (
+            CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
+            CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
+            DOMAIN,
+            SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+        )
+    except ImportError:  # pragma: no cover - standalone/cron path
+        from const import (  # type: ignore[no-redef]
+            CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
+            CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
+            DOMAIN,
+            SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+        )
+    try:
+        entries = hass.config_entries.async_entries(DOMAIN)
+    except AttributeError:
+        return 0.0
+    if not entries:
+        return 0.0
+    total = 0.0
+    for subentry in entries[0].subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_BATTERY_PARTICIPANT:
+            continue
+        data = subentry.data
+        sensor = data.get(CONF_BATTERY_PARTICIPANT_POWER_SENSOR)
+        if not sensor:
+            continue
+        try:
+            kw = float(sw.ha_get(sensor)["state"]) * sw._kw_scale_factor(sensor)
+        except (ValueError, KeyError, TypeError, OSError):
+            # OSError: the standalone path's HTTP read (urllib errors).
+            continue
+        if not math.isfinite(kw):
+            continue
+        charging = (
+            kw if data.get(CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE) else -kw
+        )
+        total += max(0.0, charging)
+    return total
+
+
 def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     """nimbus issue #563: the config surface for #467 stage 1's own
     `batteries: list[BatteryConfig]` solver support. Builds ADDITIONAL
