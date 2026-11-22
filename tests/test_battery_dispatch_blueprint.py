@@ -471,3 +471,85 @@ def test_a_nimbus_reload_does_not_trip_the_fallback():
     # Disarming never waits.
     ran, _ = run("disarmed", plan="unavailable", armed=False, plan_changed_s=20)
     assert ran[0] == "fallback_actions"
+
+
+def _row(t: str, kw: float, price: float, **extra: Any) -> dict[str, Any]:
+    return {
+        "time": t,
+        "battery_kw": kw,
+        "import_price": price,
+        "export_price": price - 0.05,
+        "p2p_rate": 0.0,
+        "dispatch_hold": False,
+        "dispatch_solar_charge": False,
+        **extra,
+    }
+
+
+def test_a_price_change_is_followed_on_the_minute_not_after_the_next_solve():
+    """A tester, 22 Nov 2026: discharge planned for the 17:00 price rise
+    started at 17:01:45, two days running. The plan solved at 16:59 already
+    had a 17:00 row; the blueprint followed its 16:59 row until a new plan
+    landed. At a price change the plan foresaw, the minute tick follows the
+    plan's row for the current minute."""
+    at = datetime(2026, 11, 22, 17, 0, 2, tzinfo=TZ)
+    rows = [
+        _row("2026-11-22T16:59:00+10:00", 0.0, 0.20),
+        _row("2026-11-22T17:00:00+10:00", 4.0, 0.60),
+        _row("2026-11-22T17:01:00+10:00", 4.0, 0.60),
+    ]
+    attrs = {"forecast": rows, "home_battery_kw": 0.0}
+    _, ctx = run("tick", plan="0.0", now=at, plan_age_s=62, attrs=attrs)
+    assert ctx["want"] == "DIS"
+    assert ctx["power_kw"] == 4.0
+    # The home battery's own row, when the plan carries participants (#2573).
+    home = {
+        "name": "home",
+        "forecast": [
+            {"time": r["time"], "charge_kw": 0.0, "discharge_kw": d}
+            for r, d in zip(rows, (0.0, 3.0, 3.0))
+        ],
+    }
+    _, ctx = run(
+        "tick",
+        plan="0.0",
+        now=at,
+        plan_age_s=62,
+        attrs={**attrs, "batteries": [home]},
+    )
+    assert ctx["power_kw"] == 3.0
+    # Before 17:00 the plan's period 0, as before.
+    _, ctx = run(
+        "tick",
+        plan="0.0",
+        now=at - timedelta(seconds=10),
+        plan_age_s=52,
+        attrs=attrs,
+    )
+    assert ctx["want"] == "SC"
+    # No price change: period 0 still rules between solves, so its
+    # hysteresis (#1654) is never bypassed.
+    flat = [dict(r, import_price=0.20, export_price=0.15) for r in rows]
+    _, ctx = run(
+        "tick",
+        plan="0.0",
+        now=at,
+        plan_age_s=62,
+        attrs={"forecast": flat, "home_battery_kw": 0.0},
+    )
+    assert ctx["want"] == "SC"
+    # The row's own hold and solar-charge flags, not period 0's.
+    held = [rows[0], dict(rows[1], battery_kw=0.0, dispatch_hold=True)]
+    _, ctx = run(
+        "tick",
+        plan="0.0",
+        now=at,
+        plan_age_s=62,
+        hold_sensor="sensor.hold",
+        attrs={"forecast": held},
+        extra={"sensor.hold": "False"},
+    )
+    assert ctx["want"] == "HOLD"
+    # A refused or stale plan is never rolled forward.
+    _, ctx = run("tick", plan="0.0", now=at, status="infeasible", attrs=attrs)
+    assert ctx["want"] == "FALLBACK"
