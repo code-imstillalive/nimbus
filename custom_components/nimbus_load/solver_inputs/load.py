@@ -110,7 +110,9 @@ def _participants_charging_now_kw() -> float:
     try:
         from .extra_batteries import participants_charging_now_kw
     except ImportError:  # pragma: no cover - standalone/cron path
-        from solver_inputs.extra_batteries import participants_charging_now_kw
+        from solver_inputs.extra_batteries import (  # type: ignore[no-redef]
+            participants_charging_now_kw,
+        )
     return participants_charging_now_kw()
 
 
