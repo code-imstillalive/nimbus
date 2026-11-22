@@ -442,6 +442,11 @@ Assistant starts, and when the arm switch changes.
 2. **Is the plan safe to follow?** Its state is a number, its `status` is
    `optimal`, and it is no older than *Stale plan after* (10 minutes by
    default). If not: **fallback**, never a power command.
+   **Which minute of the plan?** Normally the plan's first minute. When the
+   clock has moved past it to a minute where a price changes (import, export
+   or P2P rate), the plan's row for that minute: a discharge planned for a
+   17:00 price rise starts at 17:00, not after the next plan lands. That row's
+   own power, hold and solar-charge figures are used.
 3. **Which mode?**
    - spare solar to soak up (`absorb_surplus`): **Self-Consume**;
    - plan above the deadband (+0.05 kW): **Discharge** at the plan's kW;
