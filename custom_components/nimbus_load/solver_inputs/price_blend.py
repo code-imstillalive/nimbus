@@ -621,10 +621,9 @@ def compute_5min_offset(
 
 
 # A live regional sensor records a value in most 5-minute intervals (one
-# holding the same price records nothing until it changes: the reference
-# household's covered 1,209 of 1,440 over five days). One that records in
-# under half the retail intervals has stopped updating: a tester's recorded
-# three times a day, which taught a markup only in those slots.
+# holding the same price records nothing until it changes, so not all). One
+# that records in under half the retail intervals has stopped updating: a
+# tester's recorded three times a day, which taught a markup only there.
 _MIN_WHOLESALE_COVERAGE = 0.5
 _STUCK_SPOT_WARNED: set[str] = set()
 # The latest finding per sensor, (intervals with a value, retail intervals),
