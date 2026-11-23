@@ -12,6 +12,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - Internal: tests +1.
 - **Battery dispatch: `export_kw` for export-target inverters** (blueprint). A tester's inverter setpoint is battery-side, so a 15 kW export plan (15.54 kW of battery with the house load) exported about 14.7 kW after conversion losses; he used to run the inverter's "sell power" mode with the export target instead. The blueprint now also gives actions `export_kw`, the plan's grid export for the minute being followed (0 when the plan cannot be followed; the discharge power in a manual Discharge). `power_kw` and every existing automation are unchanged. The going-live guide says which to use. A **Discharge setpoint** setting (Battery power, the default, or Grid export) lets a user switch without editing a template: with Grid export, `power_kw` carries the planned export while discharging. Re-import the blueprint to get it.
 - Internal: tests +1.
+- **Battery dispatch: Discharge setpoint correction** (blueprint). The same tester's inverter exports about 4.5 % short even in sell-power mode; he used to send 15 kW x 1.045 by hand. A new setting, *Discharge setpoint correction* (default 100 %, so nothing changes), scales the discharge setpoint, never above the maximum; charging is not scaled. Re-import the blueprint to get it.
+- Internal: tests +1.
 
 ## [0.110.0] - 2026-11-22
 

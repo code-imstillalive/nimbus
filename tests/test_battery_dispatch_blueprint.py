@@ -621,3 +621,36 @@ def test_the_discharge_setpoint_option_sends_the_export_when_chosen():
     )
     assert ctx["target_mode"] == "CHG"
     assert ctx["power_kw"] == 3.0
+
+
+def test_a_discharge_correction_scales_only_the_discharge_setpoint():
+    """A tester, 23 Nov 2026: his inverter exports about 4.5 % short even in
+    sell-power mode, so he used to send 15 x 1.045. The correction scales the
+    discharge setpoint (never above the maximum); charging and the default
+    100 % are unchanged."""
+    rows = [_row("2026-11-22T17:59:00+10:00", 4.6, 0.60, grid_export_kw=4.0)]
+    at = datetime(2026, 11, 22, 17, 59, 30, tzinfo=TZ)
+    attrs = {"forecast": rows}
+    kw = {"now": at, "plan_age_s": 20, "attrs": attrs}
+    _, ctx = run(
+        "tick",
+        plan="4.6",
+        discharge_setpoint="export",
+        discharge_correction_pct=104.5,
+        **kw,
+    )
+    assert ctx["power_kw"] == 4.18  # 4.0 x 1.045
+    _, ctx = run("tick", plan="4.6", discharge_correction_pct=110, **kw)
+    assert ctx["power_kw"] == 5.0  # 5.06 capped at the 5 kW maximum
+    _, ctx = run("tick", plan="4.6", **kw)
+    assert ctx["power_kw"] == 4.6  # default 100 %
+    charge = [_row("2026-11-22T17:59:00+10:00", -3.0, 0.10, grid_export_kw=0.0)]
+    _, ctx = run(
+        "tick",
+        plan="-3.0",
+        now=at,
+        plan_age_s=20,
+        attrs={"forecast": charge},
+        discharge_correction_pct=110,
+    )
+    assert ctx["power_kw"] == 3.0

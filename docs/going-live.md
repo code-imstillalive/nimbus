@@ -166,6 +166,10 @@ inverter whose setpoint is AC battery power. Two other cases:
   house load and its own conversion losses itself. Charging still sends
   battery power. (`{{ export_kw }}` holds the planned export at all times,
   for an action that needs it separately.)
+- **Your inverter delivers a little less than asked** (measured at its own
+  output rather than the meter): set **Discharge setpoint correction**, for
+  example 104.5 % for 4.5 % short. Discharge setpoints are scaled by it, never
+  above *Maximum battery power*; charging is not.
 - **Your setpoint is battery (DC) side** and you see a little less export than
   planned (a 15 kW plan exporting about 14.7 kW): conversion losses, about 3 %
   each way. The export-target mode above avoids this; if your inverter has
