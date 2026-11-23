@@ -2,13 +2,13 @@
 
 *Just a different type of cloud.*
 
-> ⚠️ **Work in progress, not a finished product.** Both the Forecaster and Solver
-> are under ongoing development. The Solver now drives real, live battery and grid
-> dispatch on the reference household — it graduated out of observe-only shadow
-> mode. Expect rough edges, breaking changes, and bugs. Several have been found
-> and fixed in the days around this repo going public. If you install this,
-> please open a GitHub issue rather than expect a polished, plug-and-play
-> experience.
+> 🌱 **Maturing: 1.0 is planned for around January 2027.** Nimbus is in the
+> HACS default list and drives real battery and grid dispatch on live installs
+> every day, but it is still being shaped by its first users. Expect a new
+> release most weeks, the odd rough edge, and settings that may still move
+> before 1.0. If something is wrong or unclear, please
+> [open an issue](https://github.com/code-imstillalive/nimbus/issues/new/choose)
+> with a diagnostics download — that is how it gets better.
 
 > 🔌 **Nimbus controls real equipment and makes decisions with real financial
 > consequences.** Read [What Nimbus controls](#what-nimbus-controls) before you
@@ -839,7 +839,7 @@ window where the money is.
 | | |
 |---|---|
 | **Inverters** | **2 ×** Sungrow hybrids — one **SH25T**, one **SH15T** — over Modbus TCP |
-| **Battery** | **2 dual stacks = 4 towers**, 7 and 8 modules per stack (BCU firmware `SBHBCU-S_22011.04.10`) |
+| **Battery** | **2 dual stacks = 4 towers**, 7 and 8 modules per stack |
 | **Usable capacity** | **122.2 kWh** |
 | **Power limits** | **40 kW** charge / **40 kW** discharge |
 | **Grid connection** | **42 kW** import / **40 kW** export |

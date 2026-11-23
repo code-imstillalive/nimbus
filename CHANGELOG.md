@@ -8,12 +8,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-- **Battery dispatch acts on the minute at a price change** (blueprint fix). A tester's discharge planned for a 17:00 price rise started at 17:01:45, two days running: the plan made at 16:59 already had its 17:00 row, but the blueprint followed the plan's first minute until the next plan landed. When the clock has moved past the plan's first minute to a minute where a price (import, export or P2P rate) changes, the minute tick now follows the plan's row for that minute: its power, house-battery share, hold and solar-charge flags. Between price changes the plan's first minute still decides, so Nimbus's own anti-flap margin is untouched. Blueprints are imported from `main`; re-import it to get the fix.
-- Internal: tests +1.
-- **Battery dispatch: `export_kw` for export-target inverters** (blueprint). A tester's inverter setpoint is battery-side, so a 15 kW export plan (15.54 kW of battery with the house load) exported about 14.7 kW after conversion losses; he used to run the inverter's "sell power" mode with the export target instead. The blueprint now also gives actions `export_kw`, the plan's grid export for the minute being followed (0 when the plan cannot be followed; the discharge power in a manual Discharge). `power_kw` and every existing automation are unchanged. The going-live guide says which to use. A **Discharge setpoint** setting (Battery power, the default, or Grid export) lets a user switch without editing a template: with Grid export, `power_kw` carries the planned export while discharging. Re-import the blueprint to get it.
-- Internal: tests +1.
-- **Battery dispatch: Discharge setpoint correction** (blueprint). The same tester's inverter exports about 4.5 % short even in sell-power mode; he used to send 15 kW x 1.045 by hand. A new setting, *Discharge setpoint correction* (default 100 %, so nothing changes), scales the discharge setpoint, never above the maximum; charging is not scaled. Re-import the blueprint to get it.
-- Internal: tests +1.
+## [0.111.0] - 2026-11-23
+
+**Nimbus is in the HACS default list. Welcome, and thank you for trying it.**
+
+Nimbus is maturing: 1.0 is planned for around January 2027. It drives real battery and grid dispatch on live homes every day, but expect a new release most weeks and some settings to move before 1.0. Start with the [setup guide](https://code-imstillalive.github.io/nimbus/setup-guide/); if anything is wrong or unclear, [open an issue](https://github.com/code-imstillalive/nimbus/issues/new/choose) with a diagnostics download.
+
+This release:
+
+- **Install straight from HACS** (#2606). Search **Nimbus** in HACS; no custom repository needed. Accepted into the HACS default list on 23 Nov 2026 after Frenck's review (hacs/default#12099).
+- **Battery dispatch starts on the minute at a price change** (#2597, blueprint). A tester's discharge for a 17:00 price rise started at 17:01:45, two days running. When the clock reaches a minute where a price (import, export or P2P rate) changes, the dispatch follows the plan's row for that minute instead of waiting for the next plan. Between price changes nothing changes.
+- **Sell-power inverters: Grid export setpoint and a correction %** (#2599, #2601, #2603, blueprint). Two new, optional settings in the battery dispatch blueprint: **Discharge setpoint** (*Battery power*, the default, or *Grid export* for an inverter driven by an export target, which covers the house load and its own losses) and **Discharge setpoint correction** (default 100 %; for example 104.5 % for an inverter that delivers about 4.5 % short). A tester's 15 kW P2P export arrived as about 14.7 kW. Both default to today's behaviour, so no existing automation changes. Actions also get `export_kw`, the planned grid export. The [going-live guide](https://code-imstillalive.github.io/nimbus/going-live/) says which to use.
+- **Fix: a small disk access on Home Assistant's event loop at startup** (#2605, from the HACS review). Finding the temp folder writes and deletes a probe file the first time; it now runs off the event loop.
+- **Better first-run help.** The README and docs say where Nimbus stands; Home Assistant's *Documentation* link for Nimbus opens the docs site; a bug-report form asks for the versions and diagnostics we need; and the setup guide covers cards that show "Custom element doesn't exist" (#2513).
+- Blueprints are imported from GitHub: **re-import the battery dispatch blueprint** to get the dispatch changes above.
+- Internal: tests 988 → 993.
+- Install shapes (#2394): the blueprint settings are opt-in, defaults unchanged on every shape; seen on a tester's install (sell-power inverter, P2P blocks). The startup fix touches every shape (setup path only). Reference household and Mark Purcell's install: defaults, no change expected.
 
 ## [0.110.0] - 2026-11-22
 
@@ -22,6 +32,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Fix: a car charging inside the whole-house meter was counted twice** (#2593). The plan's current period takes its house load from the live whole-house meter, which already includes a car charging in the house; the car's charge was then planned again as the Battery Participant's own battery. A tester's plan (13.0 kW on the meter, 11 kW of it the car) saw no spare solar, held the house battery and exported at -0.1c, and with his grid import limit the house battery's charge rate stepped up and down every minute. The current period now takes what the participants are charging right now off the meter, from each participant's own power sensor (a required participant field). Charging only; an unreadable sensor changes nothing. The meter's own reading is still published as `load_whole_house_live_now_kw`.
 - Internal: tests 987 → 988.
 - Install shapes (#2394): touches installs with a Battery Participant whose charging is inside the whole-house meter (a tester's car; the test box's Test EV). The reference household has no participant: no change. Mark Purcell's install has two cars as participants; unseen there.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 217bffc2** (`release/0.110.0`, installed untagged through Home Assistant's marketplace by commit at 13:31 AEST, 22 Nov, restarted; read through 13:35).
+  - 125 of the 129 Nimbus entities carrying a version read 0.110.0; the other four are the daily reports (0.109.0). No Nimbus entity unavailable; plan `optimal`; all 62 Solver numbers present and unchanged from a read just before the restart; no Repairs.
+  - The fix, on the test box's Test EV (its power sensor set to 11 kW charging through its own MQTT topic for two minutes): on this release the whole-house reading was 2.62 kW, so period 0's house load went to the floor, 0.0, not negative (13:33 and 13:34 solves); on the same fix code at 13:06-13:07, 13.12 and 13.08 kW became 2.12 and 2.08. With the car at 0 kW period 0 equals the meter. `load_whole_house_live_now_kw` kept the meter's own reading throughout. Test EV set back to 0 kW afterwards.
+  - Log: no Nimbus error; two forecaster drift notices and the known implausible meter rows, neither from this release.
+- Consumer check: no setting, entity id or name changes. The plan's current-period house load leaves out what Battery Participants are charging now, so on an install with a car charging inside the house the house battery is planned against the real spare solar. Installs without a participant see no change.
 
 ## [0.109.0] - 2026-11-21
 

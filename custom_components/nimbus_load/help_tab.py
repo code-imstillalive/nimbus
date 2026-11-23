@@ -218,6 +218,26 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.111.0",
+        "23 Nov 2026",
+        (
+            (
+                "Nimbus is in the HACS default list: install it by searching "
+                "Nimbus in HACS. It is maturing, with 1.0 planned for around "
+                "January 2027."
+            ),
+            (
+                "Battery dispatch starts on the minute when the price changes "
+                "(re-import the battery dispatch blueprint)."
+            ),
+            (
+                "Sell-power inverters: new optional Discharge setpoint (Grid "
+                "export) and Discharge setpoint correction settings in the "
+                "battery dispatch blueprint."
+            ),
+        ),
+    ),
+    (
         "0.110.0",
         "22 Nov 2026",
         (

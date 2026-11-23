@@ -8,6 +8,12 @@ hindsight, so you can see how good it was.
 
 It runs inside Home Assistant. There is no cloud service and no account.
 
+!!! note "Maturing: 1.0 around January 2027"
+    Nimbus is in the HACS default list and runs live dispatch on real homes
+    every day, but it is still maturing. Expect frequent releases and some
+    settings to move before 1.0, planned for around January 2027. If something
+    is wrong or unclear, [report it](troubleshooting.md#reporting-a-problem).
+
 Not sure it fits your home? See [what people use it for](use-cases.md).
 
 ## If you already run EMHASS or HAEO

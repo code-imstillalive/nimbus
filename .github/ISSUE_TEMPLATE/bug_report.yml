@@ -1,0 +1,50 @@
+name: Something is wrong
+description: Nimbus did something unexpected, showed an error, or a setting or card does not work.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Nimbus is maturing (1.0 is planned for around January 2027), and reports like this are how it improves.
+        Please first look in **Settings → System → Repairs**: many problems are explained there.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: What you did, what you saw, and what you expected instead. Screenshots help.
+    validations:
+      required: true
+  - type: input
+    id: nimbus_version
+    attributes:
+      label: Nimbus version
+      description: Settings → Devices & services → Nimbus (or HACS).
+      placeholder: "0.111.0"
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+      placeholder: "2026.11.1"
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Your setup
+      description: Inverter/battery, price provider (LocalVolts, Amber, other), and whether the battery dispatch blueprint is armed.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        On the Nimbus integration page: **⋮ → Download diagnostics**, then drag the file here.
+        **Read it first** and remove anything private (tokens, addresses).
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines (optional)
+      description: Any Nimbus lines from Settings → System → Logs.
+      render: text
