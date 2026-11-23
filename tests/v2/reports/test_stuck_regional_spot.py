@@ -39,12 +39,16 @@ def test_a_regional_spot_that_stopped_updating_teaches_no_markup(monkeypatch):
         for slot in (6, 42, 72)
     ]
     monkeypatch.setattr(price_blend, "fetch_price_history", lambda *_a, **_k: stuck)
+    monkeypatch.setattr(price_blend, "_STUCK_SPOT", {})
     assert (
         price_blend.compute_5min_offset(
             _retail(), regional_spot_sensor="sensor.regional_spot"
         )
         == {}
     )
+    # ...and it is not left to a log line: setup_health raises a Repair
+    # naming the sensor from this finding, cleared once it updates again.
+    assert price_blend.stuck_regional_spot() == ("sensor.regional_spot", 9, 3 * DAY)
 
 
 def test_a_live_regional_spot_with_flat_spells_still_teaches_the_markup(monkeypatch):
@@ -56,11 +60,15 @@ def test_a_live_regional_spot_with_flat_spells_still_teaches_the_markup(monkeypa
         if i % 10 not in (3, 4, 5)
     ]
     monkeypatch.setattr(price_blend, "fetch_price_history", lambda *_a, **_k: live)
+    monkeypatch.setattr(
+        price_blend, "_STUCK_SPOT", {"sensor.regional_spot": (9, 3 * DAY)}
+    )
     offset = price_blend.compute_5min_offset(
         _retail(), regional_spot_sensor="sensor.regional_spot"
     )
-    assert len(offset) == round(DAY * 0.7)
+    assert len(offset) == DAY
     assert set(offset.values()) == {pytest.approx(0.09)}
+    assert price_blend.stuck_regional_spot() is None
 
 
 def test_past_the_feed_a_slot_without_markup_takes_the_average_markup():
@@ -78,10 +86,27 @@ def test_past_the_feed_a_slot_without_markup_takes_the_average_markup():
     ) == [pytest.approx(0.05 + 0.11)]
 
 
-def test_past_the_feed_with_no_markup_learned_the_last_real_price_holds():
-    forecast = [{"time": T0.isoformat(), "per_kwh": 0.20}]
-    values, real = price_blend.resample_price_with_extrapolation(
-        forecast, "per_kwh", [T0, T0 + 3 * FIVE], [(T0, 0.05)], {}
+def test_with_no_markup_learned_the_tail_keeps_the_retail_level_on_wholesale_shape(
+    monkeypatch,
+):
+    # A regional sensor the recorder keeps no history for teaches nothing,
+    # and is named for the Repair like a stuck one.
+    monkeypatch.setattr(price_blend, "fetch_price_history", lambda *_a, **_k: [])
+    monkeypatch.setattr(price_blend, "_STUCK_SPOT", {})
+    assert (
+        price_blend.compute_5min_offset(
+            _retail(), regional_spot_sensor="sensor.regional_spot"
+        )
+        == {}
     )
-    assert values == [0.20, 0.20]
+    assert price_blend.stuck_regional_spot() == ("sensor.regional_spot", 0, 3 * DAY)
+
+    # Past the feed, the tail is wholesale plus the gap at the feed's last
+    # real price (0.20 - 0.05), not bare wholesale.
+    forecast = [{"time": T0.isoformat(), "per_kwh": 0.20}]
+    regional = [(T0, 0.05), (T0 + 2 * FIVE, 0.09)]
+    values, real = price_blend.resample_price_with_extrapolation(
+        forecast, "per_kwh", [T0, T0 + 3 * FIVE], regional, {}
+    )
+    assert values == [0.20, pytest.approx(0.09 + 0.15)]
     assert real == [True, False]

@@ -61,6 +61,7 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders(
         fees_doubled=("sensor.flex_up", "network fees"),
         fees_on_tariff=("sensor.pd7", "fees"),
         regional_forecast_missing=("AEMO", "QLD1"),
+        stuck_regional_spot=("sensor.regional_spot", 9, 864),
         settings={
             const.CONF_SOLVER_BATTERY_CAPACITY_KWH: 0.0,
             const.CONF_SOLVER_BATTERY_MIN_SOC_PERCENT: 90,
@@ -74,7 +75,7 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders(
     )
     infeasible = sh._plan_failing_issue({"count": 5, "status": "infeasible"})
     every.append(infeasible)
-    assert len({i.kind for i in every}) == 16
+    assert len({i.kind for i in every}) == 17
     for issue in every:
         words = set(re.findall(r"\{(\w+)\}", json.dumps(ISSUES[issue.kind])))
         assert words == set(issue.placeholders), issue.kind
