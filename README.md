@@ -37,6 +37,7 @@
 - [Proven in production](#proven-in-production) — the reference household's hardware, and what it measures
 - [Status and roadmap](#status-and-roadmap) — what is solid, what is not, what is next
 - [Contributing](#contributing) — tests, workflow, licence of contributions
+- [Support Nimbus](#support-nimbus) — buy me a coffee
 - [License](#license) — MIT
 
 New here? **[Install (HACS)](#install-hacs)** is the short version;
@@ -928,6 +929,12 @@ charge and discharge power, and a blended round-trip efficiency.
 - **Licence of contributions.** By contributing you agree your contributions are
   licensed under the same licence as this project (MIT). That is the GitHub
   default, stated here so there is no ambiguity. There is no CLA.
+
+## Support Nimbus
+
+Nimbus is free and always will be. If it saves you money and you'd like to say
+thanks, you can [buy me a coffee on Ko-fi](https://ko-fi.com/stillalive2810) ☕.
+Bug reports, ideas and testing help just as much.
 
 ## License
 
