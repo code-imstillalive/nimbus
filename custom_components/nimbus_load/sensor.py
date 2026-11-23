@@ -1239,11 +1239,12 @@ async def async_setup_entry(
     # solver_writer's sys.path setup. set_default_env_vars() runs first:
     # this can be the first import of solver_writer in the process, before
     # solver_runtime._ensure_ready(), and without the env vars its
-    # sys.path fallback broke every other install (nimbus #89). It does no
-    # disk I/O, so it is safe on the event loop.
+    # sys.path fallback broke every other install (nimbus #89). It calls
+    # tempfile.gettempdir(), whose first call writes and deletes a probe
+    # file, so it runs in the executor (HACS review, Frenck, 23 Nov 2026).
     from . import solver_runtime
 
-    solver_runtime.set_default_env_vars(hass)
+    await hass.async_add_executor_job(solver_runtime.set_default_env_vars, hass)
     # nimbus #349: the first import of solver_writer runs its module body
     # (a file open, a sys.path change, numpy and highspy), so it goes
     # through hass.async_add_import_executor_job(), off the event loop. A
