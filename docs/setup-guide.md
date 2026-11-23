@@ -1592,6 +1592,20 @@ Hard-refresh the browser (Ctrl-F5 / Cmd-Shift-R). The cards are registered by th
 integration at startup and the browser caches the old resource list. If it persists,
 restart Home Assistant.
 
+Nimbus loads its cards itself, so nothing appears under **Settings → Dashboards →
+Resources**; an empty list there is normal. If a card still shows "Custom element
+doesn't exist" after a hard refresh and a restart:
+
+1. Open `http://<your Home Assistant>/nimbus_load/nimbus-flow-card.js` in the
+   browser. You should see JavaScript; if not, reinstall Nimbus and restart.
+2. As a workaround, add the card yourself under **Settings → Dashboards →
+   Resources → Add resource**: URL `/nimbus_load/<card>.js` (for example
+   `/nimbus_load/nimbus-dispatch-card-v4.js`), type **JavaScript module**. It does
+   not conflict with what Nimbus loads.
+3. Please tell us in [#2513](https://github.com/code-imstillalive/nimbus/issues/2513)
+   (Home Assistant version, browser, and whether your dashboards are in YAML
+   mode): one tester needs this and we have not reproduced it yet.
+
 ### The quality score is missing or impossible-looking
 
 - **Missing**: all three real-measurement sensors must be set: load, real solar
