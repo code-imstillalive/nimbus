@@ -434,7 +434,7 @@ variables:
     {% if manual == 'DIS' %}{{ power_kw }}
     {% elif manual != '' or not plan_ok or not (f is iterable and f is not string)
           or f | length <= i %}0
-    {% else %}{{ [f[i].grid_export_kw | float(0), 0] | max | round(2) }}{% endif %}
+    {% else %}{{ [(f[i].get('grid_export_kw', 0) if f[i] is mapping else 0) | float(0), 0] | max | round(2) }}{% endif %}
   # absorb_surplus describes period 0; on a later row it still applies
   # unless that row discharges.
   absorb: >-
