@@ -2,7 +2,7 @@
 
 *Just a different type of cloud.*
 
-<a href="https://ko-fi.com/stillalive2810"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=6" alt="Buy Me a Coffee at ko-fi.com" height="48"></a>
+<a href="https://ko-fi.com/stillalive2810"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=6" alt="Buy Me a Coffee at ko-fi.com" height="72"></a>
 
 > 🌱 **Maturing: 1.0 is planned for around January 2027.** Nimbus is in the
 > HACS default list and drives real battery and grid dispatch on live installs
@@ -938,7 +938,7 @@ Nimbus is free and always will be. If it saves you money and you'd like to say
 thanks, you can [buy me a coffee on Ko-fi](https://ko-fi.com/stillalive2810) ☕.
 Bug reports, ideas and testing help just as much.
 
-<a href="https://ko-fi.com/stillalive2810"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=6" alt="Buy Me a Coffee at ko-fi.com" height="48"></a>
+<a href="https://ko-fi.com/stillalive2810"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=6" alt="Buy Me a Coffee at ko-fi.com" height="72"></a>
 
 ## License
 
