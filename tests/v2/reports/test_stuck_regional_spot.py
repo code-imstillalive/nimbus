@@ -67,7 +67,7 @@ def test_a_live_regional_spot_with_flat_spells_still_teaches_the_markup(monkeypa
         _retail(), regional_spot_sensor="sensor.regional_spot"
     )
     assert len(offset) == DAY
-    assert set(offset.values()) == {pytest.approx(0.09)}
+    assert all(v == pytest.approx(0.09) for v in offset.values())
     assert price_blend.stuck_regional_spot() is None
 
 

@@ -975,11 +975,12 @@ def resample_price_with_extrapolation(
     # learned at all, the markup is the gap between the last real price and
     # the wholesale price at that time, so the tail keeps wholesale's daily
     # shape at the retail level (a bare wholesale price is no retail price).
+    mean_offset: float | None
     if offset_by_5min:
         mean_offset = sum(offset_by_5min.values()) / len(offset_by_5min)
     else:
         seam = nearest_before(aemo_pts, last_real_time) if aemo_pts else None
-        mean_offset = None if seam is None else last_real_value - seam
+        mean_offset = None if seam is None else float(last_real_value) - seam
     out = []
     real_mask = []
     for gt in grid_times:
