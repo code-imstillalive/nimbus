@@ -2,6 +2,8 @@
 
 *Just a different type of cloud.*
 
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/stillalive2810)
+
 > 🌱 **Maturing: 1.0 is planned for around January 2027.** Nimbus is in the
 > HACS default list and drives real battery and grid dispatch on live installs
 > every day, but it is still being shaped by its first users. Expect a new
@@ -935,6 +937,8 @@ charge and discharge power, and a blended round-trip efficiency.
 Nimbus is free and always will be. If it saves you money and you'd like to say
 thanks, you can [buy me a coffee on Ko-fi](https://ko-fi.com/stillalive2810) ☕.
 Bug reports, ideas and testing help just as much.
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/stillalive2810)
 
 ## License
 
