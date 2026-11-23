@@ -192,19 +192,14 @@ individually optional. Read that feature's instructions before enabling it.
 
 ## 3. Install it
 
+Nimbus is in the HACS default list (since 23 Nov 2026), so you don't need to
+add a custom repository.
+
 1. Open **HACS**.
-2. From the three-dot menu, select **Custom repositories**.
-3. Enter `https://github.com/code-imstillalive/nimbus` in **Repository**.
-4. Select **Integration** as the type or category.
-5. Select **Add**.
-6. Find **Nimbus** in HACS.
-7. Open its page.
-8. Select **Download**.
-9. Restart Home Assistant from **Settings → System**.
-
-![HACS Custom repositories dialog, with Nimbus listed as code-imstillalive/nimbus](images/setup/hacs-custom-repo.png)
-
-The custom repository appears in HACS after you add it.
+2. Search for **Nimbus**.
+3. Open its page.
+4. Select **Download**.
+5. Restart Home Assistant from **Settings → System**.
 
 **Expected outcome:** after the restart, Nimbus appears in Settings → Devices &
 Services → **Add Integration** search.
