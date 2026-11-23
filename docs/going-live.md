@@ -155,6 +155,20 @@ If your integration already has scripts for these, call the script instead.
 The blueprint passes `power_kw` (positive, in kW, capped at your maximum) to
 the power action; you choose charge or discharge by which mode action runs.
 
+**Which value to send.** `power_kw` is the battery's power on the **AC side**
+(what the plan has the battery deliver, house load included). It suits an
+inverter whose setpoint is AC battery power. Two other cases:
+
+- **Your inverter has an export-target mode** ("sell power", "feed-in
+  power"): use `{{ export_kw }}` in that mode instead. It is the plan's
+  **grid export** right now, in kW (0 or more), and the inverter covers the
+  house load and its own conversion losses itself. When discharging in this
+  mode, put the same mode command in *Enter Discharge mode*.
+- **Your setpoint is battery (DC) side** and you see a little less export than
+  planned (a 15 kW plan exporting about 14.7 kW): conversion losses, about 3 %
+  each way. The export-target mode above avoids this; if your inverter has
+  none, scale the value, for example `{{ power_kw / 0.97 }}`.
+
 | Action | What it must do | Typical example |
 |---|---|---|
 | **Enter Charge mode** | Put the inverter in forced/remote **charging** | remote-control mode on, command "charge" |

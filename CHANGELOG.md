@@ -10,6 +10,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 - **Battery dispatch acts on the minute at a price change** (blueprint fix). A tester's discharge planned for a 17:00 price rise started at 17:01:45, two days running: the plan made at 16:59 already had its 17:00 row, but the blueprint followed the plan's first minute until the next plan landed. When the clock has moved past the plan's first minute to a minute where a price (import, export or P2P rate) changes, the minute tick now follows the plan's row for that minute: its power, house-battery share, hold and solar-charge flags. Between price changes the plan's first minute still decides, so Nimbus's own anti-flap margin is untouched. Blueprints are imported from `main`; re-import it to get the fix.
 - Internal: tests +1.
+- **Battery dispatch: `export_kw` for export-target inverters** (blueprint). A tester's inverter setpoint is battery-side, so a 15 kW export plan (15.54 kW of battery with the house load) exported about 14.7 kW after conversion losses; he used to run the inverter's "sell power" mode with the export target instead. The blueprint now also gives actions `export_kw`, the plan's grid export for the minute being followed (0 when the plan cannot be followed; the discharge power in a manual Discharge). `power_kw` and every existing automation are unchanged. The going-live guide says which to use. Re-import the blueprint to get it.
+- Internal: tests +1.
 
 ## [0.110.0] - 2026-11-22
 

@@ -174,7 +174,10 @@ blueprint:
           description: >-
             Write the power setpoint. Runs every cycle while charging or
             discharging. Use the variable {{ power_kw }}: the plan's power in
-            kW, always positive, already clamped to your maximum.
+            kW, always positive, already clamped to your maximum. For an
+            inverter driven by an export target instead (a "sell power" mode,
+            where the inverter covers the house load and its own losses), use
+            {{ export_kw }}: the plan's grid export now, kW, 0 or more.
           selector:
             action: {}
         self_consume_actions:
@@ -420,6 +423,18 @@ variables:
       {% set p = [p, allowed_raw | float(0)] | min %}
     {% endif %}
     {{ p | round(2) }}
+  # A tester, 23 Nov 2026: their inverter's power setpoint is battery-side,
+  # so a 15.54 kW AC plan (15 kW export + house) exported ~14.7 kW after
+  # conversion losses. The plan's grid export for the minute being followed,
+  # for an export-target ("sell power") mode. A manual Discharge has no plan
+  # export, so it uses the discharge power.
+  export_kw: >-
+    {% set i = now_i | int(0) %}
+    {% set f = state_attr(plan_entity, 'forecast') %}
+    {% if manual == 'DIS' %}{{ power_kw }}
+    {% elif manual != '' or not plan_ok or not (f is iterable and f is not string)
+          or f | length <= i %}0
+    {% else %}{{ [(f[i].get('grid_export_kw', 0) if f[i] is mapping else 0) | float(0), 0] | max | round(2) }}{% endif %}
   # absorb_surplus describes period 0; on a later row it still applies
   # unless that row discharges.
   absorb: >-

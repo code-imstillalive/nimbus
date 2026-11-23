@@ -553,3 +553,38 @@ def test_a_price_change_is_followed_on_the_minute_not_after_the_next_solve():
     # A refused or stale plan is never rolled forward.
     _, ctx = run("tick", plan="0.0", now=at, status="infeasible", attrs=attrs)
     assert ctx["want"] == "FALLBACK"
+
+
+def test_export_kw_follows_the_plans_grid_export_for_sell_power_inverters():
+    """A tester, 23 Nov 2026: an inverter whose setpoint is battery-side
+    exported ~14.7 kW for a 15 kW plan. export_kw gives an export-target
+    ("sell power") action the plan's grid export itself; power_kw is
+    unchanged, so nobody else's dispatch moves."""
+    rows = [
+        _row("2026-11-22T17:59:00+10:00", 15.54, 0.60, grid_export_kw=15.0),
+        _row("2026-11-22T18:00:00+10:00", 15.54, 0.60, grid_export_kw=15.0),
+    ]
+    at = datetime(2026, 11, 22, 17, 59, 30, tzinfo=TZ)
+    _, ctx = run("tick", plan="15.54", now=at, plan_age_s=20, attrs={"forecast": rows})
+    assert ctx["export_kw"] == 15.0
+    assert ctx["power_kw"] == 5.0  # clamped to max_power_kw, as before
+    # No export in the plan, or a plan that cannot be followed: 0.
+    _, ctx = run(
+        "tick",
+        plan="0.0",
+        now=at,
+        plan_age_s=20,
+        attrs={"forecast": [dict(r, grid_export_kw=0.0) for r in rows]},
+    )
+    assert ctx["export_kw"] == 0
+    _, ctx = run(
+        "tick", plan="15.54", status="infeasible", now=at, attrs={"forecast": rows}
+    )
+    assert ctx["export_kw"] == 0
+    # A plan from before forecast rows existed: 0, never an error.
+    _, ctx = run("tick", plan="3.0")
+    assert ctx["export_kw"] == 0
+    # A manual Discharge exports the discharge power.
+    sel = "input_select.dispatch_mode"
+    _, ctx = run("tick", plan="0.0", mode_select=sel, extra={sel: "Discharge"})
+    assert ctx["export_kw"] == 5.0
