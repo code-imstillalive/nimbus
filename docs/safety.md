@@ -60,6 +60,9 @@ fixed:
 - fees counted twice;
 - a frozen price input;
 - a missing regional forecast;
+- a regional price sensor (Source 2, AEMO: regional price now) that has
+  stopped updating, or that the recorder keeps no history for, so your retail
+  markup cannot be learned from it;
 - an empty required Solver input;
 - a load forecast with no whole-house sensor set, so the Forecaster's
   whole-house corrections cannot apply;

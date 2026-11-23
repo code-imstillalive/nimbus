@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.112.0] - 2026-11-24
+
+**Prices past your retailer's forecast keep your retail markup, and a regional price sensor that stops updating is reported.**
+
+- **Fix: days past your retailer's own price forecast were priced at bare wholesale, with spikes at a few fixed times** (#2615). Nimbus prices the days your retailer's forecast does not reach as the regional wholesale forecast plus your retail markup, learned per 5-minute slot of the day from **Source 2, AEMO: regional price now**. A tester's sensor there had stopped updating: it recorded a value only a few times a day, so the markup was learned in just those slots, as almost the whole retail price (spikes at about 03:30, 11:00 and 13:30 every day), and every other slot had none, so buy and sell were both bare wholesale and overnight grid power looked about half its real cost. The same happened, without the spikes, to a sensor the recorder keeps no history for. Now:
+  - a regional price sensor that recorded a value in under half of the last five days' 5-minute intervals, or none, teaches no markup;
+  - a new **Repair**, "the regional spot price sensor has stopped updating", names the sensor and says what to pick instead; it clears itself once the sensor updates again;
+  - a slot with no learned markup takes the average markup, and with no markup learned at all, prices past the forecast follow wholesale's daily shape at the gap to your last real retail price, never bare wholesale.
+- **Check your setting:** **Source 2, AEMO: regional price now** should be a 5-minute *current* price that changes every 5 minutes (for AEMO NEM Data, *Current 5min Period Price* for your region), not a forecast sensor. The markup relearns within about three days of a change.
+- Internal: tests 993 → 997. The four rich-site golden scenarios change past the feed (buy and sell kept apart instead of both bare wholesale); the other 18 are unchanged.
+- Install shapes (#2394): touches every install with a price forecast array and a regional sensor (the price path past the feed). Seen on a tester's install (stuck regional sensor, diagnostics). Reference household: its regional "now" field pointed at a forecast sensor the recorder does not keep; changed by the household to the 5-minute current price on 24 Nov, after which the markup appeared at once. Mark Purcell's install (Amber, same-poll wholesale): unseen; a slot with no markup now takes the average instead of zero.
+
 ## [0.111.0] - 2026-11-23
 
 **Nimbus is in the HACS default list. Welcome, and thank you for trying it.**
@@ -24,6 +36,12 @@ This release:
 - Blueprints are imported from GitHub: **re-import the battery dispatch blueprint** to get the dispatch changes above.
 - Internal: tests 988 → 993.
 - Install shapes (#2394): the blueprint settings are opt-in, defaults unchanged on every shape; seen on a tester's install (sell-power inverter, P2P blocks). The startup fix touches every shape (setup path only). Reference household and Mark Purcell's install: defaults, no change expected.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at cd622faf** (`release/0.111.0`, installed untagged through Home Assistant's marketplace by branch at 19:14 AEST, 23 Nov, restarted; read through 19:17).
+  - 125 of the 129 Nimbus entities carrying a version read 0.111.0; the other four are the daily reports (0.110.0). No Nimbus entity unavailable; plan `optimal` (solved 19:16); all 62 Solver numbers present and unchanged from a read just before the install; no Repairs.
+  - The startup fix: no "blocking call" warning in the log after the restart; no Nimbus error. Warnings present are known and not from this release (the test car's low live SoC, two implausible test-meter rows, one skipped tick while the first solve ran).
+  - `sensor.nimbus_status` What's new leads with the 0.111.0 entries.
+  - The battery dispatch blueprint from this commit saved to devhub through the blueprint websocket: Home Assistant accepted it, shows *Discharge setpoint* (Battery power default / Grid export) and *Discharge setpoint correction* (default 100), and the test dispatch automation using it stayed loaded (`on`). The dispatch behaviour itself is covered by the blueprint tests; live sell-power export is the tester's evening of 23 Nov.
+- Consumer check: no setting, entity id or name changes in the integration. The battery dispatch blueprint gains two optional inputs whose defaults keep every existing automation's behaviour; re-importing it is needed for the on-the-minute start. Home Assistant's Documentation link for Nimbus now opens the docs site.
 
 ## [0.110.0] - 2026-11-22
 
