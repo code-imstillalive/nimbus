@@ -588,6 +588,11 @@ def compute_5min_offset(
         return {}
     wholesale = _wholesale_by_interval(regional_spot_sensor, days, same_poll_wholesale)
     if not wholesale:
+        # No recorded value at all (a sensor the recorder leaves out, or one
+        # that never updated) is the same gap as a stuck one: say so.
+        _regional_spot_is_updating(
+            regional_spot_sensor, _settled_by_interval(real_history), {}
+        )
         return {}
 
     # nimbus #1694: each interval's SETTLED retail price against the SAME
@@ -595,6 +600,8 @@ def compute_5min_offset(
     # interval, provisional posts included), and each bucket's median over its
     # last _OFFSET_RECENT_DAYS samples, so a tariff change is followed.
     retail = _settled_by_interval(real_history)
+    if not _regional_spot_is_updating(regional_spot_sensor, retail, wholesale):
+        return {}
     by_bucket: dict[int, list[tuple[datetime, float]]] = {}
     for key in retail.keys() & wholesale.keys():
         start, real_v = retail[key]
@@ -611,6 +618,57 @@ def compute_5min_offset(
         b: statistics.median(v for _, v in sorted(rows)[-_OFFSET_RECENT_DAYS:])
         for b, rows in by_bucket.items()
     }
+
+
+# A live regional sensor records a value in most 5-minute intervals (one
+# holding the same price records nothing until it changes, so not all). One
+# that records in under half the retail intervals has stopped updating: a
+# tester's recorded three times a day, which taught a markup only there.
+_MIN_WHOLESALE_COVERAGE = 0.5
+_STUCK_SPOT_WARNED: set[str] = set()
+# The latest finding per sensor, (intervals with a value, retail intervals),
+# read by setup_health for its Repair; cleared once the sensor updates again.
+_STUCK_SPOT: dict[str, tuple[int, int]] = {}
+
+
+def stuck_regional_spot() -> tuple[str, int, int] | None:
+    """The regional spot sensor last found not updating, with how many of the
+    retail intervals it recorded a value in, or None."""
+    for sensor, (covered, total) in _STUCK_SPOT.items():
+        return sensor, covered, total
+    return None
+
+
+def _regional_spot_is_updating(
+    regional_spot_sensor: str | None,
+    retail: dict[int, tuple[datetime, float]],
+    wholesale: dict[int, tuple[datetime, float]],
+) -> bool:
+    """Whether the regional sensor recorded a value in at least
+    `_MIN_WHOLESALE_COVERAGE` of the retail intervals over the same span.
+    Warns once per sensor when it did not."""
+    if not retail:
+        return True
+    first, last = min(retail), max(retail)
+    covered = sum(1 for k in wholesale if first <= k <= last)
+    if covered >= _MIN_WHOLESALE_COVERAGE * len(retail):
+        _STUCK_SPOT_WARNED.discard(regional_spot_sensor or "")
+        _STUCK_SPOT.pop(regional_spot_sensor or "", None)
+        return True
+    _STUCK_SPOT[regional_spot_sensor or ""] = (covered, len(retail))
+    if (regional_spot_sensor or "") not in _STUCK_SPOT_WARNED:
+        _STUCK_SPOT_WARNED.add(regional_spot_sensor or "")
+        solver_shared._LOGGER.warning(
+            "Nimbus: the regional spot current price sensor %s recorded a value "
+            "in only %d of %d five-minute intervals, so it looks stuck; no retail "
+            "markup is learned from it. Point Solver settings -> Regional spot "
+            "current price at a sensor that updates every 5 minutes. A Repair "
+            "says the same.",
+            regional_spot_sensor,
+            covered,
+            len(retail),
+        )
+    return False
 
 
 def _wholesale_by_interval(
@@ -913,6 +971,16 @@ def resample_price_with_extrapolation(
                 break
         return val
 
+    # A slot with no learned markup takes the average markup. With none
+    # learned at all, the markup is the gap between the last real price and
+    # the wholesale price at that time, so the tail keeps wholesale's daily
+    # shape at the retail level (a bare wholesale price is no retail price).
+    mean_offset: float | None
+    if offset_by_5min:
+        mean_offset = sum(offset_by_5min.values()) / len(offset_by_5min)
+    else:
+        seam = nearest_before(aemo_pts, last_real_time) if aemo_pts else None
+        mean_offset = None if seam is None else float(last_real_value) - seam
     out = []
     real_mask = []
     for gt in grid_times:
@@ -927,12 +995,12 @@ def resample_price_with_extrapolation(
             real_mask.append(first_real_time <= gt)
             continue
         aemo_v = nearest_before(aemo_pts, gt)
-        if aemo_v is not None:
+        if aemo_v is not None and mean_offset is not None:
             bucket = (
                 solver_shared._local(gt).hour * 12
                 + solver_shared._local(gt).minute // 5
             )
-            out.append(float(aemo_v + offset_by_5min.get(bucket, 0.0)))
+            out.append(float(aemo_v + offset_by_5min.get(bucket, mean_offset)))
         else:
             out.append(float(last_real_value))
         real_mask.append(False)

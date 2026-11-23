@@ -912,6 +912,10 @@
       "title": "Nimbus: no forecast yet for {name}",
       "description": "Nimbus has not been able to train a forecast for **{name}**: {reason}.\n\nUsually this needs a few more days of history (about five days of the sensor's own readings). If the sensor has been running longer than that, check in Settings → Devices & services → Nimbus that this Load or Power Signal points at the right power sensor. This message clears itself once a forecast is trained."
     },
+    "regional_spot_not_updating": {
+      "title": "Nimbus: the regional spot price sensor has stopped updating",
+      "description": "The sensor in Solver settings → Regional spot current price, `{sensor}`, recorded a value in only {covered} of the last {total} five-minute intervals. Nimbus learns your retailer's markup from it, to price the days past your retailer's own forecast, so it has stopped learning from it: those days hold your last known retail price instead.\n\nCheck the sensor in Developer Tools → States, or point the setting at a regional price sensor that changes every 5 minutes. This message clears itself once it updates again."
+    },
     "frozen_price_input": {
       "title": "Nimbus: a price setting does not follow the live price",
       "description": "These price settings point at a rate that is fixed when the forecast is built and never revised (LocalVolts Rate All Var). On 9 Oct 2026 such a rate stayed near 13c while the live price reached $1.32, so the plan never saw the spike:\n\n{inputs}\n\nPoint them at the live price instead: for LocalVolts, Buy Flex Up and Sell Flex Up, and Flex Up Forecast for the price array. This message clears itself once fixed."

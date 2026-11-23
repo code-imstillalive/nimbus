@@ -129,6 +129,7 @@ KIND_FEES_DOUBLED = "fees_on_top_of_flex_up"
 KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
 KIND_NO_REGIONAL_FORECAST = "regional_forecast_missing"
+KIND_STUCK_REGIONAL_SPOT = "regional_spot_not_updating"
 KIND_WHOLE_HOUSE_UNSET = "whole_house_sensor_unset"
 KIND_TABS_CARD_MISSING = "tabs_card_missing"
 KIND_AVAILABILITY_MISMATCH = "availability_states_never_match"
@@ -200,6 +201,7 @@ def evaluate_health(
     fees_doubled: tuple[str, str] | None = None,
     fees_on_tariff: tuple[str, str] | None = None,
     regional_forecast_missing: tuple[str, str] | None = None,
+    stuck_regional_spot: tuple[str, int, int] | None = None,
     settings: Mapping[str, float] | None = None,
     has_load_forecast: bool = False,
     failed_streak: Mapping[str, Any] | None = None,
@@ -222,6 +224,8 @@ def evaluate_health(
     `tabs_card_missing` is `tabs_card_missing()` of the stored dashboards.
     `unavailable_entities` is `unavailable_too_long()`: (entity, where it is
     used, since when) for each chosen entity silent past `UNAVAILABLE_GRACE`.
+    `stuck_regional_spot` is price_blend's (sensor, intervals with a value,
+    retail intervals) when the regional spot sensor has stopped updating.
     """
     issues: list[HealthIssue] = []
     for entity_id, where, since in unavailable_entities:
@@ -357,6 +361,20 @@ def evaluate_health(
             )
         )
 
+    if stuck_regional_spot is not None:
+        sensor, covered, total = stuck_regional_spot
+        issues.append(
+            HealthIssue(
+                key=KIND_STUCK_REGIONAL_SPOT,
+                kind=KIND_STUCK_REGIONAL_SPOT,
+                placeholders={
+                    "sensor": sensor,
+                    "covered": str(covered),
+                    "total": str(total),
+                },
+            )
+        )
+
     issues += _settings_issues(settings or {})
 
     if has_load_forecast and not options.get(
@@ -443,6 +461,21 @@ def _solver_publish_module() -> Any:
     return sys.modules.get(f"{__package__}.solver_publish") or sys.modules.get(
         "solver_publish"
     )
+
+
+def _solver_stuck_regional_spot() -> tuple[str, int, int] | None:
+    """price_blend's stuck regional spot finding, only if the solver has
+    already loaded it (importing it here would load the solver on the event
+    loop)."""
+    import sys
+
+    module = sys.modules.get(
+        f"{__package__}.solver_inputs.price_blend"
+    ) or sys.modules.get("solver_inputs.price_blend")
+    try:
+        return module.stuck_regional_spot() if module is not None else None
+    except Exception:  # noqa: BLE001 - a health read must never fail the refresh
+        return None
 
 
 def _solver_failed_streak() -> Mapping[str, Any] | None:
@@ -855,6 +888,7 @@ async def async_refresh_health(
             regional_forecast_missing=detect_missing_regional_forecast(
                 hass, dict(entry.options)
             ),
+            stuck_regional_spot=_solver_stuck_regional_spot(),
             settings=_live_settings(hass, entry),
             has_load_forecast=any(
                 getattr(sub, "subentry_type", None) == SUBENTRY_TYPE_LOAD

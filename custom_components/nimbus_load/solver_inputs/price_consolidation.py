@@ -188,6 +188,8 @@ def aemo_markup_series(
         return [None] * len(grid_times)
     pts = sorted(aemo_pts, key=lambda p: p[0])
     offsets = offset_by_5min or {}
+    # A slot with no learned markup takes the average, as the plan does.
+    mean = sum(offsets.values()) / len(offsets) if offsets else 0.0
     out: list[float | None] = []
     j = -1
     for gt in grid_times:
@@ -196,7 +198,7 @@ def aemo_markup_series(
         if j < 0:
             out.append(None)
         else:
-            out.append(float(pts[j][1]) + float(offsets.get(bucket_of(gt), 0.0)))
+            out.append(float(pts[j][1]) + float(offsets.get(bucket_of(gt), mean)))
     return out
 
 
