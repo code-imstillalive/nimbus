@@ -218,6 +218,20 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.112.0",
+        "24 Nov 2026",
+        (
+            (
+                "Prices past your retailer's forecast keep your retail markup "
+                "instead of falling to bare wholesale."
+            ),
+            (
+                "A Repair says when the regional price sensor (Source 2, AEMO: "
+                "regional price now) stops updating."
+            ),
+        ),
+    ),
+    (
         "0.111.0",
         "23 Nov 2026",
         (
