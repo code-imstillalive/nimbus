@@ -24,6 +24,12 @@ This release:
 - Blueprints are imported from GitHub: **re-import the battery dispatch blueprint** to get the dispatch changes above.
 - Internal: tests 988 → 993.
 - Install shapes (#2394): the blueprint settings are opt-in, defaults unchanged on every shape; seen on a tester's install (sell-power inverter, P2P blocks). The startup fix touches every shape (setup path only). Reference household and Mark Purcell's install: defaults, no change expected.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at cd622faf** (`release/0.111.0`, installed untagged through Home Assistant's marketplace by branch at 19:14 AEST, 23 Nov, restarted; read through 19:17).
+  - 125 of the 129 Nimbus entities carrying a version read 0.111.0; the other four are the daily reports (0.110.0). No Nimbus entity unavailable; plan `optimal` (solved 19:16); all 62 Solver numbers present and unchanged from a read just before the install; no Repairs.
+  - The startup fix: no "blocking call" warning in the log after the restart; no Nimbus error. Warnings present are known and not from this release (the test car's low live SoC, two implausible test-meter rows, one skipped tick while the first solve ran).
+  - `sensor.nimbus_status` What's new leads with the 0.111.0 entries.
+  - The battery dispatch blueprint from this commit saved to devhub through the blueprint websocket: Home Assistant accepted it, shows *Discharge setpoint* (Battery power default / Grid export) and *Discharge setpoint correction* (default 100), and the test dispatch automation using it stayed loaded (`on`). The dispatch behaviour itself is covered by the blueprint tests; live sell-power export is the tester's evening of 23 Nov.
+- Consumer check: no setting, entity id or name changes in the integration. The battery dispatch blueprint gains two optional inputs whose defaults keep every existing automation's behaviour; re-importing it is needed for the on-the-minute start. Home Assistant's Documentation link for Nimbus now opens the docs site.
 
 ## [0.110.0] - 2026-11-22
 
