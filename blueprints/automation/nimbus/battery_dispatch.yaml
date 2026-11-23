@@ -142,6 +142,22 @@ blueprint:
               step: 0.1
               unit_of_measurement: kW
               mode: box
+        discharge_correction_pct:
+          name: Discharge setpoint correction
+          description: >-
+            Scales the value sent while discharging, for an inverter that
+            delivers a little less than it is asked for (a tester's exports
+            about 4.5 % short even in sell-power mode: 104.5). 100 = no change
+            (the default). Never above your maximum battery power. Charging
+            is not scaled.
+          default: 100
+          selector:
+            number:
+              min: 90
+              max: 115
+              step: 0.5
+              unit_of_measurement: "%"
+              mode: box
         discharge_setpoint:
           name: Discharge setpoint
           description: >-
@@ -352,6 +368,7 @@ variables:
   grace_min: !input reload_grace_minutes
   max_kw: !input max_power_kw
   setpoint_basis: !input discharge_setpoint
+  correction_pct: !input discharge_correction_pct
   dead_kw: !input deadband_kw
   dwell_min: !input min_dwell_minutes
   reversal_min_kw: !input reversal_kw
@@ -497,8 +514,11 @@ variables:
   # user picks, not a template to edit). Battery power unless "Grid export"
   # is chosen and the battery is discharging.
   power_kw: >-
-    {{ export_kw if setpoint_basis == 'export' and target_mode == 'DIS'
-       else battery_power_kw }}
+    {% if target_mode == 'DIS' %}
+      {% set p = export_kw if setpoint_basis == 'export' else battery_power_kw %}
+      {{ ([p | float(0) * (correction_pct | float(100)) / 100,
+           max_kw | float(0)] | min) | round(2) }}
+    {% else %}{{ battery_power_kw }}{% endif %}
   mode_changed: "{{ mode_entity == '' or target_mode != current }}"
   # Re-send the current mode's command even though it has not changed: at
   # start (the helper survives a restart, the inverter's state may not), and
