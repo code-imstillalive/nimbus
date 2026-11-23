@@ -142,6 +142,23 @@ blueprint:
               step: 0.1
               unit_of_measurement: kW
               mode: box
+        discharge_setpoint:
+          name: Discharge setpoint
+          description: >-
+            What {{ power_kw }} carries while discharging. "Battery power" (the
+            default): the battery's planned power, house load included. "Grid
+            export": the plan's export to the grid, for an inverter you drive
+            in an export-target mode ("sell power", "feed-in power"), which
+            covers the house load and its own losses itself; put that mode in
+            "Enter Discharge mode". Charging always uses battery power.
+          default: battery
+          selector:
+            select:
+              options:
+                - label: Battery power (default)
+                  value: battery
+                - label: Grid export (sell power mode)
+                  value: export
         deadband_kw:
           name: Deadband
           description: A plan within this of 0 kW counts as idle.
@@ -334,6 +351,7 @@ variables:
   stale_min: !input stale_after_minutes
   grace_min: !input reload_grace_minutes
   max_kw: !input max_power_kw
+  setpoint_basis: !input discharge_setpoint
   dead_kw: !input deadband_kw
   dwell_min: !input min_dwell_minutes
   reversal_min_kw: !input reversal_kw
@@ -416,7 +434,7 @@ variables:
     {{ max_kw | float(0) if manual in ['CHG', 'DIS']
        else [plan_kw | abs, max_kw | float(0)] | min }}
   # nimbus #2257: a charge is never above the live allowance.
-  power_kw: >-
+  battery_power_kw: >-
     {% set p = plan_power_kw | float(0) %}
     {% if (manual == 'CHG' or (manual == '' and plan_kw < 0))
           and is_number(allowed_raw) %}
@@ -431,7 +449,7 @@ variables:
   export_kw: >-
     {% set i = now_i | int(0) %}
     {% set f = state_attr(plan_entity, 'forecast') %}
-    {% if manual == 'DIS' %}{{ power_kw }}
+    {% if manual == 'DIS' %}{{ battery_power_kw }}
     {% elif manual != '' or not plan_ok or not (f is iterable and f is not string)
           or f | length <= i %}0
     {% else %}{{ [(f[i].get('grid_export_kw', 0) if f[i] is mapping else 0) | float(0), 0] | max | round(2) }}{% endif %}
@@ -475,6 +493,12 @@ variables:
        or mode_entity == '' or (dwell_min | float(0)) == 0
        or (held_s | float(0)) >= (dwell_min | float(0)) * 60 or dwell_exempt }}
   target_mode: "{{ want if may_switch else current }}"
+  # The value the power action sends (household, 23 Nov 2026: a setting a
+  # user picks, not a template to edit). Battery power unless "Grid export"
+  # is chosen and the battery is discharging.
+  power_kw: >-
+    {{ export_kw if setpoint_basis == 'export' and target_mode == 'DIS'
+       else battery_power_kw }}
   mode_changed: "{{ mode_entity == '' or target_mode != current }}"
   # Re-send the current mode's command even though it has not changed: at
   # start (the helper survives a restart, the inverter's state may not), and

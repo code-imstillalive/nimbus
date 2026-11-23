@@ -588,3 +588,36 @@ def test_export_kw_follows_the_plans_grid_export_for_sell_power_inverters():
     sel = "input_select.dispatch_mode"
     _, ctx = run("tick", plan="0.0", mode_select=sel, extra={sel: "Discharge"})
     assert ctx["export_kw"] == 5.0
+
+
+def test_the_discharge_setpoint_option_sends_the_export_when_chosen():
+    """Household, 23 Nov 2026: a setting the user picks, not a template to
+    edit. With "Grid export" chosen, power_kw carries the plan's export while
+    discharging; charging, and the default, are battery power as before."""
+    rows = [_row("2026-11-22T17:59:00+10:00", 4.6, 0.60, grid_export_kw=4.0)]
+    at = datetime(2026, 11, 22, 17, 59, 30, tzinfo=TZ)
+    attrs = {"forecast": rows}
+    _, ctx = run("tick", plan="4.6", now=at, plan_age_s=20, attrs=attrs)
+    assert ctx["power_kw"] == 4.6  # default: battery power
+    _, ctx = run(
+        "tick",
+        plan="4.6",
+        now=at,
+        plan_age_s=20,
+        attrs=attrs,
+        discharge_setpoint="export",
+    )
+    assert ctx["target_mode"] == "DIS"
+    assert ctx["power_kw"] == 4.0
+    # Charging always sends battery power.
+    charge = [_row("2026-11-22T17:59:00+10:00", -3.0, 0.10, grid_export_kw=0.0)]
+    _, ctx = run(
+        "tick",
+        plan="-3.0",
+        now=at,
+        plan_age_s=20,
+        attrs={"forecast": charge},
+        discharge_setpoint="export",
+    )
+    assert ctx["target_mode"] == "CHG"
+    assert ctx["power_kw"] == 3.0
