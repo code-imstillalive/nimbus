@@ -437,12 +437,12 @@ def reset_module_state() -> None:
 def set_default_env_vars(hass: HomeAssistant) -> None:
     """The env vars solver_writer.py's own module-level code needs
     ALREADY set, correctly, before it is EVER imported anywhere in this
-    package -- pure os.environ.setdefault()/hass.config.path() calls,
-    no disk I/O, no solver_writer import, safe to call from the event
-    loop (see the two real call sites: sensor.py's async_setup_entry,
-    which genuinely does run on the event loop, and _ensure_ready()
-    below, which is deliberately called from a worker thread for
-    OTHER reasons -- see that function's own docstring).
+    package -- os.environ.setdefault()/hass.config.path() calls and
+    tempfile.gettempdir(), whose FIRST call in a process writes and
+    deletes a probe file. So it is never called on the event loop: both
+    call sites (sensor.py's async_setup_entry, via
+    hass.async_add_executor_job since the HACS review of 23 Nov 2026, and
+    _ensure_ready() below) run it in a worker thread.
 
     Real bug found live (nimbus issue #89, Mark Purcell, 2026-08-23):
     this used to be inlined ONLY inside _ensure_ready() below, which
