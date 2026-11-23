@@ -112,6 +112,7 @@ def world(monkeypatch, tmp_path):
         ),
         async_create_task=lambda coro: tasks.append(coro) or coro.close(),
         async_add_import_executor_job=import_job,
+        async_add_executor_job=import_job,
     )
     return SimpleNamespace(
         hass=hass,

@@ -142,10 +142,12 @@ You need, at minimum:
 
 ### 1. Install
 
-1. HACS → three-dot menu → **Custom repositories**
-2. Add `https://github.com/code-imstillalive/nimbus`, category **Integration**
-3. Install **Nimbus**, then **restart Home Assistant** — a full restart, not a
-   reload. Home Assistant only loads new Python on a restart.
+Nimbus is in the HACS default list (since 23 Nov 2026), so no custom
+repository is needed.
+
+1. **HACS** → search **Nimbus** → open it → **Download**.
+2. **Restart Home Assistant** — a full restart, not a reload. Home Assistant
+   only loads new Python on a restart.
 
 ### 2. Add the integration
 
