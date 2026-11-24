@@ -170,6 +170,13 @@ inverter whose setpoint is AC battery power. Two other cases:
   output rather than the meter): set **Discharge setpoint correction**, for
   example 104.5 % for 4.5 % short. Discharge setpoints are scaled by it, never
   above *Maximum battery power*; charging is not.
+- **Your grid meter shows a steady amount less than the planned export**
+  while discharging (for example 13.6 kW for a 14 kW plan, and about the same
+  kW short at lower power): set **Export bias** to that shortfall, for example
+  0.4 kW. It is added to the value sent while the plan exports to the grid,
+  never above *Maximum battery power*; charging, and discharging only to cover
+  the house, are not changed. It reads no meter, so it cannot swing; measure
+  the shortfall over a block (planned export minus meter export) and set it.
 - **Your setpoint is battery (DC) side** and you see a little less export than
   planned (a 15 kW plan exporting about 14.7 kW): conversion losses, about 3 %
   each way. The export-target mode above avoids this; if your inverter has
