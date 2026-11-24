@@ -119,6 +119,13 @@ _START_HERE = (
     + _TICK % "stoch.get('solar_band') == 'calibrated'"
     + " | **6. Solar band calibrated** | Stochastic | Nothing to do: needs "
     "some days of solar history; until then it says why it is waiting. |\n"
+    + "| "
+    + _TICK % "states('number.nimbus_solver_p2p_export_bias_kw') | float(0) > 0"
+    + " | **7. P2P: check what reaches the meter** (if you sell P2P) | Solver | "
+    "While a block sells, compare the grid meter with the block amount. If the "
+    "meter reads short (e.g. 13.6 kW for a 14 kW block), set **Solver tab → P2P "
+    "→ Export bias** to the gap (e.g. 0.4 kW); the battery dispatch blueprint "
+    "adds it while selling. 0 = off. |\n"
     + "\n{% if plan %}Nimbus {{ plan.attributes.get('nimbus_version') }} · "
     "plan {{ plan.attributes.get('status') }}{% endif %}"
 )
@@ -2138,6 +2145,10 @@ SETTINGS: dict[str, tuple[str, str]] = {
     "solver_p2p_block_lead_time_minutes": (
         "Starts each block this many minutes early.",
         "Covers a ramp before the block opens.",
+    ),
+    "solver_p2p_export_bias_kw": (
+        "Added to the battery while selling, if the grid meter shows less than the block.",
+        "kW; steady, never reads the meter. 0 = off. Battery dispatch blueprint.",
     ),
     "solver_p2p_bonus_price": (
         "Paid above the sell price on P2P volume.",

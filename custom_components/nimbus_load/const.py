@@ -1452,6 +1452,12 @@ CONF_SOLVER_P2P_BLOCK_3_END_HOUR: Final = "solver_p2p_block_3_end_hour"
 # complete no-op. See fetch_p2p_fixed_export_kw()'s own docstring
 # (solver_writer.py) for the exact minute-granularity mechanism.
 CONF_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES: Final = "solver_p2p_block_lead_time_minutes"
+# Household, 24-25 Nov 2026: a steady kW added to the discharge setpoint while
+# the plan exports, for an inverter that delivers a steady amount less at the
+# grid meter than asked (measured ~0.35-0.4 kW at 14 and 10.5 kW). Read by the
+# battery dispatch blueprint (and a household's own dispatch automation); no
+# meter feedback, so it cannot hunt (Mark Purcell, #2621). 0 = no change.
+CONF_SOLVER_P2P_EXPORT_BIAS_KW: Final = "solver_p2p_export_bias_kw"
 # nimbus issue #567: a real household ask, live -- "is there a way to
 # receive a signal spike alert and instigate max discharge?" Deliberately
 # NOT built around any one retailer's own named alert product (this
@@ -1743,6 +1749,7 @@ DEFAULT_SOLVER_P2P_BLOCK_RATE_KW: Final = 0.0
 DEFAULT_SOLVER_P2P_BLOCK_START_HOUR: Final = 0
 DEFAULT_SOLVER_P2P_BLOCK_END_HOUR: Final = 0
 DEFAULT_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES: Final = 0
+DEFAULT_SOLVER_P2P_EXPORT_BIAS_KW: Final = 0.0
 # Every fee field defaults to 0 -- deliberately NOT seeded with this
 # household's own real tariff (same "genuinely blank for anyone else"
 # principle as the P2P blocks above). This household's own real values

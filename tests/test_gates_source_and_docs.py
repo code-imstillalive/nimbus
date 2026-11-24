@@ -499,6 +499,9 @@ KNOWN_INERT: dict[str, str] = {
     # meter at dispatch (sensor.nimbus_battery_allowed_charge_kw); the plan
     # keeps using Grid Max Import.
     "solver_site_import_limit_kw": "#2257: read at dispatch, not by the solve",
+    # Household, 25 Nov 2026 (#2623): read by the battery dispatch blueprint
+    # (and a household's own dispatch automation) at dispatch, not by the solve.
+    "solver_p2p_export_bias_kw": "#2623: read at dispatch by the blueprint",
 }
 
 

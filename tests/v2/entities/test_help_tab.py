@@ -38,7 +38,7 @@ def test_the_start_here_steps_cover_every_tab_with_a_live_tick():
         "Stochastic",
     ):
         assert tab in start
-    assert start.count("'✅' if") == 6
+    assert start.count("'✅' if") == 7  # 7: P2P export bias (#2623)
     # A derived stand-in inverter is not a real Power Source.
     assert "rejectattr('derived', 'defined')" in start
 

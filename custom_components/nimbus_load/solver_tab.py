@@ -186,11 +186,13 @@ _P2P: _Card = (
         ("solver_p2p_block_2_rate_kw", "Block 2 amount"),
         ("solver_p2p_block_3_rate_kw", "Block 3 amount"),
         ("solver_p2p_block_lead_time_minutes", "Start lead time"),
+        ("solver_p2p_export_bias_kw", "Export bias"),
         ("solver_p2p_bonus_price", "Bonus price"),
         ("solver_p2p_bonus_volume_kwh", "Bonus volume"),
         ("nimbus_solver_current_bonus_price", "Bonus price now"),
         ("solver_post_window_self_consume_hours", "Self-consume after midnight"),
         ("section", "Amount: the kW sold through each block; 0 = unused."),
+        ("section", "Export bias: kW added while selling if the meter reads short."),
         ("section", "Bonus: paid above the sell price on P2P volume."),
     ],
     (

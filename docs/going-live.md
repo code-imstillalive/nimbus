@@ -172,7 +172,8 @@ inverter whose setpoint is AC battery power. Two other cases:
   above *Maximum battery power*; charging is not.
 - **Your grid meter shows a steady amount less than the planned export**
   while discharging (for example 13.6 kW for a 14 kW plan, and about the same
-  kW short at lower power): set **Export bias** to that shortfall, for example
+  kW short at lower power): set **Export bias** on the Solver tab's P2P card
+  (or the blueprint's own *Export bias* input) to that shortfall, for example
   0.4 kW. It is added to the value sent while the plan exports to the grid,
   never above *Maximum battery power*; charging, and discharging only to cover
   the house, are not changed. It reads no meter, so it cannot swing; measure

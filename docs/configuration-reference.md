@@ -283,6 +283,7 @@ tune these directly, no need to re-run the wizard. Every entry in
 | `number.nimbus_solver_post_window_self_consume_hours` | Post-Window Self-Consume Hours: After a P2P block closes at midnight, the battery only self-consumes this long | 0 | 0-24 | h |
 | `number.nimbus_solver_inverter_self_consumption_kw` | Inverter Self-Consumption: Power the inverter uses itself, always on | 0.0 | 0-5 | kW |
 | `number.nimbus_solver_p2p_block_lead_time_minutes` | P2P Block Lead Time: Starts each block this many minutes early | 0 | 0-59 | min |
+| `number.nimbus_solver_p2p_export_bias_kw` | P2P Export Bias: added to the battery while selling, if the grid meter shows less than the block (steady; the battery dispatch blueprint reads it) | 0 | 0-3 | kW |
 | `number.nimbus_solve_on_price_change_debounce_s` | Solve on Price Change Debounce: Re-plan delay: price updates within this many seconds make one solve | 5.0 | 0.1-60 | s |
 | `number.nimbus_solver_aemo_p5min_disagreement_threshold_dollars` | AEMO P5MIN Disagreement Threshold: Flags when your retail price departs from AEMO's live price by more than usual | 0.1 | 0-2 | $/kWh |
 | `number.nimbus_solver_p5min_false_spike_threshold_mwh` | P5MIN False Spike Threshold: A forecast price at or above this counts as a spike the guard checks | 5000.0 | 0-23200 | AUD/MWh |
