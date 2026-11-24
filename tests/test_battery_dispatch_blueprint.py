@@ -656,12 +656,13 @@ def test_a_discharge_correction_scales_only_the_discharge_setpoint():
     assert ctx["power_kw"] == 3.0
 
 
-def test_battery_power_trimmed_to_the_measured_grid_export():
-    """Household, 24 Nov 2026: a battery-power inverter delivers ~0.5 kW less at
-    the grid meter than its setpoint, so a 14 kW P2P block exported 13.4 kW.
-    "Battery power, trimmed to grid export" adds the shortfall the grid meter
-    shows to the current setpoint each cycle (only beyond 0.15 kW), never below
-    the plan's battery power and at most 3 kW above it; not while charging."""
+def test_a_steady_export_bias_tops_up_the_discharge_while_exporting():
+    """Household, 24-25 Nov 2026: a battery-power inverter delivers ~0.35-0.4 kW
+    less at the grid meter than its setpoint (measured at 14 and 10.5 kW). The
+    "Export bias" adds a set kW to the discharge setpoint only while the plan
+    exports; it reads no meter, so it cannot hunt (Mark Purcell, #2621). Never
+    above the maximum; not while charging or when the plan does not export;
+    0 (the default) is today's behaviour."""
     rows = [_row("2026-11-24T17:45:00+10:00", 14.63, 0.60, grid_export_kw=14.0)]
     at = datetime(2026, 11, 24, 17, 45, 30, tzinfo=TZ)
     kw = {
@@ -669,35 +670,29 @@ def test_battery_power_trimmed_to_the_measured_grid_export():
         "plan_age_s": 20,
         "attrs": {"forecast": rows},
         "max_power_kw": 40.0,
-        "discharge_setpoint": "trim",
-        "grid_meter_sensor": "sensor.grid",
-        "power_setpoint_entity": "number.inverter_power",
     }
 
-    def ctx_for(meter, setpoint, plan="14.63", **more):
-        extra = {"sensor.grid": meter, "number.inverter_power": setpoint}
-        return run("tick", plan=plan, extra=extra, **{**kw, **more})[1]
-
-    # 13.4 kW exported (meter -13.4, positive is import), inverter at 14.6:
-    ctx = ctx_for("-13.4", "14.6")
+    assert run("tick", plan="14.63", **kw)[1]["power_kw"] == 14.63  # default 0
+    ctx = run("tick", plan="14.63", export_bias_kw=0.4, **kw)[1]
     assert ctx["target_mode"] == "DIS"
-    assert ctx["power_kw"] == 15.2
-    # Within 0.15 kW: left as it is.
-    assert ctx_for("-13.9", "15.2")["power_kw"] == 15.2
-    # Never below the plan's battery power, never more than 3 kW above it.
-    assert ctx_for("-15.0", "14.63")["power_kw"] == 14.63
-    assert ctx_for("-8.0", "16.0")["power_kw"] == 17.63
-    # A meter that counts export as positive.
-    assert ctx_for("13.4", "14.6", grid_positive_is_import=False)["power_kw"] == 15.2
-    # An unreadable meter: the plan's battery power.
-    assert ctx_for("unavailable", "14.6")["power_kw"] == 14.63
-    # Charging is never trimmed.
+    assert ctx["power_kw"] == 15.03
+    # Never above the maximum battery power.
+    assert (
+        run("tick", plan="14.63", export_bias_kw=0.4, **{**kw, "max_power_kw": 14.8})[
+            1
+        ]["power_kw"]
+        == 14.8
+    )
+    # Discharging without exporting (covering the house only): no bias.
+    home = [_row("2026-11-24T17:45:00+10:00", 1.2, 0.30, grid_export_kw=0.0)]
+    ctx = run(
+        "tick", plan="1.2", export_bias_kw=0.4, **{**kw, "attrs": {"forecast": home}}
+    )[1]
+    assert ctx["power_kw"] == 1.2
+    # Charging is never biased.
     charge = [_row("2026-11-24T17:45:00+10:00", -3.0, 0.10, grid_export_kw=0.0)]
     ctx = run(
-        "tick",
-        plan="-3.0",
-        extra={"sensor.grid": "2.0", "number.inverter_power": "3.0"},
-        **{**kw, "attrs": {"forecast": charge}},
+        "tick", plan="-3.0", export_bias_kw=0.4, **{**kw, "attrs": {"forecast": charge}}
     )[1]
     assert ctx["target_mode"] == "CHG"
     assert ctx["power_kw"] == 3.0
