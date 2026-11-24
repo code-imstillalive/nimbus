@@ -654,3 +654,45 @@ def test_a_discharge_correction_scales_only_the_discharge_setpoint():
         discharge_correction_pct=110,
     )
     assert ctx["power_kw"] == 3.0
+
+
+def test_a_steady_export_bias_tops_up_the_discharge_while_exporting():
+    """Household, 24-25 Nov 2026: a battery-power inverter delivers ~0.35-0.4 kW
+    less at the grid meter than its setpoint (measured at 14 and 10.5 kW). The
+    "Export bias" adds a set kW to the discharge setpoint only while the plan
+    exports; it reads no meter, so it cannot hunt (Mark Purcell, #2621). Never
+    above the maximum; not while charging or when the plan does not export;
+    0 (the default) is today's behaviour."""
+    rows = [_row("2026-11-24T17:45:00+10:00", 14.63, 0.60, grid_export_kw=14.0)]
+    at = datetime(2026, 11, 24, 17, 45, 30, tzinfo=TZ)
+    kw = {
+        "now": at,
+        "plan_age_s": 20,
+        "attrs": {"forecast": rows},
+        "max_power_kw": 40.0,
+    }
+
+    assert run("tick", plan="14.63", **kw)[1]["power_kw"] == 14.63  # default 0
+    ctx = run("tick", plan="14.63", export_bias_kw=0.4, **kw)[1]
+    assert ctx["target_mode"] == "DIS"
+    assert ctx["power_kw"] == 15.03
+    # Never above the maximum battery power.
+    assert (
+        run("tick", plan="14.63", export_bias_kw=0.4, **{**kw, "max_power_kw": 14.8})[
+            1
+        ]["power_kw"]
+        == 14.8
+    )
+    # Discharging without exporting (covering the house only): no bias.
+    home = [_row("2026-11-24T17:45:00+10:00", 1.2, 0.30, grid_export_kw=0.0)]
+    ctx = run(
+        "tick", plan="1.2", export_bias_kw=0.4, **{**kw, "attrs": {"forecast": home}}
+    )[1]
+    assert ctx["power_kw"] == 1.2
+    # Charging is never biased.
+    charge = [_row("2026-11-24T17:45:00+10:00", -3.0, 0.10, grid_export_kw=0.0)]
+    ctx = run(
+        "tick", plan="-3.0", export_bias_kw=0.4, **{**kw, "attrs": {"forecast": charge}}
+    )[1]
+    assert ctx["target_mode"] == "CHG"
+    assert ctx["power_kw"] == 3.0

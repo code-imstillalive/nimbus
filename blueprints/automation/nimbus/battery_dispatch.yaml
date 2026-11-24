@@ -158,6 +158,23 @@ blueprint:
               step: 0.5
               unit_of_measurement: "%"
               mode: box
+        export_bias_kw:
+          name: Export bias
+          description: >-
+            Added to the value sent while discharging, but only while the plan
+            exports to the grid, for an inverter that delivers a steady amount
+            less at the grid meter than it is asked for (a household measured
+            about 0.35-0.4 kW short at both 14 and 10.5 kW). A fixed amount: it
+            reads no meter, so it cannot swing. 0 = no change (the default).
+            Never above your maximum battery power. Charging is not changed.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 3
+              step: 0.1
+              unit_of_measurement: kW
+              mode: box
         discharge_setpoint:
           name: Discharge setpoint
           description: >-
@@ -369,6 +386,7 @@ variables:
   max_kw: !input max_power_kw
   setpoint_basis: !input discharge_setpoint
   correction_pct: !input discharge_correction_pct
+  export_bias: !input export_bias_kw
   dead_kw: !input deadband_kw
   dwell_min: !input min_dwell_minutes
   reversal_min_kw: !input reversal_kw
@@ -516,7 +534,8 @@ variables:
   power_kw: >-
     {% if target_mode == 'DIS' %}
       {% set p = export_kw if setpoint_basis == 'export' else battery_power_kw %}
-      {{ ([p | float(0) * (correction_pct | float(100)) / 100,
+      {% set bias = export_bias | float(0) if export_kw | float(0) > 0.5 else 0 %}
+      {{ ([p | float(0) * (correction_pct | float(100)) / 100 + bias,
            max_kw | float(0)] | min) | round(2) }}
     {% else %}{{ battery_power_kw }}{% endif %}
   mode_changed: "{{ mode_entity == '' or target_mode != current }}"
