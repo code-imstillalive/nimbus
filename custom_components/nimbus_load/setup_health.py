@@ -70,7 +70,7 @@ import logging
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 try:
@@ -87,6 +87,7 @@ try:
         CONF_SOLVER_LOAD_FORECAST_SENSOR,
         CONF_SOLVER_MAX_CHARGE_KW,
         CONF_SOLVER_MAX_DISCHARGE_KW,
+        CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
         CONF_SOLVER_SOLAR_FORECAST_SENSOR,
         CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
         DOMAIN,
@@ -106,6 +107,7 @@ except ImportError:  # pragma: no cover - standalone path
         CONF_SOLVER_LOAD_FORECAST_SENSOR,
         CONF_SOLVER_MAX_CHARGE_KW,
         CONF_SOLVER_MAX_DISCHARGE_KW,
+        CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
         CONF_SOLVER_SOLAR_FORECAST_SENSOR,
         CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
         DOMAIN,
@@ -130,6 +132,9 @@ KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
 KIND_NO_REGIONAL_FORECAST = "regional_forecast_missing"
 KIND_STUCK_REGIONAL_SPOT = "regional_spot_not_updating"
+KIND_SETTLEMENT_STALE = "p2p_settlement_history_stale"
+#: A settled P2P history normally runs one day behind its local day.
+SETTLEMENT_STALE_AFTER_DAYS = 3
 KIND_WHOLE_HOUSE_UNSET = "whole_house_sensor_unset"
 KIND_TABS_CARD_MISSING = "tabs_card_missing"
 KIND_AVAILABILITY_MISMATCH = "availability_states_never_match"
@@ -202,6 +207,7 @@ def evaluate_health(
     fees_on_tariff: tuple[str, str] | None = None,
     regional_forecast_missing: tuple[str, str] | None = None,
     stuck_regional_spot: tuple[str, int, int] | None = None,
+    settlement_stale: tuple[str, str, int] | None = None,
     settings: Mapping[str, float] | None = None,
     has_load_forecast: bool = False,
     failed_streak: Mapping[str, Any] | None = None,
@@ -226,6 +232,8 @@ def evaluate_health(
     used, since when) for each chosen entity silent past `UNAVAILABLE_GRACE`.
     `stuck_regional_spot` is price_blend's (sensor, intervals with a value,
     retail intervals) when the regional spot sensor has stopped updating.
+    `settlement_stale` is `settlement_history_stale()`: (sensor, newest settled
+    day, days behind) when the P2P settlement history has stopped advancing.
     """
     issues: list[HealthIssue] = []
     for entity_id, where, since in unavailable_entities:
@@ -375,6 +383,16 @@ def evaluate_health(
             )
         )
 
+    if settlement_stale is not None:
+        sensor, newest, days = settlement_stale
+        issues.append(
+            HealthIssue(
+                key=KIND_SETTLEMENT_STALE,
+                kind=KIND_SETTLEMENT_STALE,
+                placeholders={"sensor": sensor, "newest": newest, "days": str(days)},
+            )
+        )
+
     issues += _settings_issues(settings or {})
 
     if has_load_forecast and not options.get(
@@ -461,6 +479,49 @@ def _solver_publish_module() -> Any:
     return sys.modules.get(f"{__package__}.solver_publish") or sys.modules.get(
         "solver_publish"
     )
+
+
+def settlement_history_stale(
+    sensor: str | None, attributes: Mapping[str, Any] | None, today: date
+) -> tuple[str, str, int] | None:
+    """(sensor, newest settled day, days behind) when the P2P settlement
+    history's newest settled day is more than SETTLEMENT_STALE_AFTER_DAYS
+    before `today`, else None. The newest day is the sensor's `newest`
+    attribute, or the newest key of its `history`. Unreadable data is not
+    known to be wrong and answers None. Pure."""
+    if not sensor or not attributes:
+        return None
+    newest = attributes.get("newest")
+    if not newest:
+        history = attributes.get("history")
+        if isinstance(history, Mapping) and history:
+            newest = max(str(k) for k in history)
+    try:
+        day = date.fromisoformat(str(newest))
+    except ValueError:
+        return None
+    behind = (today - day).days
+    if behind <= SETTLEMENT_STALE_AFTER_DAYS:
+        return None
+    return sensor, day.isoformat(), behind
+
+
+def _settlement_stale(
+    hass: Any, options: Mapping[str, Any]
+) -> tuple[str, str, int] | None:
+    """settlement_history_stale() of the configured sensor, today in HA's
+    local time zone. Never raises."""
+    sensor = options.get(CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR)
+    try:
+        state = hass.states.get(sensor) if sensor else None
+        from homeassistant.util import dt as dt_util
+
+        today = dt_util.now().date()
+        return settlement_history_stale(
+            sensor, getattr(state, "attributes", None), today
+        )
+    except Exception:  # noqa: BLE001 - a health read must never fail the refresh
+        return None
 
 
 def _solver_stuck_regional_spot() -> tuple[str, int, int] | None:
@@ -889,6 +950,7 @@ async def async_refresh_health(
                 hass, dict(entry.options)
             ),
             stuck_regional_spot=_solver_stuck_regional_spot(),
+            settlement_stale=_settlement_stale(hass, dict(entry.options)),
             settings=_live_settings(hass, entry),
             has_load_forecast=any(
                 getattr(sub, "subentry_type", None) == SUBENTRY_TYPE_LOAD

@@ -912,6 +912,10 @@
       "title": "Nimbus: no forecast yet for {name}",
       "description": "Nimbus has not been able to train a forecast for **{name}**: {reason}.\n\nUsually this needs a few more days of history (about five days of the sensor's own readings). If the sensor has been running longer than that, check in Settings → Devices & services → Nimbus that this Load or Power Signal points at the right power sensor. This message clears itself once a forecast is trained."
     },
+    "p2p_settlement_history_stale": {
+      "title": "Nimbus: your P2P settlement history has stopped advancing",
+      "description": "The P2P settlement history sensor `{sensor}` has no settled day newer than {newest}, {days} days ago (it normally runs one day behind). Your retailer has not published settled meter data since then.\n\nWhile it is behind, Nimbus plans tonight's P2P volume and match share from older days, and the daily report has no settled figures for the missing days. Nothing needs changing in Nimbus: this message clears itself once your retailer catches up. If it lasts, ask your retailer about your meter data."
+    },
     "regional_spot_not_updating": {
       "title": "Nimbus: the regional spot price sensor has stopped updating",
       "description": "The sensor in Solver settings → Regional spot current price, `{sensor}`, recorded a value in only {covered} of the last {total} five-minute intervals. Nimbus learns your retailer's markup from it, to price the days past your retailer's own forecast, so it has stopped learning from it: those days hold your last known retail price instead.\n\nCheck the sensor in Developer Tools → States, or point the setting at a regional price sensor that changes every 5 minutes. This message clears itself once it updates again."
