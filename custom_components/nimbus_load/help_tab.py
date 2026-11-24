@@ -225,6 +225,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.114.0",
+        "25 Nov 2026",
+        (
+            (
+                "**Solver tab → P2P → Export bias:** if your grid meter shows less "
+                "than the block while selling, set the gap here (re-import the "
+                "battery dispatch blueprint)."
+            ),
+        ),
+    ),
+    (
         "0.113.0",
         "24 Nov 2026",
         (
