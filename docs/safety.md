@@ -63,6 +63,9 @@ fixed:
 - a regional price sensor (Source 2, AEMO: regional price now) that has
   stopped updating, or that the recorder keeps no history for, so your retail
   markup cannot be learned from it;
+- a P2P settlement history more than 3 days behind (your retailer has not
+  published settled meter data), so tonight's P2P volume is planned from
+  older days;
 - an empty required Solver input;
 - a load forecast with no whole-house sensor set, so the Forecaster's
   whole-house corrections cannot apply;

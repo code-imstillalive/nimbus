@@ -218,6 +218,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.113.0",
+        "24 Nov 2026",
+        (
+            (
+                "A Repair says when your P2P settlement history stops "
+                "advancing (your retailer has not published settled meter data)."
+            ),
+        ),
+    ),
+    (
         "0.112.0",
         "24 Nov 2026",
         (
