@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.114.0] - 2026-11-25
+
+**Export bias: a steady top-up while selling, on the Solver tab's P2P card.**
+
+- **New setting: Solver tab → P2P → Export bias** (#2621, #2623; `number.nimbus_solver_p2p_export_bias_kw`, 0-3 kW, default 0). Some inverters deliver a steady amount less at the grid meter than they are asked for: a household's 14 kW block exported 13.6 kW, its 10.5 kW block 10.2 kW (measured with the panels dark: 0.40 and 0.33 kW short). Set the gap here and the battery dispatch blueprint adds it to the battery while the plan exports to the grid; charging, and discharging only to cover the house, are unchanged. **It reads no meter, so it cannot swing** (an earlier draft that trimmed against the meter each cycle was dropped on Mark Purcell's review). Also in Help → Start here (step 7) and the going-live guide. The blueprint also has its own *Export bias* input, which takes priority when set. **Re-import the battery dispatch blueprint** to use it.
+- Internal: tests 999 → 1004.
+- Install shapes (#2394): opt-in (default 0) on every shape. Reference household: its own dispatch automation reads the same setting (its config repo). Unseen on Mark Purcell's install and the test box (default 0, no change).
+
 ## [0.113.0] - 2026-11-24
 
 **A P2P settlement history that stops advancing is reported.**
@@ -15,6 +23,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **New Repair: "your P2P settlement history has stopped advancing"** (#2618). A tester's retailer stopped publishing settled meter data for four days. Nimbus kept planning each night's P2P volume and match share from the last settled days it had, and the daily report had no settled figures, with nothing to say so. When the **P2P settlement history** sensor's newest settled day is more than 3 days old (it normally runs one day behind), a Repair names the sensor and the day and says what is affected. Nothing needs changing in Nimbus; it clears itself once the retailer catches up.
 - Internal: tests 997 → 999.
 - Install shapes (#2394): touches installs with a P2P settlement history sensor (LocalVolts v2). Seen on a tester's install (diagnostics: four days behind). Reference household: one day behind, no Repair. Mark Purcell's install: no settlement history sensor, unchanged.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at d396d429** (`release/0.113.0`, installed untagged through Home Assistant's marketplace by branch at 12:17 AEST, 24 Nov, restarted; read through 12:20).
+  - 125 of the 129 Nimbus entities carrying a version read 0.113.0; the other four are the daily reports (0.111.0). No Nimbus entity unavailable; plan `optimal` (solved 12:19); all 62 Solver numbers present and unchanged from a read just before the restart.
+  - The test box's settlement history sensor's newest settled day is 23 Nov (one day behind): no Repair, as expected. The Repair itself was not raised live here (that needs a settlement history more than 3 days behind); its finding and wording are covered by the tests (`test_settlement_history_stale.py`, `test_setup_health.py`); the condition was seen in a tester's diagnostics.
+  - `sensor.nimbus_status` What's new leads with 0.113.0.
+- Consumer check: no setting, entity id or name changes; one new Repair (`p2p_settlement_history_stale`). Plans are unchanged.
 
 ## [0.112.0] - 2026-11-24
 
