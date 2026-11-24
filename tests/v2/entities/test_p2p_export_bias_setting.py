@@ -31,3 +31,18 @@ def test_the_export_bias_is_a_setting_on_the_p2p_card_with_help():
     rows = [row[0] for row in solver_tab._P2P[1]]
     assert rows.index(KEY) == rows.index("solver_p2p_block_lead_time_minutes") + 1
     assert KEY in help_tab.SETTINGS
+
+
+def test_the_dispatch_blueprint_uses_the_solver_tab_setting():
+
+    bp = (
+        Path(__file__).resolve().parents[3]
+        / "blueprints/automation/nimbus/battery_dispatch.yaml"
+    ).read_text(encoding="utf-8")
+    assert "number.nimbus_solver_p2p_export_bias_kw" in bp
+
+
+def test_the_export_bias_is_in_help_start_here():
+    """Household, 25 Nov 2026: a critical setting users must see."""
+    assert "Export bias" in help_tab._START_HERE
+    assert "number.nimbus_solver_p2p_export_bias_kw" in help_tab._START_HERE

@@ -696,3 +696,23 @@ def test_a_steady_export_bias_tops_up_the_discharge_while_exporting():
     )[1]
     assert ctx["target_mode"] == "CHG"
     assert ctx["power_kw"] == 3.0
+
+
+def test_the_solver_tab_export_bias_is_used_when_the_input_is_0():
+    """Household, 25 Nov 2026: the bias is set on the Solver tab's P2P card
+    (number.nimbus_solver_p2p_export_bias_kw); the blueprint's own input, when
+    set, takes priority."""
+    rows = [_row("2026-11-24T17:45:00+10:00", 14.63, 0.60, grid_export_kw=14.0)]
+    at = datetime(2026, 11, 24, 17, 45, 30, tzinfo=TZ)
+    kw = {
+        "now": at,
+        "plan_age_s": 20,
+        "attrs": {"forecast": rows},
+        "max_power_kw": 40.0,
+    }
+    tab = {"number.nimbus_solver_p2p_export_bias_kw": "0.4"}
+    assert run("tick", plan="14.63", extra=tab, **kw)[1]["power_kw"] == 15.03
+    assert (
+        run("tick", plan="14.63", extra=tab, export_bias_kw=0.2, **kw)[1]["power_kw"]
+        == 14.83
+    )

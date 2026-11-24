@@ -1263,6 +1263,9 @@
       "solver_p2p_block_lead_time_minutes": {
         "name": "P2P Block Lead Time"
       },
+      "solver_p2p_export_bias_kw": {
+        "name": "P2P Export Bias"
+      },
       "solver_p2p_bonus_price": {
         "name": "P2P Bonus Price"
       },

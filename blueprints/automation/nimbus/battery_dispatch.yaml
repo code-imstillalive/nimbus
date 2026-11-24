@@ -165,7 +165,8 @@ blueprint:
             exports to the grid, for an inverter that delivers a steady amount
             less at the grid meter than it is asked for (a household measured
             about 0.35-0.4 kW short at both 14 and 10.5 kW). A fixed amount: it
-            reads no meter, so it cannot swing. 0 = no change (the default).
+            reads no meter, so it cannot swing. 0 (the default) uses the Solver
+            tab's P2P "Export bias" setting instead, itself 0 unless set.
             Never above your maximum battery power. Charging is not changed.
           default: 0
           selector:
@@ -534,7 +535,9 @@ variables:
   power_kw: >-
     {% if target_mode == 'DIS' %}
       {% set p = export_kw if setpoint_basis == 'export' else battery_power_kw %}
-      {% set bias = export_bias | float(0) if export_kw | float(0) > 0.5 else 0 %}
+      {% set own = export_bias | float(0) %}
+      {% set tab = states('number.nimbus_solver_p2p_export_bias_kw') | float(0) %}
+      {% set bias = (own if own > 0 else tab) if export_kw | float(0) > 0.5 else 0 %}
       {{ ([p | float(0) * (correction_pct | float(100)) / 100 + bias,
            max_kw | float(0)] | min) | round(2) }}
     {% else %}{{ battery_power_kw }}{% endif %}
