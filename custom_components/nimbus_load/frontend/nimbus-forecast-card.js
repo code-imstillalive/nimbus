@@ -524,8 +524,11 @@ class NimbusForecastCard extends HTMLElement {
         el.setConfig(cfg);
       } catch (err) {
         const msg = document.createElement("ha-card");
-        msg.innerHTML =
-          '<div class="empty">Nimbus Forecaster: ' + String(err && err.message ? err.message : err) + "</div>";
+        const text = document.createElement("div");
+        text.className = "empty";
+        // As text, never markup: the message comes from the chart library.
+        text.textContent = "Nimbus Forecaster: " + String(err && err.message ? err.message : err);
+        msg.appendChild(text);
         wrap.appendChild(msg);
         continue;
       }
