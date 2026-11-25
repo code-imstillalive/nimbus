@@ -16,6 +16,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Cards:** the dispatch card's source labels and the forecast card's chart error message are now escaped before they reach the page (#2628). An injection test rendered all six cards with real plan data and every text value replaced by a script: no outside text (entity names, units, card settings) ran; these two only ever carried Nimbus's own words or a chart library's message.
 - Internal: tests 1004 → 1007.
 - Install shapes (#2394): the offset is opt-in (default 0) on every shape; seen on a tester's GoodWe in sell-power mode. Reference household and Mark Purcell's install: Battery power mode, no change. The card change has no visible effect on any install.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 6c0324ca** (`release/0.115.0`, installed untagged through Home Assistant's marketplace by branch at 07:42 AEST, 26 Nov, restarted; read through 07:45).
+  - 125 of the 129 Nimbus entities carrying a version read 0.115.0; the other four are the daily reports (0.114.0). No Nimbus entity unavailable; plan `optimal` (solved 07:44). All 63 Solver numbers present and unchanged from a read just before the restart. No Nimbus Repair; no Nimbus error in the system log.
+  - Served cards: `/nimbus_load/nimbus-dispatch-card-v4.js` escapes the source labels and `/nimbus_load/nimbus-forecast-card.js` writes a chart error as text (both read from the served files).
+  - `sensor.nimbus_status` What's new leads with 0.115.0.
+  - The Zero-export offset is a blueprint input (the blueprint is imported from the repository, not installed with the integration): covered by `test_a_zero_export_offset_stops_the_import_at_a_zero_sell_power`; not driven on the test box, which has no sell-power inverter.
+- Consumer check: no setting, entity id or name changes in the integration. The battery dispatch blueprint gains one input, *Zero-export offset* (default 0: no behaviour change until set); re-import the blueprint to use it.
 
 ## [0.114.0] - 2026-11-25
 
