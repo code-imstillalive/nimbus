@@ -178,6 +178,12 @@ inverter whose setpoint is AC battery power. Two other cases:
   never above *Maximum battery power*; charging, and discharging only to cover
   the house, are not changed. It reads no meter, so it cannot swing; measure
   the shortfall over a block (planned export minus meter export) and set it.
+- **Your sell-power inverter imports a little when asked for 0** (in Grid
+  export mode, a discharge that only covers the house sends 0 kW, and the
+  meter shows a small import): set the blueprint's **Zero-export offset**, for
+  example 0.25 kW. It is added only while the plan exports 0.5 kW or less;
+  above that, *Export bias* applies. Battery power mode and charging are not
+  changed.
 - **Your setpoint is battery (DC) side** and you see a little less export than
   planned (a 15 kW plan exporting about 14.7 kW): conversion losses, about 3 %
   each way. The export-target mode above avoids this; if your inverter has
