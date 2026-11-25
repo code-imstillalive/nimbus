@@ -941,7 +941,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       // percent encoding, same title, just at two different physical
       // sizes. Kept as one HTML path so future edits touch one place.
       const srcTitle = hasSource
-        ? (p.dispatch_source_a_label || 'Solar') + ' ' + srcAPct.toFixed(0) + '% / ' + (p.dispatch_source_b_label || 'Grid') + ' ' + srcBPct.toFixed(0) + '%'
+        ? nimbusEscape(p.dispatch_source_a_label || 'Solar') + ' ' + srcAPct.toFixed(0) + '% / ' + nimbusEscape(p.dispatch_source_b_label || 'Grid') + ' ' + srcBPct.toFixed(0) + '%'
         : 'no source data';
       const srcSegments = hasSource
         ? '<span class="seg seg-a" style="width:' + srcAPct + '%"></span><span class="seg seg-b" style="width:' + srcBPct + '%"></span>'
