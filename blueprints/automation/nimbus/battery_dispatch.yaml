@@ -176,6 +176,23 @@ blueprint:
               step: 0.1
               unit_of_measurement: kW
               mode: box
+        zero_export_offset_kw:
+          name: Zero-export offset
+          description: >-
+            Grid export mode only. Added to the value sent while discharging
+            and the plan exports 0.5 kW or less, for a sell-power inverter that
+            imports a little when asked for 0 (a tester's imported about
+            0.22 kW at 0; 0.25 kW gave a small export instead). Above 0.5 kW
+            the export bias applies instead. 0 (the default) changes nothing.
+            Never above your maximum battery power. Charging is not changed.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.05
+              unit_of_measurement: kW
+              mode: box
         discharge_setpoint:
           name: Discharge setpoint
           description: >-
@@ -388,6 +405,7 @@ variables:
   setpoint_basis: !input discharge_setpoint
   correction_pct: !input discharge_correction_pct
   export_bias: !input export_bias_kw
+  zero_offset: !input zero_export_offset_kw
   dead_kw: !input deadband_kw
   dwell_min: !input min_dwell_minutes
   reversal_min_kw: !input reversal_kw
@@ -538,6 +556,8 @@ variables:
       {% set own = export_bias | float(0) %}
       {% set tab = states('number.nimbus_solver_p2p_export_bias_kw') | float(0) %}
       {% set bias = (own if own > 0 else tab) if export_kw | float(0) > 0.5 else 0 %}
+      {% set bias = bias if export_kw | float(0) > 0.5 else
+           (zero_offset | float(0) if setpoint_basis == 'export' else 0) %}
       {{ ([p | float(0) * (correction_pct | float(100)) / 100 + bias,
            max_kw | float(0)] | min) | round(2) }}
     {% else %}{{ battery_power_kw }}{% endif %}
