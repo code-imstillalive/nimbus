@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.115.0] - 2026-11-26
+
+**A zero-export offset for sell-power inverters, and safer cards.**
+
+- **New battery dispatch blueprint input: Zero-export offset** (#2626, 0-1 kW, default 0). In *Grid export* (sell power) mode, a discharge that only covers the house sends 0 kW, and some inverters then import a little (a tester's imported about 0.22 kW; 0.25 kW gave a small export instead). Set the offset and it is added while the plan exports 0.5 kW or less; above that the export bias applies. Battery power mode and charging are unchanged. In the going-live guide. **Re-import the battery dispatch blueprint** to use it.
+- **Cards:** the dispatch card's source labels and the forecast card's chart error message are now escaped before they reach the page (#2628). An injection test rendered all six cards with real plan data and every text value replaced by a script: no outside text (entity names, units, card settings) ran; these two only ever carried Nimbus's own words or a chart library's message.
+- Internal: tests 1004 → 1007.
+- Install shapes (#2394): the offset is opt-in (default 0) on every shape; seen on a tester's GoodWe in sell-power mode. Reference household and Mark Purcell's install: Battery power mode, no change. The card change has no visible effect on any install.
+
 ## [0.114.0] - 2026-11-25
 
 **Export bias: a steady top-up while selling, on the Solver tab's P2P card.**
@@ -15,6 +24,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **New setting: Solver tab → P2P → Export bias** (#2621, #2623; `number.nimbus_solver_p2p_export_bias_kw`, 0-3 kW, default 0). Some inverters deliver a steady amount less at the grid meter than they are asked for: a household's 14 kW block exported 13.6 kW, its 10.5 kW block 10.2 kW (measured with the panels dark: 0.40 and 0.33 kW short). Set the gap here and the battery dispatch blueprint adds it to the battery while the plan exports to the grid; charging, and discharging only to cover the house, are unchanged. **It reads no meter, so it cannot swing** (an earlier draft that trimmed against the meter each cycle was dropped on Mark Purcell's review). Also in Help → Start here (step 7) and the going-live guide. The blueprint also has its own *Export bias* input, which takes priority when set. **Re-import the battery dispatch blueprint** to use it.
 - Internal: tests 999 → 1004.
 - Install shapes (#2394): opt-in (default 0) on every shape. Reference household: its own dispatch automation reads the same setting (its config repo). Unseen on Mark Purcell's install and the test box (default 0, no change).
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 817d3963** (`release/0.114.0`, installed untagged through Home Assistant's marketplace by branch at 07:41 AEST, 25 Nov, restarted; read through 07:43).
+  - 125 of the 129 Nimbus entities carrying a version read 0.114.0; the other four are the daily reports (0.113.0). No Nimbus entity unavailable; plan `optimal` (solved 07:42). 63 Solver numbers: the 62 from before the restart unchanged, plus the new `number.nimbus_solver_p2p_export_bias_kw` ("P2P Export Bias", 0-3 kW, state 0.0), published on `sensor.nimbus_solver_config`.
+  - `sensor.nimbus_status` What's new leads with 0.114.0.
+  - The stored Solver tab on the test box is unchanged by an upgrade, as designed (Nimbus writes no dashboard): the new P2P row reaches a dashboard through Help → *Check for updates* → *Add updated tabs beside mine*. Not pressed here by Claude (dashboards are the household's); the row's presence in the tab template is covered by `test_p2p_export_bias_setting.py`.
+- Consumer check: one new setting, `number.nimbus_solver_p2p_export_bias_kw` (default 0: no behaviour change until set). The battery dispatch blueprint reads it; re-import the blueprint. Help's Start here gains step 7. No other entity id, name or behaviour changes.
 
 ## [0.113.0] - 2026-11-24
 

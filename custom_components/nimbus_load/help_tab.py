@@ -225,6 +225,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.115.0",
+        "26 Nov 2026",
+        (
+            (
+                "**Battery dispatch blueprint → Zero-export offset:** for a "
+                "sell-power inverter that imports a little at 0 (re-import the "
+                "blueprint)."
+            ),
+        ),
+    ),
+    (
         "0.114.0",
         "25 Nov 2026",
         (
