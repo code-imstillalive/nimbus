@@ -716,3 +716,52 @@ def test_the_solver_tab_export_bias_is_used_when_the_input_is_0():
         run("tick", plan="14.63", extra=tab, export_bias_kw=0.2, **kw)[1]["power_kw"]
         == 14.83
     )
+
+
+def test_a_zero_export_offset_stops_the_import_at_a_zero_sell_power():
+    """A tester, 25 Nov 2026: in "Grid export" (sell power) mode, a discharge
+    that only covers the house sends 0 kW, and their inverter's own regulation
+    then imports ~0.22 kW. Sending 0.25 kW instead gave ~+0.03 kW export. The
+    "Zero-export offset" is added while the plan discharges with 0.5 kW of
+    export or less; above that the export bias applies instead. 0 (the
+    default) is today's behaviour; Battery power mode and charging unchanged."""
+    home = [_row("2026-11-25T10:50:00+10:00", 1.2, 0.30, grid_export_kw=0.0)]
+    at = datetime(2026, 11, 25, 10, 50, 30, tzinfo=TZ)
+    kw = {
+        "now": at,
+        "plan_age_s": 20,
+        "attrs": {"forecast": home},
+        "max_power_kw": 30.0,
+        "discharge_setpoint": "export",
+    }
+    assert run("tick", plan="1.2", **kw)[1]["power_kw"] == 0.0  # default 0
+    ctx = run("tick", plan="1.2", zero_export_offset_kw=0.25, **kw)[1]
+    assert ctx["target_mode"] == "DIS"
+    assert ctx["power_kw"] == 0.25
+    # Exporting: the offset is not added (the export bias covers that range).
+    sell = [_row("2026-11-25T10:50:00+10:00", 15.5, 0.30, grid_export_kw=15.0)]
+    ctx = run(
+        "tick",
+        plan="15.5",
+        zero_export_offset_kw=0.25,
+        **{**kw, "attrs": {"forecast": sell}},
+    )[1]
+    assert ctx["power_kw"] == 15.0
+    # Battery power mode: unchanged.
+    ctx = run(
+        "tick",
+        plan="1.2",
+        zero_export_offset_kw=0.25,
+        **{**kw, "discharge_setpoint": "battery"},
+    )[1]
+    assert ctx["power_kw"] == 1.2
+    # Charging: unchanged.
+    charge = [_row("2026-11-25T10:50:00+10:00", -3.0, 0.10, grid_export_kw=0.0)]
+    ctx = run(
+        "tick",
+        plan="-3.0",
+        zero_export_offset_kw=0.25,
+        **{**kw, "attrs": {"forecast": charge}},
+    )[1]
+    assert ctx["target_mode"] == "CHG"
+    assert ctx["power_kw"] == 3.0
