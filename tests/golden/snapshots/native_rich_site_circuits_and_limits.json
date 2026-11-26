@@ -22368,7 +22368,7 @@
         "consolidated_import_price": 0.1245,
         "dispatch_direction": "charge",
         "dispatch_hold": false,
-        "dispatch_solar_charge": false,
+        "dispatch_solar_charge": true,
         "dispatch_source_a_label": "Solar",
         "dispatch_source_a_pct": 97.3,
         "dispatch_source_b_label": "Grid",

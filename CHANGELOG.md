@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.116.0] - 2026-11-26
+
+**Two dispatch fixes: a charge that is almost all solar stays in self-consume, and the dispatch no longer runs several times a second.**
+
+- **A charge with a small grid share stays a solar charge** (#2631). The plan sometimes takes a sliver of a big charge from the grid (a tester's: about 1 kW of a 17 kW charge). Any grid share above 0.05 kW used to switch the dispatch to a forced Charge at the full rate for minutes. Now a charge with at most 10 % from the grid stays in self-consume, which soaks up the solar that is really there; a real grid charge (a cheap-price top-up) still forces Charge. Reviewed by Mark Purcell.
+- **The battery dispatch wakes only when the allowed charge itself moves** (#2632). The allowed-charge sensor rewrote its live attributes on every meter tick, and the dispatch woke on each one: 2-5 runs a second on a tester's install, each leaving a trace, so the decisions worth reading were gone within a minute. The blueprint's trigger now fires only on the value ("to: ~"; checked on a live Home Assistant: 7 runs before, 2 after, on the same updates), and the value publishes a fall at once and a rise in 0.1 kW steps, so it never shows more headroom under the site limit than is real. The site import guard is unchanged. **Re-import the battery dispatch blueprint** to use it.
+- Internal: tests 1007 → 1015.
+- Install shapes (#2394): both touch every install that charges with the battery dispatch blueprint. Seen on a tester's GoodWe (both); the reference household's dispatch automation is its own and does not use the blueprint's trigger. Mark Purcell's install: unseen, no change expected beyond fewer automation runs.
+
 ## [0.115.0] - 2026-11-26
 
 **A zero-export offset for sell-power inverters, and safer cards.**
@@ -16,6 +25,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Cards:** the dispatch card's source labels and the forecast card's chart error message are now escaped before they reach the page (#2628). An injection test rendered all six cards with real plan data and every text value replaced by a script: no outside text (entity names, units, card settings) ran; these two only ever carried Nimbus's own words or a chart library's message.
 - Internal: tests 1004 → 1007.
 - Install shapes (#2394): the offset is opt-in (default 0) on every shape; seen on a tester's GoodWe in sell-power mode. Reference household and Mark Purcell's install: Battery power mode, no change. The card change has no visible effect on any install.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at 6c0324ca** (`release/0.115.0`, installed untagged through Home Assistant's marketplace by branch at 07:42 AEST, 26 Nov, restarted; read through 07:45).
+  - 125 of the 129 Nimbus entities carrying a version read 0.115.0; the other four are the daily reports (0.114.0). No Nimbus entity unavailable; plan `optimal` (solved 07:44). All 63 Solver numbers present and unchanged from a read just before the restart. No Nimbus Repair; no Nimbus error in the system log.
+  - Served cards: `/nimbus_load/nimbus-dispatch-card-v4.js` escapes the source labels and `/nimbus_load/nimbus-forecast-card.js` writes a chart error as text (both read from the served files).
+  - `sensor.nimbus_status` What's new leads with 0.115.0.
+  - The Zero-export offset is a blueprint input (the blueprint is imported from the repository, not installed with the integration): covered by `test_a_zero_export_offset_stops_the_import_at_a_zero_sell_power`; not driven on the test box, which has no sell-power inverter.
+- Consumer check: no setting, entity id or name changes in the integration. The battery dispatch blueprint gains one input, *Zero-export offset* (default 0: no behaviour change until set); re-import the blueprint to use it.
 
 ## [0.114.0] - 2026-11-25
 
