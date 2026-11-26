@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.117.0] - 2026-11-26
+
+**An export that is almost all solar stays in self-consume.**
+
+- **New plan flag `dispatch_solar_export`, and the battery dispatch blueprint self-consumes on it** (#2633). With the battery full, the plan may sell spare solar while giving the battery a small discharge. The blueprint used to force Discharge, and in *Grid export* (sell power) mode it sent the whole planned export as the target, so when the sun came in under forecast a tester's inverter discharged the battery to hold it. Now, while the battery's discharge is at most 10 % of the planned export (and the export is above 0.5 kW), the blueprint self-consumes, which exports the solar that is really there. A battery sale such as a P2P block (discharge about equal to the export) still forces Discharge. Reviewed by Mark Purcell. **Re-import the battery dispatch blueprint** to use it.
+- Internal: tests 1015 → 1019.
+- Install shapes (#2394): touches installs that discharge with the battery dispatch blueprint; seen on a tester's GoodWe in sell-power mode. The reference household's dispatch automation is its own and does not read the flag. In the recorded scenarios one row in 24 sets the flag.
+
 ## [0.116.0] - 2026-11-26
 
 **Two dispatch fixes: a charge that is almost all solar stays in self-consume, and the dispatch no longer runs several times a second.**
@@ -16,6 +24,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The battery dispatch wakes only when the allowed charge itself moves** (#2632). The allowed-charge sensor rewrote its live attributes on every meter tick, and the dispatch woke on each one: 2-5 runs a second on a tester's install, each leaving a trace, so the decisions worth reading were gone within a minute. The blueprint's trigger now fires only on the value ("to: ~"; checked on a live Home Assistant: 7 runs before, 2 after, on the same updates), and the value publishes a fall at once and a rise in 0.1 kW steps, so it never shows more headroom under the site limit than is real. The site import guard is unchanged. **Re-import the battery dispatch blueprint** to use it.
 - Internal: tests 1007 → 1015.
 - Install shapes (#2394): both touch every install that charges with the battery dispatch blueprint. Seen on a tester's GoodWe (both); the reference household's dispatch automation is its own and does not use the blueprint's trigger. Mark Purcell's install: unseen, no change expected beyond fewer automation runs.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at fcc41c41** (`release/0.116.0`, installed untagged through Home Assistant's marketplace by branch at 16:05 AEST, 26 Nov, restarted; read through 16:08).
+  - 125 of the 129 Nimbus entities carrying a version read 0.116.0; the other four are the daily reports (0.114.0). No Nimbus entity unavailable; plan `optimal` (solved 16:07). All 63 Solver numbers present and unchanged from a read just before the restart. No Nimbus Repair; no Nimbus error in the system log. `sensor.nimbus_battery_allowed_charge_kw` live (44.9 kW against the test box's 44 kW limit).
+  - `sensor.nimbus_status` What's new leads with 0.116.0.
+  - The blueprint trigger (`to: ~`) was checked on this Home Assistant before merge (#2632: 7 runs with a plain trigger, 2 with `to: ~`, on 5 attribute-only and 2 value updates). The small-grid-share rule is covered by `test_solar_charge_small_grid_share.py`; the test box has no inverter to drive.
+- Consumer check: no setting, entity id or name changes. `dispatch_solar_charge` is now also true for a charge with up to 10 % from the grid; `sensor.nimbus_battery_allowed_charge_kw`'s value moves in 0.1 kW steps on a rise (a fall at once); the battery dispatch blueprint's allowed-charge trigger ignores attribute-only updates (re-import it).
 
 ## [0.115.0] - 2026-11-26
 
