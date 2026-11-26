@@ -41,3 +41,22 @@ def allowed_charge_kw(
     # against the room too (Mark Purcell, #2258: discharging 10 kW at 20 kW
     # import against 44 allows 14, not 24).
     return max(0.0, charging + limit_kw - importing)
+
+
+# A tester, 26 Nov 2026: the value changed on almost every meter tick and the
+# dispatch woke on each change. It keeps its last figure until the allowance
+# moves by this much (the dispatch acts only on a 0.5 kW move anyway).
+ALLOWED_CHARGE_STEP_KW = 0.1
+
+
+def stepped_allowed_kw(
+    previous: float | None, new: float | None, step: float = ALLOWED_CHARGE_STEP_KW
+) -> float | None:
+    """The allowance to publish: the last published figure while `new` is
+    within `step` of it, else `new` (rounded to 0.01 kW). No reading publishes
+    none, and a first reading is taken at once."""
+    if new is None:
+        return None
+    if previous is not None and abs(new - previous) < step:
+        return previous
+    return round(new, 2)

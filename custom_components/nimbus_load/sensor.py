@@ -4893,7 +4893,12 @@ class NimbusBatteryAllowedChargeSensor(SensorEntity):
             else max(0.0, battery if positive_is_charge else -battery)
         )
         self._attr_available = allowed is not None
-        self._attr_native_value = None if allowed is None else round(allowed, 2)
+        # Attributes stay live every tick (the site import guard reads them);
+        # the value moves only by a step (site_limit.stepped_allowed_kw).
+        previous = self._attr_native_value
+        self._attr_native_value = site_limit.stepped_allowed_kw(
+            previous if isinstance(previous, (int, float)) else None, allowed
+        )
         self._attr_extra_state_attributes = {
             "site_import_limit_kw": limit,
             "grid_kw": grid,
