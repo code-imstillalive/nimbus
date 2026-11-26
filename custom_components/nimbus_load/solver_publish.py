@@ -1245,6 +1245,10 @@ def _dispatch_hold(
 # review of #2067). Same 0.05 kW deadband today.
 DISPATCH_SOLAR_CHARGE_BATTERY_KW = 0.05
 DISPATCH_SOLAR_CHARGE_GRID_KW = 0.05
+# A tester, 26 Nov 2026: a 16.5-17.8 kW charge with ~1 kW of grid in it (6 %)
+# forced a full-rate charge for four minutes. Up to this share of the charge
+# from the grid, the charge is still treated as solar (self-consume).
+DISPATCH_SOLAR_CHARGE_GRID_SHARE = 0.10
 
 
 def _dispatch_solar_charge(
@@ -1260,7 +1264,9 @@ def _dispatch_solar_charge(
     consume would put that export into the battery instead."""
     if battery_kw >= -DISPATCH_SOLAR_CHARGE_BATTERY_KW:
         return False
-    if grid_to_battery_kw > DISPATCH_SOLAR_CHARGE_BATTERY_KW:
+    if grid_to_battery_kw > max(
+        DISPATCH_SOLAR_CHARGE_BATTERY_KW, DISPATCH_SOLAR_CHARGE_GRID_SHARE * -battery_kw
+    ):
         return False
     return grid_export_kw <= DISPATCH_SOLAR_CHARGE_GRID_KW
 
