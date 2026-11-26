@@ -44,19 +44,24 @@ def allowed_charge_kw(
 
 
 # A tester, 26 Nov 2026: the value changed on almost every meter tick and the
-# dispatch woke on each change. It keeps its last figure until the allowance
-# moves by this much (the dispatch acts only on a 0.5 kW move anyway).
+# dispatch woke on each change. A rise is published once it reaches this much
+# (the dispatch acts only on a 0.5 kW move anyway); a fall is published at once,
+# so the value never shows more headroom under the site limit than is real.
 ALLOWED_CHARGE_STEP_KW = 0.1
 
 
 def stepped_allowed_kw(
     previous: float | None, new: float | None, step: float = ALLOWED_CHARGE_STEP_KW
 ) -> float | None:
-    """The allowance to publish: the last published figure while `new` is
-    within `step` of it, else `new` (rounded to 0.01 kW). No reading publishes
-    none, and a first reading is taken at once."""
+    """The allowance to publish (kW, 0.01 kW): any fall at once; a rise only
+    once it reaches `step` above the last published figure. No reading
+    publishes none, and a first reading is taken at once."""
     if new is None:
         return None
-    if previous is not None and abs(new - previous) < step:
+    value = round(new, 2)
+    if previous is None or value < previous:
+        return value
+    # 1e-9: 12.1 - 12.0 is 0.0999... in floating point, still a full step.
+    if value - previous < step - 1e-9:
         return previous
-    return round(new, 2)
+    return value
