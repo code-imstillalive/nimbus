@@ -1,8 +1,9 @@
-"""The allowed-charge value moves in steps of at least 0.1 kW.
+"""The allowed-charge value: a fall is published at once, a rise in steps of 0.1 kW.
 
 A tester, 26 Nov 2026: the value (rounded to 0.01 kW) changed on almost every
-meter tick, and the dispatch woke on each change. It now keeps its last value
-until the allowance moves by 0.1 kW or more, so the dispatch (which only acts
+meter tick, and the dispatch woke on each change. A rise now waits until it
+reaches 0.1 kW, while a fall (less headroom under the site limit) is
+published at once, so the value never shows more headroom than is real; so the dispatch (which only acts
 on a 0.5 kW change) wakes far less often. The sensor's live attributes are
 still written every tick: the site import guard reads them.
 """
@@ -21,9 +22,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import site_limit
 
 
-def test_a_small_move_keeps_the_last_value():
+def test_a_small_rise_keeps_the_last_value():
     assert site_limit.stepped_allowed_kw(12.0, 12.04) == 12.0
-    assert site_limit.stepped_allowed_kw(12.0, 11.93) == 12.0
+
+
+def test_any_fall_is_published_at_once():
+    assert site_limit.stepped_allowed_kw(12.0, 11.93) == 11.93
+    assert site_limit.stepped_allowed_kw(12.0, 11.996) == 12.0  # rounds to the same
 
 
 def test_a_move_of_a_step_or_more_takes_the_new_value():
