@@ -523,11 +523,20 @@ variables:
     {% if solar_charge_entity == '' %}{{ false }}
     {% elif i > 0 %}{{ state_attr(plan_entity, 'forecast')[i].dispatch_solar_charge == true }}
     {% else %}{{ states(solar_charge_entity) in ['True', 'true', 'on'] }}{% endif %}
+  # A tester, 26 Nov 2026: the plan sells mostly solar with a small discharge
+  # (battery full): self-consume exports the solar that is really there, where
+  # a forced Discharge to the planned export made the battery fill the gap.
+  solar_export: >-
+    {% set i = now_i | int(0) %}
+    {% set f = state_attr(plan_entity, 'forecast') %}
+    {{ f is iterable and f is not string and f | length > i
+       and f[i] is mapping and f[i].get('dispatch_solar_export') == true }}
   want: >-
     {%- if manual == 'HOLD' and hold_has_actions | length == 0 -%}SC
     {%- elif manual -%}{{ manual }}
     {%- elif not plan_ok -%}FALLBACK
     {%- elif absorb -%}SC
+    {%- elif plan_kw > dead_kw | float(0.05) and solar_export -%}SC
     {%- elif plan_kw > dead_kw | float(0.05) -%}DIS
     {%- elif plan_kw < -(dead_kw | float(0.05)) and solar_charge -%}SC
     {%- elif plan_kw < -(dead_kw | float(0.05)) -%}CHG
