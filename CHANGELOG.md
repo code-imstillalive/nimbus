@@ -15,6 +15,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **New plan flag `dispatch_solar_export`, and the battery dispatch blueprint self-consumes on it** (#2633). With the battery full, the plan may sell spare solar while giving the battery a small discharge. The blueprint used to force Discharge, and in *Grid export* (sell power) mode it sent the whole planned export as the target, so when the sun came in under forecast a tester's inverter discharged the battery to hold it. Now, while the battery's discharge is at most 10 % of the planned export (and the export is above 0.5 kW), the blueprint self-consumes, which exports the solar that is really there. A battery sale such as a P2P block (discharge about equal to the export) still forces Discharge. Reviewed by Mark Purcell. **Re-import the battery dispatch blueprint** to use it.
 - Internal: tests 1015 → 1019.
 - Install shapes (#2394): touches installs that discharge with the battery dispatch blueprint; seen on a tester's GoodWe in sell-power mode. The reference household's dispatch automation is its own and does not read the flag. In the recorded scenarios one row in 24 sets the flag.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at b99325df** (`release/0.117.0`, installed untagged through Home Assistant's marketplace by branch at 18:37 AEST, 26 Nov, restarted; read through 18:39).
+  - 125 of the 129 Nimbus entities carrying a version read 0.117.0; the other four are the daily reports (0.114.0). No Nimbus entity unavailable; plan `optimal` (solved 18:39). All 63 Solver numbers present and unchanged from a read just before the restart. No Nimbus Repair; no Nimbus error in the system log.
+  - `dispatch_solar_export` on all 202 rows of the test box's plan, true on 14 (tomorrow's daytime spare-solar export rows).
+  - `sensor.nimbus_status` What's new leads with 0.117.0.
+- Consumer check: one new per-row plan attribute, `dispatch_solar_export`. No setting, entity id or name changes. The battery dispatch blueprint self-consumes on it; re-import the blueprint.
 
 ## [0.116.0] - 2026-11-26
 
