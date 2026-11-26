@@ -765,3 +765,14 @@ def test_a_zero_export_offset_stops_the_import_at_a_zero_sell_power():
     )[1]
     assert ctx["target_mode"] == "CHG"
     assert ctx["power_kw"] == 3.0
+
+
+def test_the_allowance_trigger_ignores_attribute_only_updates():
+    """A tester, 26 Nov 2026: the dispatch ran 2-5 times a second. The
+    allowed-charge sensor rewrites its live grid and battery attributes on
+    every meter tick, and a plain state trigger fires on attribute-only
+    changes, so each tick started a run (nearly all stopped by the
+    conditions, each leaving a trace: the 100 kept covered under a minute).
+    The allowance trigger now fires only when the value itself changes."""
+    trig = next(t for t in _blueprint()["triggers"] if t.get("id") == "allowed")
+    assert "to" in trig and trig["to"] is None
