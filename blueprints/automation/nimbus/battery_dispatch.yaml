@@ -380,6 +380,9 @@ triggers:
   # nimbus #2257: answer a load switching on within seconds, not at the tick.
   - trigger: state
     entity_id: !input allowed_charge_sensor
+    # A tester, 26 Nov 2026: the value only, not its live attributes, which
+    # change on every meter tick (2-5 runs a second, each leaving a trace).
+    to: ~
     id: allowed
   - trigger: homeassistant
     event: start

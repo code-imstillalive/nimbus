@@ -4810,6 +4810,7 @@ class NimbusBatteryAllowedChargeSensor(SensorEntity):
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_battery_allowed_charge_kw"
+        self._published: float | None = None
         self.entity_id = "sensor.nimbus_battery_allowed_charge_kw"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
@@ -4893,7 +4894,10 @@ class NimbusBatteryAllowedChargeSensor(SensorEntity):
             else max(0.0, battery if positive_is_charge else -battery)
         )
         self._attr_available = allowed is not None
-        self._attr_native_value = None if allowed is None else round(allowed, 2)
+        # Attributes stay live every tick (the site import guard reads them);
+        # the value moves only by a step (site_limit.stepped_allowed_kw).
+        self._published = site_limit.stepped_allowed_kw(self._published, allowed)
+        self._attr_native_value = self._published
         self._attr_extra_state_attributes = {
             "site_import_limit_kw": limit,
             "grid_kw": grid,

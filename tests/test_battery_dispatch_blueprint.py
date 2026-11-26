@@ -767,6 +767,7 @@ def test_a_zero_export_offset_stops_the_import_at_a_zero_sell_power():
     assert ctx["power_kw"] == 3.0
 
 
+<<<<<<< HEAD
 def test_a_solar_export_self_consumes_instead_of_forcing_discharge():
     """A tester, 26 Nov 2026: battery full, a small discharge planned while
     the plan sells spare solar. With `dispatch_solar_export` the blueprint
@@ -805,3 +806,14 @@ def test_a_solar_export_self_consumes_instead_of_forcing_discharge():
         run("tick", plan="0.4", attrs={"forecast": sale}, **kw)[1]["target_mode"]
         == "DIS"
     )
+=======
+def test_the_allowance_trigger_ignores_attribute_only_updates():
+    """A tester, 26 Nov 2026: the dispatch ran 2-5 times a second. The
+    allowed-charge sensor rewrites its live grid and battery attributes on
+    every meter tick, and a plain state trigger fires on attribute-only
+    changes, so each tick started a run (nearly all stopped by the
+    conditions, each leaving a trace: the 100 kept covered under a minute).
+    The allowance trigger now fires only when the value itself changes."""
+    trig = next(t for t in _blueprint()["triggers"] if t.get("id") == "allowed")
+    assert "to" in trig and trig["to"] is None
+>>>>>>> origin/main
