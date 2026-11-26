@@ -1277,6 +1277,9 @@ def _dispatch_solar_charge(
 # battery, the export is treated as solar (self-consume).
 DISPATCH_SOLAR_EXPORT_BATTERY_SHARE = 0.10
 DISPATCH_SOLAR_EXPORT_MIN_KW = 0.5
+# The discharge deadband for the export rule (Mark Purcell, #2633: its own name,
+# though the same 0.05 kW as the charge side).
+DISPATCH_SOLAR_EXPORT_BATTERY_KW = 0.05
 
 
 def _dispatch_solar_export(battery_kw: float, grid_export_kw: float) -> bool:
@@ -1285,7 +1288,7 @@ def _dispatch_solar_export(battery_kw: float, grid_export_kw: float) -> bool:
     a dispatcher should self-consume, which exports the solar that is really
     there, rather than force a discharge to a planned export target. A real
     battery sale (a P2P block) is not a solar export."""
-    if battery_kw <= DISPATCH_SOLAR_CHARGE_BATTERY_KW:
+    if battery_kw <= DISPATCH_SOLAR_EXPORT_BATTERY_KW:
         return False
     if grid_export_kw <= DISPATCH_SOLAR_EXPORT_MIN_KW:
         return False
