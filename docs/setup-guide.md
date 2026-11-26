@@ -1402,7 +1402,7 @@ you already have.
 | Setting | Shipped | Recommended | Why |
 |---|---|---|---|
 | Calibrated objective | On | On | When two plans cost the same, the plan goes to the steadier one. It never overrides a real cost difference, and on/off decisions are settled on cost alone first. |
-| Auto-include solar | Off | On, if you use Solcast | Picks up Solcast's forecast without you naming its sensors. Solcast's sensor names are fixed by that integration, so they match on any install. It also picks up Open-Meteo Solar Forecast, but only if your Open-Meteo entry happens to produce `sensor.home_energy_production_today`; otherwise name it in a solar source field instead. A source you have already named isn't counted twice. |
+| Auto-include solar | Off | On, if you use Solcast or Open-Meteo Solar Forecast | Picks up Solcast's forecast (today to day 7) and Open-Meteo Solar Forecast's (today to day 7) without you naming their sensors. Nimbus finds them through the integration itself, whatever the sensors are called. With more than one Open-Meteo entry, none is read, because Nimbus can't tell which is your site. With both integrations, their forecasts are blended, not added. A source you have already named isn't counted twice. |
 | Own dispatcher: dry run | Off | On | Records what Nimbus's own dispatcher would send, in `sensor.nimbus_solver_dispatch_dry_run`, and sends nothing. It has no write path, so it can't move your battery. If an automation of yours drives the battery from the plan, it keeps doing so either way. |
 | Load forecast source | off | off | `off` plans on Nimbus's own load forecast. `measure` only reports which forecast would have done better; `blend` and `persistence` change the plan, so try `measure` first. |
 
