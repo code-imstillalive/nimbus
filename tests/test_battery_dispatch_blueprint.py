@@ -767,6 +767,46 @@ def test_a_zero_export_offset_stops_the_import_at_a_zero_sell_power():
     assert ctx["power_kw"] == 3.0
 
 
+def test_a_solar_export_self_consumes_instead_of_forcing_discharge():
+    """A tester, 26 Nov 2026: battery full, a small discharge planned while
+    the plan sells spare solar. With `dispatch_solar_export` the blueprint
+    self-consumes (the inverter exports the solar that is really there)
+    rather than forcing Discharge with the whole planned export as target."""
+    at = datetime(2026, 11, 26, 15, 15, 30, tzinfo=TZ)
+    kw = {
+        "now": at,
+        "plan_age_s": 20,
+        "max_power_kw": 20.0,
+        "discharge_setpoint": "export",
+    }
+    solar = [
+        _row(
+            "2026-11-26T15:15:00+10:00",
+            0.4,
+            0.09,
+            grid_export_kw=8.0,
+            dispatch_solar_export=True,
+        )
+    ]
+    assert (
+        run("tick", plan="0.4", attrs={"forecast": solar}, **kw)[1]["target_mode"]
+        == "SC"
+    )
+    sale = [
+        _row(
+            "2026-11-26T15:15:00+10:00",
+            0.4,
+            0.09,
+            grid_export_kw=8.0,
+            dispatch_solar_export=False,
+        )
+    ]
+    assert (
+        run("tick", plan="0.4", attrs={"forecast": sale}, **kw)[1]["target_mode"]
+        == "DIS"
+    )
+
+
 def test_the_allowance_trigger_ignores_attribute_only_updates():
     """A tester, 26 Nov 2026: the dispatch ran 2-5 times a second. The
     allowed-charge sensor rewrites its live grid and battery attributes on

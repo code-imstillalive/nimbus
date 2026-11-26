@@ -1271,6 +1271,30 @@ def _dispatch_solar_charge(
     return grid_export_kw <= DISPATCH_SOLAR_CHARGE_GRID_KW
 
 
+# A tester, 26 Nov 2026, 15:15: battery full, the plan selling spare solar with a
+# small battery discharge; a forced Discharge in sell-power mode made the battery
+# fill the gap when the sun fell short. Up to this share of the export from the
+# battery, the export is treated as solar (self-consume).
+DISPATCH_SOLAR_EXPORT_BATTERY_SHARE = 0.10
+DISPATCH_SOLAR_EXPORT_MIN_KW = 0.5
+# The discharge deadband for the export rule (Mark Purcell, #2633: its own name,
+# though the same 0.05 kW as the charge side).
+DISPATCH_SOLAR_EXPORT_BATTERY_KW = 0.05
+
+
+def _dispatch_solar_export(battery_kw: float, grid_export_kw: float) -> bool:
+    """True when the plan sells mostly solar while the home battery discharges
+    only a little (at most DISPATCH_SOLAR_EXPORT_BATTERY_SHARE of the export):
+    a dispatcher should self-consume, which exports the solar that is really
+    there, rather than force a discharge to a planned export target. A real
+    battery sale (a P2P block) is not a solar export."""
+    if battery_kw <= DISPATCH_SOLAR_EXPORT_BATTERY_KW:
+        return False
+    if grid_export_kw <= DISPATCH_SOLAR_EXPORT_MIN_KW:
+        return False
+    return battery_kw <= DISPATCH_SOLAR_EXPORT_BATTERY_SHARE * grid_export_kw
+
+
 def home_battery_net_kw(
     net_battery: NDArray[np.float64], plan: Any
 ) -> NDArray[np.float64]:
@@ -2446,6 +2470,11 @@ def publish_plan(
                     ),
                     strict=True,
                 )
+            ),
+            # A tester, 26 Nov 2026: selling mostly solar with a small discharge
+            # (see _dispatch_solar_export()).
+            "dispatch_solar_export": _dispatch_solar_export(
+                float(home_net[i]), float(plan.grid_export_kw[i])
             ),
             "dispatch_source_a_label": dispatch_breakdown[i][1],
             "dispatch_source_a_pct": dispatch_breakdown[i][2],
