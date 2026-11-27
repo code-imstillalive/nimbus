@@ -374,3 +374,12 @@ def test_a_cleared_optional_setting_stays_cleared_on_save(module, saved, cleared
     submitted = {k: v for k, v in saved.items() if k not in cleared}
     result = schema(submitted)
     assert not set(cleared) & set(result), result
+    # A number box without `step` takes Home Assistant's default step of 1,
+    # so the browser refused 0.15 $/kWh or 7.4 kW (a tester, 27 Nov 2026).
+    # Every number box chooses its step; only minutes are left whole.
+    for marker, field in schema.schema.items():
+        config = getattr(field, "config", None)
+        if not isinstance(config, dict) or "domain" in config or "options" in config:
+            continue
+        if "min" in config and config.get("unit_of_measurement") != "min":
+            assert "step" in config, (str(marker), config)
