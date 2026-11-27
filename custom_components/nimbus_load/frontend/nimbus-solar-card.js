@@ -135,7 +135,7 @@ class NimbusSolarCard extends HTMLElement {
 
 // Same registration as this project's other cards (nimbus-forecast-card.js): survives HA's scoped
 // custom-element registry swap.
-function nimbusRegisterSolarCard(name, cls) {
+function nimbusRegisterCard(name, cls) {
   const ensure = () => {
     const registry = window.customElements;
     if (!registry || registry.get(name)) return;
@@ -154,7 +154,7 @@ function nimbusRegisterSolarCard(name, cls) {
   window.addEventListener("load", ensure, { once: true });
 }
 
-nimbusRegisterSolarCard("nimbus-solar-card", NimbusSolarCard);
+nimbusRegisterCard("nimbus-solar-card", NimbusSolarCard);
 
 window.customCards = window.customCards || [];
 window.customCards.push({

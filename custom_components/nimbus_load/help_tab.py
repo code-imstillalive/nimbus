@@ -2529,6 +2529,14 @@ WIZARD_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("Configure → Device setup → Mode", ("options", "step", "device_setup_mode")),
     (
+        "Configure → Solar forecaster → screen 1 of 2",
+        ("options", "step", "solar_forecaster"),
+    ),
+    (
+        "Configure → Solar forecaster → Find my panels (screen 2 of 2)",
+        ("options", "step", "solar_forecaster_find"),
+    ),
+    (
         "Configure → Topology diagram settings (one screen)",
         ("options", "step", "switchboard"),
     ),
