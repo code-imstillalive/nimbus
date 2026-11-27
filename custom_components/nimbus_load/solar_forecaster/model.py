@@ -31,7 +31,7 @@ import numpy as np
 
 from ..ml import gbrt as G
 from . import physics as ph
-from .site import Array, Site, clear_index, clear_power
+from .site import Array, Site, clear_index, clear_power, local_day
 
 TIERS = {
     "ecmwf+gefs+gfs": list(range(14)),
@@ -80,7 +80,7 @@ def _kt(site, t, s):
     return _interp(t, s["t"], kt, 0.7)
 
 
-def features(site: Site, arrays: list[Array], t, weather: dict, tz_offset_s: float):
+def features(site: Site, arrays: list[Array], t, weather: dict, tz):
     """Feature matrix, clear-sky kW, sun height and local day for grid t. A missing source's
     columns are zeros (only tiers that do not use them read those slots)."""
     t = np.asarray(t, dtype=float)
@@ -105,7 +105,7 @@ def features(site: Site, arrays: list[Array], t, weather: dict, tz_offset_s: flo
     clear = clear_power(site, arrays, t)
     zen, az = ph.sun_position(t + 150, site.lat, site.lon)
     elev = 90 - zen
-    day = np.floor((t + tz_offset_s) / 86400).astype(int)
+    day = local_day(t, tz)
     sun = elev > 3
 
     def whole_day(v):
@@ -154,15 +154,13 @@ class Trained:
     report: dict = field(default_factory=dict)
 
 
-def train(
-    site, arrays, t, measured_total, weather, tz_offset_s, folds: int = 6
-) -> Trained:
+def train(site, arrays, t, measured_total, weather, tz, folds: int = 6) -> Trained:
     """Blocked cross-validation for the honest score and the band width, then a fit on all."""
     t = np.asarray(t, dtype=float)
     y = np.asarray(measured_total, dtype=float)
     m = covered(t, weather, "egf") & ~np.isnan(y)
     t, y = t[m], y[m]
-    X, clear, elev, day = features(site, arrays, t, weather, tz_offset_s)
+    X, clear, elev, day = features(site, arrays, t, weather, tz)
     sun = elev > 3
     target = np.clip(np.where(clear > 0.05, y / np.maximum(clear, 0.05), 0), 0, 1.3)
     days = np.unique(day)
@@ -241,7 +239,7 @@ def train(
     )
 
 
-def predict(trained: Trained, site, arrays, t, weather, tz_offset_s):
+def predict(trained: Trained, site, arrays, t, weather, tz):
     """(p10, p50, p90, tier) on grid t; NaN where no tier's sources cover a slot."""
     t = np.asarray(t, dtype=float)
     out = [np.full(len(t), np.nan) for _ in range(3)]
@@ -251,7 +249,7 @@ def predict(trained: Trained, site, arrays, t, weather, tz_offset_s):
         m = covered(t, weather, TIER_SOURCES[name]) & ~done
         if m.sum() < 12:
             continue
-        X, clear, elev, _ = features(site, arrays, t[m], weather, tz_offset_s)
+        X, clear, elev, _ = features(site, arrays, t[m], weather, tz)
         up = elev > -1
         q = {
             k: np.clip(g.predict(X[:, cols]), 0, 1.08) * clear * up

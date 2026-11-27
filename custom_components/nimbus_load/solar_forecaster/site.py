@@ -15,6 +15,7 @@ An array with no owner-given direction gets one fitted from the data
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -22,6 +23,29 @@ import numpy as np
 from . import physics as ph
 
 SLOT_S = 300.0  # measured output arrives as 5-minute means, labelled by their start
+
+
+def local_offset(t, tz) -> np.ndarray:
+    """Seconds to add to UTC seconds for local time: `tz` is a fixed offset in seconds, or a tzinfo
+    (daylight saving handled per hour)."""
+    t = np.asarray(t, dtype=float)
+    if isinstance(tz, (int, float)):
+        return np.full(len(t), float(tz))
+    hours = np.floor(t / 3600).astype(np.int64)
+    uniq, inv = np.unique(hours, return_inverse=True)
+    offs = np.array(
+        [
+            dt.datetime.fromtimestamp(int(h) * 3600, tz).utcoffset().total_seconds()
+            for h in uniq
+        ]
+    )
+    return offs[inv] if len(uniq) else np.zeros(0)
+
+
+def local_day(t, tz) -> np.ndarray:
+    """Local calendar day (days since 1970-01-01) of each UTC second."""
+    t = np.asarray(t, dtype=float)
+    return np.floor((t + local_offset(t, tz)) / 86400).astype(int)
 
 
 @dataclass
@@ -49,13 +73,11 @@ class Array:
         return self.tilt is not None and self.azimuth is not None
 
 
-def clear_points(
-    t, y, zen, tz_offset_s: float, window_days: int = 7, frac: float = 0.92
-):
+def clear_points(t, y, zen, tz, window_days: int = 7, frac: float = 0.92):
     """Clear-sky moments: readings within `frac` of the highest reading at the same time of
     day over nearby days. Sturdier than whole clear days: a mostly cloudy day still
     contributes its sunny spells."""
-    local = (np.asarray(t) + tz_offset_s) / 86400.0
+    local = (np.asarray(t, dtype=float) + local_offset(t, tz)) / 86400.0
     day = np.floor(local).astype(int)
     slot = np.round((local - day) * 288).astype(int)
     ok = ~np.isnan(y) & (zen < 85)
@@ -83,9 +105,7 @@ def _score(y, g, dni, dhi, zen, az, tilt, azim, tc, air):
     return float(np.sqrt(np.mean((y - kwp * x) ** 2))), kwp, gain
 
 
-def fit(
-    site: Site, arrays: list[Array], t, measured: dict, tz_offset_s: float, air_c=None
-):
+def fit(site: Site, arrays: list[Array], t, measured: dict, tz, air_c=None):
     """Learn haze, and each array's size and scattered-light gain (and direction where the
     owner gave none), from measured 5-minute means. Updates `site` and `arrays` in place."""
     t = np.asarray(t, dtype=float)
@@ -98,7 +118,7 @@ def fit(
         if keys
         else np.full(len(t), np.nan)
     )
-    clear = clear_points(t, total, zen, tz_offset_s)
+    clear = clear_points(t, total, zen, tz)
     m = clear & (zen < 80) & ~np.isnan(total)
     if m.sum() > 50:  # haze: the clear-sky shape that best matches the clear moments
         best = None
@@ -112,7 +132,7 @@ def fit(
     g, dni, dhi = ph.clear_sky(tc, zen, site.altitude_m, site.linke)
     for a in arrays:
         y = np.asarray(measured.get(a.key, np.full(len(t), np.nan)), dtype=float)
-        mk = clear_points(t, y, zen, tz_offset_s) & ~np.isnan(y)
+        mk = clear_points(t, y, zen, tz) & ~np.isnan(y)
         if mk.sum() < 100 or np.nanmax(np.where(np.isnan(y), 0, y)) < 0.2:
             a.active, a.kwp = False, 0.0
             a.learned = {"note": "no output: unused input"}

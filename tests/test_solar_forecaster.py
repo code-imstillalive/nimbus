@@ -20,7 +20,15 @@ import struct
 import _ml_path  # noqa: F401
 import numpy as np
 import pytest
-from nimbus_load.solar_forecaster import grib, model, physics, site, sources
+from nimbus_load.solar_forecaster import (
+    grib,
+    model,
+    physics,
+    runner,
+    site,
+    sources,
+    store,
+)
 
 # --- tiny GRIB2 writer (test side only) -------------------------------------
 
@@ -282,7 +290,7 @@ def _learns_an_install_and_forecasts():
         site.Array("wall", 90, 0),
         site.Array("empty", 20, 0),
     ]
-    site.fit(st, learned, t, measured, tz_offset_s=8 * 3600)
+    site.fit(st, learned, t, measured, 8 * 3600)
     by = {a.key: a for a in learned}
     assert by["roof"].kwp == pytest.approx(6.0, rel=0.05)
     assert by["wall"].kwp == pytest.approx(2.0, rel=0.10)
@@ -312,8 +320,73 @@ def _learns_an_install_and_forecasts():
     assert set(tier2) == {"ecmwf+gfs"} and not np.isnan(mid2).any()
 
 
-def test_solar_forecaster_from_weather_files_to_a_forecast():
+def _store_and_jobs(tmp_path):
+    # part 1: a stored run reads back as written; the day-ahead view picks each day's evening-before
+    # run; the live view joins the newest run onto the one before it
+    ws = store.WeatherStore(tmp_path / "weather")
+    day = dt.date(2026, 1, 10)
+    run = sources.evening_before_run("ecmwf", day)
+    t = run.timestamp() + 3600 * np.arange(15, 40, 3.0)
+    ws.save(
+        "ecmwf",
+        run,
+        {"t": t, "ghi": np.linspace(0, 600, len(t)), "cloud": np.full(len(t), 40.0)},
+    )
+    back = ws.load("ecmwf", run)
+    assert (
+        np.allclose(back["t"], t)
+        and np.allclose(back["cloud"], 40.0)
+        and "t2m" not in back
+    )
+    t0 = dt.datetime.combine(day, dt.time(0), dt.UTC).timestamp()
+    view = ws.dayahead([day], lambda d: (t0, t0 + 86400))
+    assert set(view) == {"ecmwf"} and view["ecmwf"]["t"].min() >= t0 - 3 * 3600
+    nxt = run + dt.timedelta(days=1)
+    ws.save(
+        "ecmwf",
+        nxt,
+        {
+            "t": nxt.timestamp() + 3600 * np.arange(15, 40, 3.0),
+            "ghi": np.full(9, 500.0),
+        },
+    )
+    live = ws.latest()["ecmwf"]
+    assert live["t"].min() == t.min() and live["t"].max() == nxt.timestamp() + 39 * 3600
+    assert np.all(np.diff(live["t"]) > 0)
+
+    # part 2: recorded states become 5-minute means (time-weighted, half a slot needed); an hourly
+    # long-term mean is spread over its hour in the clear-sky shape and keeps its mean
+    _grid, kw = runner.measured_5min(
+        [(0.0, 2.0), (150.0, 4.0), (600.0, 1.0)], 0.0, 900.0
+    )
+    assert np.allclose(kw, [3.0, 4.0, 1.0])
+    st = site.Site(lat=-31.9, lon=115.9)
+    noon = dt.datetime(2026, 1, 10, 3, 0, tzinfo=dt.UTC).timestamp()  # 11:00 local
+    grid = np.arange(noon, noon + 3600, 300.0)
+    spread = runner.hourly_to_5min(st, site.Array("roof", 20, 0), [(noon, 4.2)], grid)
+    assert spread.mean() == pytest.approx(4.2) and spread.std() > 0
+
+    # part 3: local days follow the time zone's own offset, daylight saving included
+    import zoneinfo
+
+    syd = zoneinfo.ZoneInfo("Australia/Sydney")
+    jan = dt.datetime(
+        2026, 1, 10, 13, 30, tzinfo=dt.UTC
+    ).timestamp()  # 00:30 on the 11th, UTC+11
+    jul = dt.datetime(
+        2026, 7, 10, 13, 30, tzinfo=dt.UTC
+    ).timestamp()  # 23:30 on the 10th, UTC+10
+    days = site.local_day(np.array([jan, jul]), syd)
+    assert [str(dt.date(1970, 1, 1) + dt.timedelta(days=int(d))) for d in days] == [
+        "2026-01-11",
+        "2026-07-10",
+    ]
+
+
+def test_solar_forecaster_from_weather_files_to_a_forecast(tmp_path):
     """One behaviour end to end: the free models' files are read exactly, and an install
-    is learned from its output and forecast from the weather (parts above, in order)."""
+    is learned from its output and forecast from the weather, and the weather store and the jobs Home
+    Assistant runs keep what they fetch and read (parts above, in order)."""
     _reads_weather_files()
     _learns_an_install_and_forecasts()
+    _store_and_jobs(tmp_path)

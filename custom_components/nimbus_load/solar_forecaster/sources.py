@@ -43,24 +43,24 @@ GEFS_BASE = "https://noaa-gefs-pds.s3.amazonaws.com"
 @dataclass(frozen=True)
 class Spec:
     name: str
-    run_hours: tuple[int, ...]  # cycles to use, UTC
+    run_hour: int  # the cycle used, UTC: the one a day-ahead forecast for the next local day is made from
     step_h: int  # spacing of the files read
-    publish_lag_h: (
-        float  # hours after the cycle time until the last needed file is reliably there
-    )
+    publish_lag_h: float  # hours after the cycle time until its files out to `horizon_h` are reliably there
+    horizon_h: int  # how far ahead of the run the live forecast reads
     attribution: str
 
 
 SPECS = {
     "ecmwf": Spec(
         "ecmwf",
-        (0, 12),
+        0,
         3,
-        8.5,
+        9.0,
+        60,
         "Contains modified Copernicus/ECMWF open data (CC-BY-4.0)",
     ),
-    "gfs": Spec("gfs", (0, 6, 12, 18), 1, 4.5, "NOAA GFS"),
-    "gefs": Spec("gefs", (0, 6, 12, 18), 3, 5.5, "NOAA GEFS"),
+    "gfs": Spec("gfs", 6, 3, 5.0, 108, "NOAA GFS (public domain)"),
+    "gefs": Spec("gefs", 6, 3, 6.0, 60, "NOAA GEFS (public domain)"),
 }
 
 
@@ -126,7 +126,7 @@ def fetch_step(
         return out
     if source == "gfs":
         url = _gfs_url(run, step)
-        want = {("DSWRF", "surface"): "dswrf", ("TMP", "2 m above ground"): "t2m"}
+        want = {("DSWRF", "surface"): "dswrf"}
         for key, (s, e, desc) in _noaa_ranges(get(url + ".idx").decode(), want).items():
             out[key] = _value(get, url, s, e, lat, lon)
             if key == "dswrf":
@@ -209,23 +209,29 @@ def series(
                 t2m=(sa["2t"] + sb["2t"]) / 2 - 273.15,
             )
     elif source == "gfs":
+        # Each file holds the average since the last 6-hourly reset, window (a, b). With the previous
+        # file in the same window ending at pb: mean over (pb, b] = ((b-a)*A_b - (pb-a)*A_pb) / (b-pb).
+        # The first file after a reset is already the mean over its own (a, b].
+        prev = None
         for k in ks:
             s = steps[k]
             if "dswrf" not in s or not s.get("ave"):
+                prev = None
                 continue
             a, b = s["ave"]
-            prev = steps.get(k - 1, {})
-            if b - a == 1:
-                mean = s["dswrf"]
-            elif prev.get("ave") == (a, b - 1):
-                mean = (b - a) * s["dswrf"] - (b - 1 - a) * prev["dswrf"]
+            if prev is not None and prev["ave"][0] == a and prev["ave"][1] < b:
+                pb = prev["ave"][1]
+                mean, start = (
+                    ((b - a) * s["dswrf"] - (pb - a) * prev["dswrf"]) / (b - pb),
+                    pb,
+                )
+            elif b - a <= SPECS["gfs"].step_h:
+                mean, start = s["dswrf"], a
             else:
+                prev = s
                 continue
-            add(
-                r0 + (k - 0.5) * 3600,
-                mean,
-                t2m=s["t2m"] - 273.15 if "t2m" in s else None,
-            )
+            add(r0 + (start + b) / 2 * 3600, mean)
+            prev = s
     elif source == "gefs":
         for k in ks:
             s, prev = steps[k], steps.get(k - 3, {})
@@ -255,20 +261,21 @@ def series(
     return out
 
 
-def newest_run(source: str, now_utc: dt.datetime, horizon_h: float) -> dt.datetime:
-    """The newest cycle whose files out to `horizon_h` should be published by `now_utc`."""
+def newest_run(source: str, now_utc: dt.datetime) -> dt.datetime:
+    """The newest run of the cycle the model trains on whose files are reliably published."""
     sp = SPECS[source]
-    t = now_utc.replace(minute=0, second=0, microsecond=0)
-    for back in range(72):
-        run = t - dt.timedelta(hours=back)
-        if run.hour in sp.run_hours and now_utc >= run + dt.timedelta(
-            hours=sp.publish_lag_h + horizon_h / 60.0
-        ):
+    day = now_utc.date()
+    for back in range(3):
+        run = dt.datetime.combine(
+            day - dt.timedelta(days=back), dt.time(sp.run_hour), dt.UTC
+        )
+        if now_utc >= run + dt.timedelta(hours=sp.publish_lag_h):
             return run
-    return t - dt.timedelta(hours=72)
+    return dt.datetime.combine(day - dt.timedelta(days=3), dt.time(sp.run_hour), dt.UTC)
 
 
 def evening_before_run(source: str, day: dt.date) -> dt.datetime:
-    """The run a day-ahead forecast for local `day` is made from: the day before, ECMWF 00Z, NOAA 06Z."""
-    hour = 0 if source == "ecmwf" else 6
-    return dt.datetime.combine(day - dt.timedelta(days=1), dt.time(hour), dt.UTC)
+    """The run a day-ahead forecast for local `day` is made from: the day before, at the source's `run_hour`."""
+    return dt.datetime.combine(
+        day - dt.timedelta(days=1), dt.time(SPECS[source].run_hour), dt.UTC
+    )
