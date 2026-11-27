@@ -28,6 +28,7 @@ import math
 import multiprocessing
 import pickle
 import zoneinfo
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -130,7 +131,7 @@ async def run_heavy(hass: HomeAssistant, fn, *args):
     try:
         return await asyncio.wrap_future(_pool().submit(fn, *args))
     except (
-        concurrent.futures.process.BrokenProcessPool,
+        BrokenProcessPool,
         pickle.PicklingError,
         OSError,
     ) as err:
