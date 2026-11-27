@@ -395,7 +395,7 @@
       },
       "solar_forecaster_find": {
         "title": "Find my panels",
-        "description": "Found {count} power sensor(s) that look like separate arrays (per MPPT or per string). The ticked ones become PV Strings. Afterwards, open each PV String on the Nimbus hub's device page to enter its tilt and the direction it faces, if you know them; left blank, they are learned.",
+        "description": "Found {count} power sensor(s) that look like separate arrays (per MPPT or per string). The ticked ones become PV Strings; an input that made no power in the last 14 days is left unticked (no panels on it). Afterwards, open each PV String on the Nimbus hub's device page to enter its tilt and the direction it faces, if you know them; left blank, they are learned.",
         "data": {
           "arrays": "Arrays to add"
         }

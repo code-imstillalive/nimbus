@@ -99,6 +99,10 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
         # part 2: Configure -> Solar forecaster: find, tick, switch on
         roof1 = _power(hass, "inverter", "inv_1_mppt1_power", "Inverter 1 MPPT1 power")
         roof2 = _power(hass, "inverter", "inv_1_mppt2_power", "Inverter 1 MPPT2 power")
+        idle = _power(hass, "inverter", "inv_1_mppt3_power", "Inverter 1 MPPT3 power")
+        hass.states.async_set(
+            idle, "0", {"unit_of_measurement": "kW", "device_class": "power"}
+        )
         _power(
             hass, "inverter", "inv_1_battery_power", "Battery power"
         )  # never an array
@@ -132,7 +136,13 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
         assert set(offered) == {
             roof1,
             roof2,
+            idle,
         }  # not the battery, not the template copy, not the one already added
+        (field,) = [k for k in result["data_schema"].schema if str(k) == "arrays"]
+        assert set(field.default()) == {
+            roof1,
+            roof2,
+        }  # an input with no output: offered, not ticked
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], {"arrays": [roof1, roof2]}
         )

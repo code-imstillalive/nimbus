@@ -13,6 +13,7 @@ A mixin for the hub's options flow (like DeviceSetupSteps): two steps.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -37,6 +38,8 @@ from ..const import (
 )
 
 # Names that mark a per-array power sensor, and names that mark everything else that is in kW.
+_LOGGER = logging.getLogger(__name__)
+
 _ARRAY_WORDS = re.compile(
     r"mppt|string|\bpv\d*\b|_pv_|pv_|solar|array|panel|dc_power|dc power", re.IGNORECASE
 )
@@ -88,6 +91,59 @@ def find_array_sensors(hass, taken: set[str]) -> list[dict[str, str]]:
                 "label": f"{st.attributes.get('friendly_name', eid)} ({eid})",
             }
         )
+    return out
+
+
+#: An array input counts as producing when its hourly mean reached this (kW) in the lookback.
+PRODUCING_KW = 0.05
+PRODUCING_LOOKBACK_DAYS = 14
+
+
+async def producing(hass, ids: list[str]) -> set[str]:
+    """The inputs that actually made power: an hourly mean of at least PRODUCING_KW in the last
+    PRODUCING_LOOKBACK_DAYS of long-term statistics; without statistics, the reading now. An MPPT
+    input with no panels on it never gets there, so Find my panels leaves it unticked."""
+    import datetime as dt
+
+    from homeassistant.util import dt as dt_util
+
+    from ..power_units import is_power_unit, power_to_kw
+
+    def kw(eid: str, v: float) -> float:
+        st = hass.states.get(eid)
+        unit = st.attributes.get("unit_of_measurement") if st else None
+        return power_to_kw(v, unit) if unit and is_power_unit(unit) else v
+
+    peak: dict[str, float] = {}
+    try:  # recorder imports here: the options flow stays importable without the recorder
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.statistics import (
+            statistics_during_period,
+        )
+
+        end = dt_util.utcnow()
+        start = end - dt.timedelta(days=PRODUCING_LOOKBACK_DAYS)
+        rows = await get_instance(hass).async_add_executor_job(
+            statistics_during_period, hass, start, end, set(ids), "hour", None, {"mean"}
+        )
+        for eid, rs in rows.items():
+            vals = [r.get("mean") for r in rs if r.get("mean") is not None]
+            if vals:
+                peak[eid] = kw(eid, max(vals))
+    except Exception as err:  # noqa: BLE001 -- no recorder or no statistics: the reading now
+        _LOGGER.debug("Find my panels: no statistics (%s); using the readings now", err)
+    out = set()
+    for eid in ids:
+        if eid in peak:
+            if peak[eid] >= PRODUCING_KW:
+                out.add(eid)
+            continue
+        st = hass.states.get(eid)
+        try:
+            if st and kw(eid, float(st.state)) >= PRODUCING_KW:
+                out.add(eid)
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -207,12 +263,17 @@ class SolarForecasterSteps:
                 errors={"base": "no_arrays_found"},
                 description_placeholders={"count": "0"},
             )
+        made = await producing(self.hass, [f["value"] for f in found])
+        for f in found:  # an input that never made power is offered, but not ticked
+            if f["value"] not in made:
+                f["label"] += f" — no output in the last {PRODUCING_LOOKBACK_DAYS} days"
         return self.async_show_form(
             step_id="solar_forecaster_find",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
-                        "arrays", default=[f["value"] for f in found]
+                        "arrays",
+                        default=[f["value"] for f in found if f["value"] in made],
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=found,
