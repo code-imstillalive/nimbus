@@ -297,7 +297,5 @@ def forecast(
         days=days,
         tier=max(set(used), key=used.count) if used else "",
         live_ratio=None if ratio is None else round(ratio, 3),
-        now_kw=round(float(mid[0]), 3)
-        if ok[0]
-        else None,  # no weather covers now: unknown
+        now_kw=round(float(mid[0]), 3) if ok[0] else 0.0,
     )
