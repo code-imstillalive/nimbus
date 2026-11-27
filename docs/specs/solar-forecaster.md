@@ -48,10 +48,21 @@ not beat the plan's existing live correction; ~1 % in a blend).
 ## Prior art
 
 EMHASS: pvlib with Open-Meteo weather and an optional linear `adjust_pv_forecast`
-(scikit-learn). HAEO: none (reads other integrations' sensors). Nimbus departs by
-reading the raw global models itself (three of them, with an ensemble spread),
-learning a quantile model on the install's own output, calibrating the band for
-the stochastic plan, and needing only numpy.
+(scikit-learn). HAEO: none (reads other integrations' sensors).
+
+Each ingredient exists elsewhere (review on #2646, 28 Nov 2026):
+- **Several weather models blended:** Solcast (GFS, ECMWF IFS, ACCESS-G, WRF behind a
+  satellite nowcast), meteoblue's MultiModel, Solargis (ECMWF to day 3, then GFS),
+  Cornaro et al.'s WRF + ECMWF ensemble.
+- **Per-site learning on measured output:** Solcast's paid Premium tier, Koster et al.
+  (Solar RRL 2023), Verbois et al. (quantile GBRT on ECMWF).
+- **Free and open:** Open Climate Fix's Quartz reads GFS and ICON through the Open-Meteo
+  API with one model trained on a UK fleet.
+
+None found combines them as here: raw multi-model archives read directly (no account, no
+API call, the location never sent), a model trained from scratch on each install's own
+output, tiers that take over as sources end, a band calibrated for the stochastic plan,
+free and self-hosted. The combination is the new part, not any one ingredient.
 
 ## Package
 

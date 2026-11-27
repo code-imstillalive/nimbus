@@ -112,5 +112,12 @@ year"; its likely range is widened there so that it still holds 80 % of real rea
   itself; your PV Strings' recorded output comes from Home Assistant's recorder and long-term
   statistics).
 - It downloads about 85 MB a day, plus about 35 MB per day of history the first time.
+- It learns from your recorded output, so that output has to be honest:
+  - gaps (a sensor unavailable, the recorder missing hours) are left out;
+  - **curtailment is not detected yet**: hours when output was held back (export limits,
+    negative prices, an inverter switched off but reporting 0) are learned as if cloud had
+    caused them, which pulls the forecast down;
+  - a change on the roof (new shading, panels added or moved) works its way through as
+    the 30 days of history it trains on roll forward.
 - Cloud timing on a stormy day cannot be known the evening before, by it or by anyone.
   Through the day the last 30 minutes measured correct the next hours.
