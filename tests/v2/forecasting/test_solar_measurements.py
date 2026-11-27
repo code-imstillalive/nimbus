@@ -93,15 +93,12 @@ def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(
     assert state.readings["calls"] == 0 and state.empty()
 
 
-def test_an_event_not_yet_due_stays_queued_and_reads_nothing(state):
-    _nowcast(NOON, 1.78, 15.89)
-    _nowcast(NOON, 1.78, 15.89)
-    assert len(state.read()["nowcast_pending"]) == 2 and state.readings["calls"] == 0
-
-
-def test_twilight_levels_are_not_even_considered(state):
-    """3.6 kW against 0.4 at first light clears the bar on arithmetic and
-    means nothing physically; it must not dilute the rate either."""
+def test_what_the_nowcast_check_queues_before_reality_arrives(state):
+    """Merged (one in, one out for the solar forecaster's test): twilight is
+    never queued, and a queued event waits without reading anything."""
+    # test_twilight_levels_are_not_even_considered
+    # 3.6 kW against 0.4 at first light clears the bar on arithmetic and
+    # means nothing physically; it must not dilute the rate either.
     result, _ = _nowcast(datetime(2026, 9, 27, 5, 45, tzinfo=BRISBANE), 0.4, 3.6)
     assert state.read()["nowcast_pending"] == []
     assert (
@@ -109,6 +106,11 @@ def test_twilight_levels_are_not_even_considered(state):
         result["disagreement_rate"],
         result["disagreement_now_kw"],
     ) == (0, None, None)
+
+    # test_an_event_not_yet_due_stays_queued_and_reads_nothing
+    _nowcast(NOON, 1.78, 15.89)
+    _nowcast(NOON, 1.78, 15.89)
+    assert len(state.read()["nowcast_pending"]) == 2 and state.readings["calls"] == 0
 
 
 @pytest.mark.parametrize(

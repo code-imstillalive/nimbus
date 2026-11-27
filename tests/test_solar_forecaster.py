@@ -1,11 +1,11 @@
 """Nimbus's own solar forecaster (`solar_forecaster/`), on synthetic data only.
 
-Two behaviours, each with named parts:
+One test, from weather files to a forecast, in two named parts:
 
-1. `test_solar_forecaster_reads_weather_files`: the GRIB2 reader decodes
+1. `_reads_weather_files`: the GRIB2 reader decodes
    simple packing and CCSDS (AEC) packing exactly, and each source's
    averages/accumulations become plain interval means.
-2. `test_solar_forecaster_learns_an_install_and_forecasts`: the physics is
+2. `_learns_an_install_and_forecasts`: the physics is
    sane, an install's arrays are learned from its measured output (size,
    unused inputs), and the model trains, forecasts p10 <= p50 <= p90, and
    falls back to a smaller tier when one weather source is missing.
@@ -113,7 +113,7 @@ def _aec_encode(x, nbits, bs, rsi):
     return w.bytes()
 
 
-def test_solar_forecaster_reads_weather_files():
+def _reads_weather_files():
     # part 1: simple packing (template 5.0), lat/lon grid, bilinear point read
     ni, nj, nbits = 5, 4, 12
     x = np.arange(ni * nj, dtype=np.int64) * 37 % 4000
@@ -260,7 +260,7 @@ def _synthetic_install(days=40, seed=3):
     return st, truth, t, measured, weather
 
 
-def test_solar_forecaster_learns_an_install_and_forecasts():
+def _learns_an_install_and_forecasts():
     # part 1: physics. Equinox solar noon on the equator: the sun is overhead; a flat panel
     # sees the global light; the sun rises in the east.
     t_noon = dt.datetime(2026, 3, 20, 12, 7, tzinfo=dt.UTC).timestamp()
@@ -310,3 +310,10 @@ def test_solar_forecaster_learns_an_install_and_forecasts():
     no_gefs = {k: v for k, v in weather.items() if k != "gefs"}
     _, mid2, _, tier2 = model.predict(trained, st, learned, future, no_gefs, 8 * 3600)
     assert set(tier2) == {"ecmwf+gfs"} and not np.isnan(mid2).any()
+
+
+def test_solar_forecaster_from_weather_files_to_a_forecast():
+    """One behaviour end to end: the free models' files are read exactly, and an install
+    is learned from its output and forecast from the weather (parts above, in order)."""
+    _reads_weather_files()
+    _learns_an_install_and_forecasts()
