@@ -19,6 +19,7 @@ Files live in <config>/nimbus_solar_forecaster/ (weather CSVs, the model, the la
 from __future__ import annotations
 
 import asyncio
+import copy
 import datetime as dt
 import json
 import logging
@@ -490,13 +491,19 @@ class SolarForecasterRuntime:
                 return
             end = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
             start = end - dt.timedelta(days=self.history_days)
+            # learn on copies: the 5-minute forecast keeps using the current ones meanwhile, and
+            # a failed night leaves them untouched
+            site_new, arrays_new = copy.deepcopy(self.site), copy.deepcopy(self.arrays)
+            for a in arrays_new:  # a direction it learned is learned again each night
+                if not a.learned.get("owner_set"):
+                    a.tilt = a.azimuth = None
             try:
                 grid, measured = await self._async_measured(start, end)
                 trained = await self.hass.async_add_executor_job(
                     runner.train,
                     self.store,
-                    self.site,
-                    self.arrays,
+                    site_new,
+                    arrays_new,
                     grid,
                     measured,
                     self.tz,
@@ -510,7 +517,7 @@ class SolarForecasterRuntime:
                 self.status.detail = f"training failed: {err}"
                 self._publish()
                 return
-            self.trained = trained
+            self.site, self.arrays, self.trained = site_new, arrays_new, trained
             self.status.trained_at = dt_util.utcnow().isoformat()
             rep = trained.report
             self.status.score = {

@@ -135,11 +135,12 @@ def fit(site: Site, arrays: list[Array], t, measured: dict, tz, air_c=None):
         mk = clear_points(t, y, zen, tz) & ~np.isnan(y)
         if mk.sum() < 100 or np.nanmax(np.where(np.isnan(y), 0, y)) < 0.2:
             a.active, a.kwp = False, 0.0
-            a.learned = {"note": "no output: unused input"}
+            a.learned.update({"note": "no output: unused input"})
             continue
         a.active = True
         args = (g[mk], dni[mk], dhi[mk], zen[mk], az[mk])
-        if a.owner_set:
+        owner = a.owner_set
+        if owner:
             e, kwp, gain = _score(y[mk], *args, a.tilt, a.azimuth, tc[mk], air[mk])
         else:
             best = None
@@ -156,11 +157,16 @@ def fit(site: Site, arrays: list[Array], t, measured: dict, tz, air_c=None):
                         best = (*r, tilt, azim % 360)
             e, kwp, gain, a.tilt, a.azimuth = best
         a.kwp, a.diffuse_gain = round(kwp, 3), round(gain, 3)
-        a.learned = {
-            "rmse_kw": round(e, 3),
-            "clear_points": int(mk.sum()),
-            "orientation": "owner" if a.owner_set else "learned",
-        }
+        # update, not replace: the caller keeps its own keys here (Home Assistant: the label
+        # and whether the owner set the direction)
+        a.learned.pop("note", None)
+        a.learned.update(
+            {
+                "rmse_kw": round(e, 3),
+                "clear_points": int(mk.sum()),
+                "orientation": "owner" if owner else "learned",
+            }
+        )
     return site, arrays
 
 
