@@ -52,7 +52,8 @@ def test_expected_load_kw_carries_real_default_once_configured():
     # test_expected_load_kw_carries_real_default_once_configured
     schema = _schema({CONF_EXPECTED_LOAD_KW: 3.7})
     marker = _find_marker(schema, CONF_EXPECTED_LOAD_KW)
-    assert marker.default() == 3.7
+    # Suggested, not a default: a default refilled an emptied field on save.
+    assert marker.description["suggested_value"] == 3.7
 
     # test_reconfigure_with_no_input_shows_form_prefilled_from_existing_data
     flow = _make_flow(source="reconfigure")
@@ -63,7 +64,8 @@ def test_expected_load_kw_carries_real_default_once_configured():
     result = asyncio.run(flow.async_step_user(None))
     assert result["type"] == "form"
     marker = _find_marker(result["data_schema"], CONF_SCHEDULE_START_HOUR)
-    assert marker.default() == 11.0  # prefilled from the existing subentry, not blank
+    # prefilled from the existing subentry, not blank
+    assert marker.description["suggested_value"] == 11.0
 
 
 # -- _derive_title: friendly_name preferred, entity_id as fallback ----------

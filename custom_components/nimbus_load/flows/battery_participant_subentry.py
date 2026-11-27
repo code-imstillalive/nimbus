@@ -62,12 +62,18 @@ from . import form_action_placeholders, missing_entity_errors
 
 _KW_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
-        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="kW"
+        min=0,
+        step="any",
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="kW",
     )
 )
 _KWH_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
-        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="kWh"
+        min=0,
+        step="any",
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="kWh",
     )
 )
 _PERCENT_SELECTOR = selector.NumberSelector(
@@ -92,7 +98,11 @@ _PERCENT_SELECTOR = selector.NumberSelector(
 
 
 def _currency_per_kwh_selector(currency: str | None) -> selector.NumberSelector:
-    config: dict[str, Any] = {"min": 0, "mode": selector.NumberSelectorMode.BOX}
+    config: dict[str, Any] = {
+        "min": 0,
+        "step": "any",
+        "mode": selector.NumberSelectorMode.BOX,
+    }
     if currency:
         config["unit_of_measurement"] = f"{currency}/kWh"
     return selector.NumberSelector(selector.NumberSelectorConfig(**config))
@@ -132,8 +142,14 @@ def _optional_field(
     """Same None-default-crashes-the-frontend fix as controllable_load_
     subentry.py's own helper -- see that module's comment (ha-selector-
     number calls .toString() on the default with no null-check)."""
+    # The saved value is suggested, never a default: Home Assistant leaves
+    # an emptied optional field out of the submission, and a default would
+    # put the old value back, so the setting could never be removed (an
+    # EV's departure hour and required SoC, a tester, 27 Nov 2026).
     if default is not None:
-        schema_dict[vol.Optional(key, default=default)] = field_selector
+        schema_dict[vol.Optional(key, description={"suggested_value": default})] = (
+            field_selector
+        )
     else:
         schema_dict[vol.Optional(key)] = field_selector
 

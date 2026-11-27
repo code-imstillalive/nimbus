@@ -322,3 +322,64 @@ def test_each_wizard_creates_its_part_with_a_sensible_name():
         assert '"battery_participant_available_states"' in (root / name).read_text(
             encoding="utf-8"
         )
+
+
+@pytest.mark.parametrize(
+    ("module", "saved", "cleared"),
+    [
+        (
+            "battery_participant_subentry",
+            {
+                **PARTICIPANT,
+                const.CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR: 7.0,
+                const.CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT: 80.0,
+            },
+            (
+                const.CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
+                const.CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT,
+            ),
+        ),
+        (
+            "controllable_load_subentry",
+            {
+                const.CONF_CONTROLLABLE_LOAD_NAME: "Pool",
+                const.CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY: "switch.pool",
+            },
+            (const.CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,),
+        ),
+        (
+            "load_subentry",
+            {
+                const.CONF_LOAD_SENSOR: "sensor.pool_power",
+                const.CONF_SCHEDULE_START_HOUR: 9.0,
+                const.CONF_SCHEDULE_END_HOUR: 15.0,
+            },
+            (const.CONF_SCHEDULE_START_HOUR, const.CONF_SCHEDULE_END_HOUR),
+        ),
+    ],
+)
+def test_a_cleared_optional_setting_stays_cleared_on_save(module, saved, cleared):
+    """Reopening a part shows what was saved; emptying an optional field and
+    saving removes it. The form had the saved value as the field's default,
+    so the empty field (omitted by Home Assistant) came back filled: a
+    tester could not remove an EV's departure hour and required SoC."""
+    schema = _mod(module)._schema(saved)
+    shown = {}
+    for k in schema.schema:
+        if str(k) in cleared:
+            default = getattr(k, "default", vol.UNDEFINED)
+            suggested = (getattr(k, "description", None) or {}).get("suggested_value")
+            shown[str(k)] = default() if default is not vol.UNDEFINED else suggested
+    assert all(shown[k] == saved[k] for k in cleared), shown
+    submitted = {k: v for k, v in saved.items() if k not in cleared}
+    result = schema(submitted)
+    assert not set(cleared) & set(result), result
+    # A number box without `step` takes Home Assistant's default step of 1,
+    # so the browser refused 0.15 $/kWh or 7.4 kW (a tester, 27 Nov 2026).
+    # Every number box chooses its step; only minutes are left whole.
+    for marker, field in schema.schema.items():
+        config = getattr(field, "config", None)
+        if not isinstance(config, dict) or "domain" in config or "options" in config:
+            continue
+        if "min" in config and config.get("unit_of_measurement") != "min":
+            assert "step" in config, (str(marker), config)
