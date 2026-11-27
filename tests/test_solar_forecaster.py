@@ -13,6 +13,7 @@ One test, from weather files to a forecast, in two named parts:
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import itertools
 import struct
@@ -357,6 +358,24 @@ def _learns_an_install_and_forecasts():
     no_gefs = {k: v for k, v in weather.items() if k != "gefs"}
     _, mid2, _, tier2 = model.predict(trained, st, learned, future, no_gefs, 8 * 3600)
     assert set(tier2) == {"ecmwf+gfs"} and not np.isnan(mid2).any()
+    # days 3-5: past ECMWF's and GEFS's horizon only GFS is left; the forecast carries on from GFS
+    # alone, with a wider likely range (its error grows with the lead)
+    gfs_only = {"gfs": weather["gfs"]}
+    _lo3, mid3, hi3, tier3 = model.predict(
+        trained, st, learned, future, gfs_only, 8 * 3600
+    )
+    assert set(tier3) == {"gfs"} and not np.isnan(mid3).any()
+    _, _, hi_all, _ = model.predict(trained, st, learned, future, no_gefs, 8 * 3600)
+    sunny = mid3 > 0.5
+    assert np.median(((hi3 - mid3) / mid3)[sunny]) > np.median(
+        ((hi_all - mid2) / mid2)[sunny]
+    )
+    # a model saved before this tier existed still forecasts (the far days wait for the night's training)
+    old = dataclasses.replace(
+        trained, tiers={k: v for k, v in trained.tiers.items() if k != "gfs"}
+    )
+    _, mid4, _, tier4 = model.predict(old, st, learned, future, no_gefs, 8 * 3600)
+    assert set(tier4) == {"ecmwf+gfs"} and not np.isnan(mid4).any()
 
 
 def _store_and_jobs(tmp_path):
