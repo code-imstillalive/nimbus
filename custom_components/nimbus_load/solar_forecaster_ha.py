@@ -27,6 +27,7 @@ import logging
 import math
 import multiprocessing
 import pickle
+import sys
 import zoneinfo
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import asdict, dataclass, field
@@ -99,9 +100,14 @@ USE_PROCESS = True
 _POOL: concurrent.futures.ProcessPoolExecutor | None = None
 
 
-def _pool() -> concurrent.futures.ProcessPoolExecutor:
+def _pool(config_dir: str | None = None) -> concurrent.futures.ProcessPoolExecutor:
+    """The worker (started on first use). A spawned process imports Nimbus afresh with the import
+    path it inherits, and Home Assistant does not leave its config folder (where custom_components
+    lives) on that path, so it is added at the end first (shadowing nothing)."""
     global _POOL
     if _POOL is None:
+        if config_dir and config_dir not in sys.path:
+            sys.path.append(config_dir)
         _POOL = concurrent.futures.ProcessPoolExecutor(
             max_workers=1,
             # spawn, never fork: forking a threaded Home Assistant process is unsafe
@@ -128,8 +134,14 @@ async def run_heavy(hass: HomeAssistant, fn, *args):
     would slow the Solver. An error raised by `fn` itself is passed on as it is."""
     if not USE_PROCESS:  # tests: in-process, so patched functions apply
         return await hass.async_add_executor_job(fn, *args)
+
+    def submit() -> concurrent.futures.Future:
+        # starting the worker opens files and pipes: never on the event loop
+        return _pool(hass.config.config_dir).submit(fn, *args)
+
     try:
-        return await asyncio.wrap_future(_pool().submit(fn, *args))
+        future = await hass.async_add_executor_job(submit)
+        return await asyncio.wrap_future(future)
     except (
         BrokenProcessPool,
         pickle.PicklingError,
@@ -532,12 +544,18 @@ class SolarForecasterRuntime:
                     self.tz,
                     self.history_days,
                 )
+                if self.status.detail.startswith("weather not fetched"):
+                    self.status.detail = ""  # the worker runs again
             except Exception as err:  # noqa: BLE001 -- the network is allowed to fail; the next pass retries
                 _LOGGER.warning(
                     "Nimbus solar forecaster: weather fetch failed (%s); retrying next hour",
                     err,
                 )
                 rep = runner.FetchReport(failed={s: str(err) for s in sources.SPECS})
+                if isinstance(
+                    err, NoWorkerProcess
+                ):  # said on the sensor and the card too
+                    self.status.detail = f"weather not fetched: {err}"
             for s in sources.SPECS:
                 runs = await self.hass.async_add_executor_job(self.store.runs, s)
                 if runs:
