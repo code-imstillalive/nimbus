@@ -62,12 +62,18 @@ from . import form_action_placeholders, missing_entity_errors
 
 _KW_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
-        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="kW"
+        min=0,
+        step="any",
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="kW",
     )
 )
 _KWH_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
-        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="kWh"
+        min=0,
+        step="any",
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="kWh",
     )
 )
 _PERCENT_SELECTOR = selector.NumberSelector(
@@ -92,7 +98,11 @@ _PERCENT_SELECTOR = selector.NumberSelector(
 
 
 def _currency_per_kwh_selector(currency: str | None) -> selector.NumberSelector:
-    config: dict[str, Any] = {"min": 0, "mode": selector.NumberSelectorMode.BOX}
+    config: dict[str, Any] = {
+        "min": 0,
+        "step": "any",
+        "mode": selector.NumberSelectorMode.BOX,
+    }
     if currency:
         config["unit_of_measurement"] = f"{currency}/kWh"
     return selector.NumberSelector(selector.NumberSelectorConfig(**config))

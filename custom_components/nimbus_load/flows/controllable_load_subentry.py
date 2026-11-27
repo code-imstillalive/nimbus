@@ -78,12 +78,18 @@ _DEFAULT_SHORTFALL_PRICE = 10.00
 
 _KW_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
-        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="kW"
+        min=0,
+        step="any",
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="kW",
     )
 )
 _KWH_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
-        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="kWh"
+        min=0,
+        step="any",
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="kWh",
     )
 )
 # nimbus issue #1253, fourth site. These were literal "$"/"$/kWh". Unlike the
@@ -104,7 +110,11 @@ _KWH_SELECTOR = selector.NumberSelector(
 
 def _currency_selector(currency: str | None, **extra: Any) -> selector.NumberSelector:
     """A money-valued number input labelled in the household's own currency."""
-    config: dict[str, Any] = {"min": 0, "mode": selector.NumberSelectorMode.BOX}
+    config: dict[str, Any] = {
+        "min": 0,
+        "step": "any",
+        "mode": selector.NumberSelectorMode.BOX,
+    }
     config.update(extra)
     if currency:
         config["unit_of_measurement"] = currency
@@ -113,7 +123,11 @@ def _currency_selector(currency: str | None, **extra: Any) -> selector.NumberSel
 
 def _currency_per_kwh_selector(currency: str | None) -> selector.NumberSelector:
     """A per-kWh price input, labelled the same way."""
-    config: dict[str, Any] = {"min": 0, "mode": selector.NumberSelectorMode.BOX}
+    config: dict[str, Any] = {
+        "min": 0,
+        "step": "any",
+        "mode": selector.NumberSelectorMode.BOX,
+    }
     if currency:
         config["unit_of_measurement"] = f"{currency}/kWh"
     return selector.NumberSelector(selector.NumberSelectorConfig(**config))
@@ -130,7 +144,10 @@ def _waiting_cost_selector(currency: str | None) -> selector.NumberSelector:
 
 _CELSIUS_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
-        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="°C"
+        min=0,
+        step="any",
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="°C",
     )
 )
 # Same 24hr-decimal, no-AM/PM-ambiguity choice as load_subentry.py's own
@@ -404,6 +421,7 @@ def _schema(defaults: dict[str, Any], currency: str | None = None) -> vol.Schema
         selector.NumberSelector(
             selector.NumberSelectorConfig(
                 min=0,
+                step="any",
                 mode=selector.NumberSelectorMode.BOX,
                 unit_of_measurement="°C/kWh",
             )
@@ -415,7 +433,10 @@ def _schema(defaults: dict[str, Any], currency: str | None = None) -> vol.Schema
         defaults.get(CONF_THERMAL_IDLE_DECAY_C_PER_HOUR),
         selector.NumberSelector(
             selector.NumberSelectorConfig(
-                min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="°C/h"
+                min=0,
+                step="any",
+                mode=selector.NumberSelectorMode.BOX,
+                unit_of_measurement="°C/h",
             )
         ),
     )
