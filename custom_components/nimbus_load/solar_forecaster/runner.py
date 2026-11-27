@@ -207,6 +207,26 @@ def train(
     return M.train(site, arrays, t, total, weather, tz)
 
 
+def low_priority() -> None:
+    """Worker-process initializer: run below everything else on the machine, so the weather decode
+    and the nightly training never slow Home Assistant or the Solver (a no-op where unsupported)."""
+    import os
+
+    try:
+        os.nice(19)
+    except (AttributeError, OSError):
+        pass
+
+
+def train_job(
+    store: WeatherStore, site: Site, arrays: list[Array], t, measured: dict, tz
+):
+    """`train` for a worker process: it learns `site` and `arrays` in place, and a separate process
+    cannot change the caller's copies, so they come back with the model."""
+    trained = train(store, site, arrays, t, measured, tz)
+    return trained, site, arrays
+
+
 @dataclass
 class Forecast:
     rows: list[dict]  # {"time": iso, "value": kW, "lower": kW, "upper": kW}

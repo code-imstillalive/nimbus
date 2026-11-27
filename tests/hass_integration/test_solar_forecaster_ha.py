@@ -64,7 +64,10 @@ def _power(hass: HomeAssistant, platform: str, object_id: str, name: str) -> str
 
 async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) -> None:
     no_net = patch.object(runner, "fetch_weather", return_value=runner.FetchReport())
-    with no_net:
+    in_process = patch.object(
+        solar_forecaster_ha, "USE_PROCESS", False
+    )  # so the patch applies
+    with no_net, in_process:
         # part 1: a PV String keeps the owner's tilt and direction; cleared, it stays cleared
         entry = await _setup(hass)
         wall = _power(hass, "inverter", "inv_2_mppt1_power", "Inverter 2 MPPT1 power")
@@ -201,6 +204,22 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
         )
         solar_forecaster_ha.async_stop(bare.entry_id)
         await hass.config_entries.async_unload(entry.entry_id)
+
+        # part 3a: the weather decode and training run in a low-priority worker process; if that
+        # process cannot run, the forecaster stops with a clear error instead of running the work
+        # inside Home Assistant (where it slowed the Solver on a production install, 28 Nov 2026)
+        broken = patch.object(
+            solar_forecaster_ha,
+            "_pool",
+            side_effect=OSError("no processes here"),
+        )
+        with broken, patch.object(solar_forecaster_ha, "USE_PROCESS", True):
+            try:
+                await solar_forecaster_ha.run_heavy(hass, runner.low_priority)
+                raised = False
+            except solar_forecaster_ha.NoWorkerProcess:
+                raised = True
+        assert raised
 
         # part 3b: other solar forecasts already installed are found by integration and key, not by
         # name (two Forecast.Solar planes summed per day, Solcast's day 3 is two days ahead), and a

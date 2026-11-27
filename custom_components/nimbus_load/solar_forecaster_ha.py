@@ -19,11 +19,13 @@ Files live in <config>/nimbus_solar_forecaster/ (weather CSVs, the model, the la
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import copy
 import datetime as dt
 import json
 import logging
 import math
+import multiprocessing
 import pickle
 import zoneinfo
 from dataclasses import asdict, dataclass, field
@@ -87,6 +89,58 @@ YARDSTICKS: dict[str, tuple[str, dict[str, int]]] = {
         },
     ),
 }
+#: The weather decode (pure-Python CCSDS unpacking) and the nightly training are CPU-heavy. Run in
+#: Home Assistant's own process they share one interpreter lock with the Solver and slowed its
+#: cycles past their limit on a production install (28 Nov 2026: one cycle 165 s, then skipped
+#: ticks). They run in one long-lived worker process instead, at the lowest CPU priority, so the
+#: Solver and Home Assistant always come first. False runs them in-process (tests).
+USE_PROCESS = True
+_POOL: concurrent.futures.ProcessPoolExecutor | None = None
+
+
+def _pool() -> concurrent.futures.ProcessPoolExecutor:
+    global _POOL
+    if _POOL is None:
+        _POOL = concurrent.futures.ProcessPoolExecutor(
+            max_workers=1,
+            # spawn, never fork: forking a threaded Home Assistant process is unsafe
+            mp_context=multiprocessing.get_context("spawn"),
+            initializer=runner.low_priority,
+        )
+    return _POOL
+
+
+def shutdown_pool() -> None:
+    global _POOL
+    if _POOL is not None:
+        _POOL.shutdown(wait=False, cancel_futures=True)
+        _POOL = None
+
+
+class NoWorkerProcess(RuntimeError):
+    """The low-priority worker process could not run here."""
+
+
+async def run_heavy(hass: HomeAssistant, fn, *args):
+    """`fn(*args)` in the low-priority worker process. If that process cannot run here, the
+    forecaster stops with NoWorkerProcess rather than run the work inside Home Assistant, where it
+    would slow the Solver. An error raised by `fn` itself is passed on as it is."""
+    if not USE_PROCESS:  # tests: in-process, so patched functions apply
+        return await hass.async_add_executor_job(fn, *args)
+    try:
+        return await asyncio.wrap_future(_pool().submit(fn, *args))
+    except (
+        concurrent.futures.process.BrokenProcessPool,
+        pickle.PicklingError,
+        OSError,
+    ) as err:
+        shutdown_pool()  # a fresh worker is tried next time
+        raise NoWorkerProcess(
+            f"its worker process could not run ({err}); it does not run inside Home Assistant, "
+            "to keep the Solver fast"
+        ) from err
+
+
 #: The evening-before value: a yardstick's "tomorrow" total as it stood at this local hour the day
 #: before (by then each has taken in the evening's weather, as Nimbus's own day-ahead has).
 YARDSTICK_HOUR = 21
@@ -467,7 +521,8 @@ class SolarForecasterRuntime:
                 self.status.state = "fetching_history"
             now = dt_util.utcnow()
             try:
-                rep = await self.hass.async_add_executor_job(
+                rep = await run_heavy(
+                    self.hass,
                     runner.fetch_weather,
                     self.store,
                     self.site.lat,
@@ -641,8 +696,9 @@ class SolarForecasterRuntime:
                     a.tilt = a.azimuth = None
             try:
                 grid, measured = await self._async_measured(start, end)
-                trained = await self.hass.async_add_executor_job(
-                    runner.train,
+                trained, site_new, arrays_new = await run_heavy(
+                    self.hass,
+                    runner.train_job,
                     self.store,
                     site_new,
                     arrays_new,
@@ -822,6 +878,8 @@ def async_stop(entry_id: str) -> None:
     rt = _RUNTIMES.pop(entry_id, None)
     if rt is not None:
         rt.async_stop()
+    if not _RUNTIMES:
+        shutdown_pool()  # the worker process goes with the last forecaster
 
 
 def status_dict(entry_id: str) -> dict[str, Any] | None:
