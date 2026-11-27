@@ -61,6 +61,12 @@ Left blank, they are learned.
 | `status` | starting, fetching_history, learning, ready, no_arrays or error, with `status_detail` |
 | `live_correction` | how far the last 30 minutes measured are from the forecast (1.00 = on it) |
 
+## The card
+
+Add a card with `type: custom:nimbus-solar-card` (no settings needed): the power now, today and
+tomorrow with their likely range, the next 48 hours with its band, what it learned about each
+array, and its own score. It fits a phone.
+
 ## How good it is
 
 Measured on the reference household (44 days, forecasts made from the weather published
