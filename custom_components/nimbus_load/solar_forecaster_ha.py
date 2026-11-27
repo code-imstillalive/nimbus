@@ -568,6 +568,11 @@ class SolarForecasterRuntime:
         self.forecast = fc
         if self.status.state not in ("error",):
             self.status.state = "ready" if fc.rows else "learning"
+        uncovered = "no weather covers this hour yet: the power now is unknown"
+        if fc.now_kw is None and fc.rows:
+            self.status.detail = uncovered
+        elif self.status.detail == uncovered:
+            self.status.detail = ""
         self._publish()
 
     @callback

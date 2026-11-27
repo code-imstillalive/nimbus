@@ -213,7 +213,7 @@ class Forecast:
     days: list[dict]  # {"date", "p10", "p50", "p90", "clear"} kWh per local day
     tier: str
     live_ratio: float | None
-    now_kw: float
+    now_kw: float | None
 
 
 def forecast(
@@ -297,5 +297,7 @@ def forecast(
         days=days,
         tier=max(set(used), key=used.count) if used else "",
         live_ratio=None if ratio is None else round(ratio, 3),
-        now_kw=round(float(mid[0]), 3) if ok[0] else 0.0,
+        now_kw=round(float(mid[0]), 3)
+        if ok[0]
+        else None,  # no weather covers now: unknown
     )
