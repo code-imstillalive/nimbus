@@ -149,6 +149,14 @@ counter). Nimbus takes no such sensor in config, so it publishes no measurement
 rather than a wrong one. `tests/test_1172_no_capacity_measurement_from_a_power_sensor.py`
 pins that absence.
 
+## Solar forecast
+
+`sensor.nimbus_solar_forecast` exists while [Nimbus's own solar forecaster](solar-forecaster.md) is
+switched on (Configure → Solar forecaster). Its state is the expected PV power now (kW); its
+`forecast` attribute is the next four days as `[{time, value, lower, upper}]` (p50, p10, p90), the
+shape every Solver reader understands, with `days`, `arrays`, `score` and `status` beside it. The
+large attributes are not recorded.
+
 ## Load forecast totals
 
 Each load's power forecast (`sensor.nimbus_<load>_power_forecast`, and each

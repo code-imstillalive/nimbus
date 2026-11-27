@@ -165,6 +165,17 @@ topology dashboard card.
 | Import/export/house-load/solar energy today (kWh) | Daily-resetting `utility_meter`-style sensors, shown as headline stats. Nimbus has no equivalent of its own (it forecasts power, not accumulated energy). |
 | Battery charged/discharged today (kWh) | Same, for the battery's own daily totals. |
 
+### Solar forecaster
+
+Nimbus's own solar forecast of your panels ([how it works](solar-forecaster.md)). Off until switched on.
+
+| Field | Purpose |
+|---|---|
+| Turn on Nimbus's solar forecaster | Publishes `sensor.nimbus_solar_forecast`. It downloads about 85 MB of weather a day. |
+| What the plan does with it | *Forecast only* (default: the plan does not use it), *Blend* (one more solar source), or *Plan on it alone* (other solar forecasts fill in only where it has none). |
+| Days of weather history to start from | 7 to 60, default 30; about 35 MB per day, once. |
+| Find my panels now | Lists per-MPPT or per-string power sensors from your inverter's own integration; the ticked ones become PV Strings. |
+
 ## Adding a Load
 
 Reached via **+ Add** on the hub's device page. One required field, three
@@ -207,6 +218,8 @@ or battery-only unit):
 | Power sensor for this string | Real per-string power — e.g. an MPPT/string-level register, not the inverter's total DC power. |
 | Label (optional) | Free text, e.g. compass direction or roof section. |
 | Power Source (optional) | Which inverter this string is wired through, if any. |
+| Tilt (optional) | Degrees from flat (0 flat, 90 a wall), for [Nimbus's solar forecaster](solar-forecaster.md). Used exactly; blank, it is learned. |
+| Direction it faces (optional) | Degrees from north, clockwise (north 0, east 90, south 180, west 270). Used exactly; blank, it is learned. |
 
 **Battery Tower** — one real physical battery pack/tower. Every field
 optional; fill in whichever your hardware exposes:

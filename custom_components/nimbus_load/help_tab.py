@@ -1834,6 +1834,37 @@ FEATURES: tuple[tuple[str, str, str | tuple[str, ...] | None], ...] = (
         ),
         None,
     ),
+    (
+        "Nimbus's own solar forecast",
+        (
+            "**What it does.** Forecasts your panels itself, from three free global "
+            "weather models (ECMWF, NOAA GFS and NOAA's 31-run GEFS ensemble), "
+            "read straight from their public archives: no account, no key, and "
+            "your location is never sent anywhere. It learns each array's size, "
+            "its shading (morning and afternoon apart) and how much scattered light "
+            "it gets from your own measured output, so there are no dampening "
+            "factors to set. The likely range (p10 to p90) is widened until 80 % "
+            "of real readings fall inside it, so the Stochastic plan can trust it. "
+            "Through the day the last 30 minutes measured correct the next hours.\n\n"
+            "**How to turn it on.** Configure → *Solar forecaster*: switch it on, "
+            "and tick *Find my panels now* to add a PV String for each per-MPPT or "
+            "per-string power sensor (or add PV Strings by hand on the hub's device "
+            "page). Give each PV String its tilt and the direction it faces if you "
+            "know them; blank, they are learned.\n\n"
+            "**What the plan does with it.** *Forecast only* (start here and compare), "
+            "*Blend* (one more solar source) or *Plan on it alone* (your other "
+            "forecasts fill in only where it has none, e.g. past four days).\n\n"
+            "**What you see.** `sensor.nimbus_solar_forecast`: kW now, the next four "
+            "days as `forecast`, each day's p10/p50/p90 kWh as `days`, what it "
+            "learned about each array as `arrays`, and its own honest score "
+            "(`score`: daily error on weeks it was not trained on).\n\n"
+            "**Limits.** It needs about a week of history before its first "
+            "forecast; it downloads about 85 MB a day (plus about 35 MB per history "
+            "day the first time); cloud timing on stormy days cannot be known the "
+            "evening before, by it or anyone."
+        ),
+        None,
+    ),
 )
 
 
