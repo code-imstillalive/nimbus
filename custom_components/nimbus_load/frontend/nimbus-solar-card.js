@@ -157,6 +157,16 @@ class NimbusSolarCard extends HTMLElement {
       error: "needs attention",
     }[a.status] || a.status || "";
 
+    // before the first forecast: how far it has got (it needs about a week of weather history)
+    const need = 7;
+    const have = +a.history_days || 0;
+    const progress = a.status === "fetching_history" || a.status === "learning"
+      ? `${Math.min(have, need)} of ${need} days in${have >= need ? ", learning your panels" : ""}`
+      : "";
+    this._waiting = progress
+      ? `Getting ready: ${Math.min(have, need)} of ${need} days of weather history in${have >= need ? "; now learning your panels" : " (about 3 days every 6 minutes)"}. The first forecast follows.`
+      : "";
+
     // header strip
     const made = a.made_at
       ? new Date(a.made_at).toLocaleString(undefined, { timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false })
@@ -165,7 +175,7 @@ class NimbusSolarCard extends HTMLElement {
     const src = ["ecmwf", "gefs", "gfs"].filter((k) => runs[k]).map((k) => `${k.toUpperCase()} ${this._esc(runs[k])}`).join(" · ");
     const live = a.live_correction == null ? "live correction: waiting for sun" : `live correction ×${(+a.live_correction).toFixed(2)}`;
     const top = `<div class="top"><h1>Solar Lab</h1><span>forecast ${this._esc(made)}</span><span>weather: ${src || "–"}</span>
-      <span>${this._esc(live)}</span><span>${this._esc(statusText)}${a.status_detail ? " · " + this._esc(a.status_detail) : ""}</span></div>`;
+      <span>${this._esc(live)}</span><span>${this._esc(statusText)}${progress ? " · " + this._esc(progress) : ""}${a.status_detail ? " · " + this._esc(a.status_detail) : ""}</span></div>`;
 
     // hero
     const tom = days[0];
@@ -370,7 +380,7 @@ class NimbusSolarCard extends HTMLElement {
     if (f.length < 2) {
       x.fillStyle = this._var("--dim");
       x.font = "13px sans-serif";
-      x.fillText("The first forecast comes once it has about a week of history.", L, h / 2);
+      x.fillText(this._waiting || "The first forecast comes once it has about a week of history.", L, h / 2);
       return;
     }
     const now = f[0].t;
