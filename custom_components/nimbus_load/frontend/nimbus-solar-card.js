@@ -11,7 +11,8 @@ const NSC_CSS = `
   --mono:ui-monospace,"IBM Plex Mono",Consolas,"Roboto Mono",monospace;--fg:var(--primary-text-color);--dim:var(--secondary-text-color);
   --line:var(--divider-color,rgba(127,127,127,.25))}
 :host([dark]){--sun:#ffb347;--band:rgba(255,179,71,.18);--clear:#7d8799;--act:#5aa2ff;--good:#5fd39a;--bad:#ff7a70}
-.wrap{container-type:inline-size;display:grid;gap:12px}
+.wrap{container-type:inline-size;display:grid;grid-template-columns:minmax(0,1fr);gap:12px;min-width:0}
+.wrap>*{min-width:0}
 .top{display:flex;flex-wrap:wrap;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--sun);padding-bottom:8px}
 .top h1{font-size:26px;font-weight:700;line-height:1;margin:0;color:var(--fg)}
 .top span{color:var(--dim);font:12.5px var(--mono)}
@@ -158,7 +159,7 @@ class NimbusSolarCard extends HTMLElement {
     </div>`;
 
     // main chart
-    const main = `<div class="card"><h2>Next ${days.length + (today ? 1 : 0) || ""} days, every 15 minutes</h2>
+    const main = `<div class="card"><h2>Today and the next ${days.length || ""} days</h2><div class="why" style="margin:-4px 0 6px">every 15 minutes for two days, hourly after · today's measured output from midnight</div>
       <div class="cbox"><canvas id="cMain"></canvas></div>
       <div class="leg"><span><i style="background:var(--sun)"></i>forecast (p50)</span><span><i style="background:var(--band);height:9px"></i>p10–p90</span>
       <span><i style="background:var(--clear)"></i>clear sky</span><span><i style="background:var(--act)"></i>measured</span></div></div>`;
@@ -273,7 +274,7 @@ class NimbusSolarCard extends HTMLElement {
         hour12: false,
         ...(step >= 21600 ? { weekday: "short" } : {}),
       });
-      if (X + 70 < w || step < 21600) x.fillText(lab, X + 3, h - 4);
+      if (X + x.measureText(lab).width + 6 <= w) x.fillText(lab, X + 3, h - 4); // never cut at the edge
     }
   }
 
@@ -329,7 +330,9 @@ class NimbusSolarCard extends HTMLElement {
     const t0 = m.length ? Math.min(m[0].t, now) : now;
     const t1 = f[f.length - 1].t;
     const ym = Math.ceil(Math.max(1, ...f.map((r) => Math.max(r.upper || 0, r.clear || 0)), ...m.map((r) => r.v || 0)) / 2) * 2;
-    this._axes(x, w, h, L, B, ym, t0, t1, w < 720 ? 43200 : 21600);
+    // the finest time step whose labels still have room (about 80 px each), so they never collide
+    const step = [21600, 43200, 86400].find((st) => ((w - L) * st) / (t1 - t0) >= 80) || 86400;
+    this._axes(x, w, h, L, B, ym, t0, t1, step);
     const X = (s) => L + ((w - L) * (s - t0)) / (t1 - t0);
     const Y = (v) => h - B - ((h - B - 8) * v) / ym;
     x.beginPath();
