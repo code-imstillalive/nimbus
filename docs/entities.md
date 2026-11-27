@@ -153,8 +153,8 @@ pins that absence.
 
 `sensor.nimbus_solar_forecast` exists while [Nimbus's own solar forecaster](solar-forecaster.md) is
 switched on (Configure → Solar forecaster). Its state is the expected PV power now (kW; unknown if
-no weather covers now); its `forecast` attribute runs about two and a half days ahead (to the end of
-the newest ECMWF and GEFS runs) as `[{time, value, lower, upper}]` (p50, p10, p90), the
+no weather covers now); its `forecast` attribute runs about four days ahead (GFS alone, with a wider range, past ECMWF's
+and GEFS's two and a half days) as `[{time, value, lower, upper}]` (p50, p10, p90), the
 shape every Solver reader understands, with `days`, `arrays`, `score` and `status` beside it. The
 large attributes are not recorded.
 

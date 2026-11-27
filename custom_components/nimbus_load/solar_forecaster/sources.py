@@ -59,7 +59,7 @@ SPECS = {
         60,
         "Contains modified Copernicus/ECMWF open data (CC-BY-4.0)",
     ),
-    "gfs": Spec("gfs", 6, 3, 5.0, 108, "NOAA GFS (public domain)"),
+    "gfs": Spec("gfs", 6, 3, 5.0, 120, "NOAA GFS (public domain)"),
     "gefs": Spec("gefs", 6, 3, 6.0, 60, "NOAA GEFS (public domain)"),
 }
 

@@ -9,7 +9,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
-- **Nimbus's own solar forecast** (Configure → *Solar forecaster*, off by default): forecasts your panels from three free global weather models (ECMWF, NOAA GFS, NOAA GEFS), learning each PV String's size, shading and scattered light from its own output; `sensor.nimbus_solar_forecast` carries p10/p50/p90 for about two and a half days (as far as ECMWF and GEFS reach), its learned arrays and its own score. Choose what the plan does with it: forecast only, blend, or plan on it alone. *Find my panels now* adds a PV String for each per-MPPT or per-string power sensor. PV Strings gain optional tilt and direction. Two Repairs: no PV Strings, and no weather for over a day. See [the docs page](docs/solar-forecaster.md).
+- **Nimbus's own solar forecast** (Configure → *Solar forecaster*, off by default): forecasts your panels from three free global weather models (ECMWF, NOAA GFS, NOAA GEFS), learning each PV String's size, shading and scattered light from its own output; `sensor.nimbus_solar_forecast` carries p10/p50/p90 for about four days (the last ones from GFS alone, with a wider range), its learned arrays and its own score. Choose what the plan does with it: forecast only, blend, or plan on it alone. *Find my panels now* adds a PV String for each per-MPPT or per-string power sensor. PV Strings gain optional tilt and direction. Two Repairs: no PV Strings, and no weather for over a day. See [the docs page](docs/solar-forecaster.md).
 
 ## [0.118.0] - 2026-11-27
 

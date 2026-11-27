@@ -38,13 +38,26 @@ TIERS = {
     "ecmwf+gfs": [0, 1, 2, 3, 8, 9, 10, 11, 12, 13],
     "ecmwf+gefs": list(range(8)) + [10, 11, 12, 13],
     "gefs+gfs": list(range(4, 14)),
+    "gfs": [
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+    ],  # days 3-5: past ECMWF's and GEFS's 60 h only GFS is left
 }
 TIER_SOURCES = {
     "ecmwf+gefs+gfs": "egf",
     "ecmwf+gfs": "ef",
     "ecmwf+gefs": "eg",
     "gefs+gfs": "gf",
+    "gfs": "f",
 }
+# GFS alone is used only 2.5 days and more ahead, where its error has grown: its likely range is
+# widened so that it still holds 80 % of real readings (measured on the reference household, 45 days
+# of runs made 3 and 4 days ahead: the day-ahead band held 79 % and 76 %; x1.15 to x1.20 restores 80 %).
+TIER_BAND_WIDEN = {"gfs": 1.15}
 SOURCE_KEY = {"e": "ecmwf", "g": "gefs", "f": "gfs"}
 # Simpler beat deeper on the reference household's 44 days (12.5 % against 13-14 % daily error).
 PARAMS = {
@@ -246,6 +259,10 @@ def predict(trained: Trained, site, arrays, t, weather, tz):
     tier = np.full(len(t), "", dtype=object)
     done = np.zeros(len(t), bool)
     for name, cols in TIERS.items():
+        if (
+            name not in trained.tiers
+        ):  # saved before this tier existed: next night's training adds it
+            continue
         m = covered(t, weather, TIER_SOURCES[name]) & ~done
         if m.sum() < 12:
             continue
@@ -255,7 +272,7 @@ def predict(trained: Trained, site, arrays, t, weather, tz):
             k: np.clip(g.predict(X[:, cols]), 0, 1.08) * clear * up
             for k, g in trained.tiers[name].items()
         }
-        p50, s = q[0.5], trained.band_scale
+        p50, s = q[0.5], trained.band_scale * TIER_BAND_WIDEN.get(name, 1.0)
         out[0][m] = np.maximum(p50 - s * (p50 - np.minimum(q[0.1], p50)), 0)
         out[1][m] = p50
         out[2][m] = np.minimum(p50 + s * (np.maximum(q[0.9], p50) - p50), clear * 1.08)

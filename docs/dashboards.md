@@ -36,11 +36,12 @@ To get it:
 3. Copy the response. On your new dashboard select **Edit → ⋮ → Raw
    configuration editor**, replace its contents with the response, and save.
 
-It holds six tabs, in this order:
+It holds eight tabs, in this order:
 
 | Tab | Card | What it shows |
 |---|---|---|
 | **Forecaster** | `custom:nimbus-forecast-card` ×2 | Power Signals and Load Forecasts (needs ApexCharts Card) |
+| **Solar Lab** | `custom:nimbus-solar-card` | Nimbus's own [solar forecast](solar-forecaster.md): power now, today and the next days with their likely range, what it learned about each array and its own score (with the forecaster off, where to switch it on) |
 | **Solver** | standard Home Assistant cards | solve status, plan against the measured battery, money, EPR and regret, the risk sliders, and every Solver setting grouped into **Basic settings**, **P2P (optional)** and **Advanced settings** (issue #1594) |
 | **Topology** | `custom:nimbus-topology-card` | the site diagram, discovered from your Nimbus config |
 | **Power Flow** | `custom:nimbus-flow-card` | a live animated flow through your inverters, strings and battery towers to the house and grid, the price being paid or earned now, whether the plan is being followed, the circuits drawing now, the Control Panel's forecast table beside it and today's totals |

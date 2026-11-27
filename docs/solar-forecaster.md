@@ -54,7 +54,7 @@ Left blank, they are learned.
 | | |
 |---|---|
 | state | expected PV power now, kW (unknown, with the reason in `status_detail`, if no weather covers now) |
-| `forecast` | from now to the end of the newest ECMWF and GEFS runs (60 hours after their start: about two and a half days), `[{time, value, lower, upper}]` in kW (p50, p10, p90): 15-minute rows for two days, hourly after |
+| `forecast` | about four days ahead (to the end of the newest GFS run, 120 hours after its start), `[{time, value, lower, upper}]` in kW (p50, p10, p90): 15-minute rows for two days, hourly after. Past about two and a half days ECMWF and GEFS have ended and it forecasts from GFS alone, with a wider likely range |
 | `days` | each day's p10 / p50 / p90 and clear-sky kWh |
 | `arrays` | what it learned about each PV String |
 | `score` | its own honest score: daily error on weeks it was not trained on, and how often real output fell inside p10 to p90 |
@@ -63,7 +63,8 @@ Left blank, they are learned.
 
 ## The card
 
-Add a card with `type: custom:nimbus-solar-card` (no settings needed): the power now, today and
+It is the **Solar Lab** tab of the standard [Nimbus dashboard](dashboards.md), or add a card with
+`type: custom:nimbus-solar-card` (no settings needed): the power now, today and
 tomorrow with their likely range, the next 48 hours with its band, what it learned about each
 array, and its own score. It fits a phone.
 
@@ -80,6 +81,10 @@ the evening before, scored on weeks the model never saw):
 
 Its likely range held 80 % of real readings, which is what the Solver's
 [Stochastic plan](configuration-reference.md) needs.
+
+Three and four days ahead only GFS is left. From GFS runs actually made that far ahead (45
+days), its daily error was about 22 %, against 30 % for a plain "typical day for this time of
+year"; its likely range is widened there so that it still holds 80 % of real readings.
 
 ## Limits
 
