@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.118.0] - 2026-11-27
+
+**The settings forms for a car, a controllable load and a power signal now save what you enter.**
+
+- **An emptied optional setting stays empty** (#2640). Reopening a Battery Participant, Controllable Load or Power Signal and emptying an optional field (an EV's departure hour and required SoC, a load's *Device to command*, a schedule's hours) put the old value back on Save, so it could not be removed. Now it is removed. Seen by a tester removing an EV's departure target.
+- **Decimals are accepted in those forms** (#2640). Money, kW, kWh, degree and hour boxes took whole numbers only, so a 0.15 $/kWh Salvage value or a 7.4 kW charger could not be entered. Minutes stay whole.
+- **Docs:** *Auto-include solar* finds Open-Meteo Solar Forecast by its integration, whatever its sensors are called (#2639).
+- Internal: tests 1019 → 1020.
+- Install shapes (#2394): touches anyone who edits a Battery Participant, Controllable Load or Power Signal; nothing changes for a part that is not edited. Seen on a tester's EV participant. The reference household and Mark Purcell's install: unseen, no change expected.
+
 ## [0.117.0] - 2026-11-26
 
 **An export that is almost all solar stays in self-consume.**
@@ -15,6 +25,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **New plan flag `dispatch_solar_export`, and the battery dispatch blueprint self-consumes on it** (#2633). With the battery full, the plan may sell spare solar while giving the battery a small discharge. The blueprint used to force Discharge, and in *Grid export* (sell power) mode it sent the whole planned export as the target, so when the sun came in under forecast a tester's inverter discharged the battery to hold it. Now, while the battery's discharge is at most 10 % of the planned export (and the export is above 0.5 kW), the blueprint self-consumes, which exports the solar that is really there. A battery sale such as a P2P block (discharge about equal to the export) still forces Discharge. Reviewed by Mark Purcell. **Re-import the battery dispatch blueprint** to use it.
 - Internal: tests 1015 → 1019.
 - Install shapes (#2394): touches installs that discharge with the battery dispatch blueprint; seen on a tester's GoodWe in sell-power mode. The reference household's dispatch automation is its own and does not read the flag. In the recorded scenarios one row in 24 sets the flag.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at b99325df** (`release/0.117.0`, installed untagged through Home Assistant's marketplace by branch at 18:37 AEST, 26 Nov, restarted; read through 18:39).
+  - 125 of the 129 Nimbus entities carrying a version read 0.117.0; the other four are the daily reports (0.114.0). No Nimbus entity unavailable; plan `optimal` (solved 18:39). All 63 Solver numbers present and unchanged from a read just before the restart. No Nimbus Repair; no Nimbus error in the system log.
+  - `dispatch_solar_export` on all 202 rows of the test box's plan, true on 14 (tomorrow's daytime spare-solar export rows).
+  - `sensor.nimbus_status` What's new leads with 0.117.0.
+- Consumer check: one new per-row plan attribute, `dispatch_solar_export`. No setting, entity id or name changes. The battery dispatch blueprint self-consumes on it; re-import the blueprint.
 
 ## [0.116.0] - 2026-11-26
 
