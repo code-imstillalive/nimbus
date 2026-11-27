@@ -58,9 +58,15 @@ class FetchReport:
 
 
 def _day_window(day: dt.date, tz) -> tuple[float, float]:
-    start = dt.datetime.combine(day, dt.time(0), dt.UTC).timestamp()
-    start -= float(local_offset(np.array([start]), tz)[0])
-    return start, start + 86400
+    """A local day as UTC seconds, from its own local midnight to the next (23 or 25 hours on the
+    days daylight saving changes)."""
+
+    def midnight(d: dt.date) -> float:
+        if isinstance(tz, (int, float)):
+            return dt.datetime.combine(d, dt.time(0), dt.UTC).timestamp() - float(tz)
+        return dt.datetime.combine(d, dt.time(0), tz).timestamp()
+
+    return midnight(day), midnight(day + dt.timedelta(days=1))
 
 
 def fetch_weather(
@@ -291,5 +297,7 @@ def forecast(
         days=days,
         tier=max(set(used), key=used.count) if used else "",
         live_ratio=None if ratio is None else round(ratio, 3),
-        now_kw=round(float(mid[0]), 3) if ok[0] else 0.0,
+        now_kw=round(float(mid[0]), 3)
+        if ok[0]
+        else None,  # no weather covers now: unknown
     )

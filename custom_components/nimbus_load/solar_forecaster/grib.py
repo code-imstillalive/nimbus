@@ -1,8 +1,9 @@
 """Minimal GRIB2 reader (numpy only) for one field on a regular lat/lon grid.
 
-Supports what NOAA's GFS 0.25 deg files use: grid template 3.0 (regular lat/lon), data templates 5.0 (simple packing)
-and 5.3 (complex packing with spatial differencing), no bitmap. Enough to read DSWRF / TMP / cloud at a point
-without ecCodes (which cannot be installed inside Home Assistant).
+Supports grid templates 3.0 (regular lat/lon: NOAA GFS / GEFS, ECMWF open data) and 3.101 (DWD ICON's
+unstructured icosahedral grid), and data templates 5.0 (simple packing), 5.3 (complex packing with spatial
+differencing) and 5.42 (CCSDS / AEC, as ECMWF and DWD use), no bitmap. Enough to read DSWRF / TMP / cloud at a
+point without ecCodes (which cannot be installed inside Home Assistant).
 """
 
 from __future__ import annotations

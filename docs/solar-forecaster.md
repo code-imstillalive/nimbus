@@ -45,7 +45,7 @@ Left blank, they are learned.
      solar forecasts for a while first;
    - **Blend**: it becomes one more member of the solar blend;
    - **Plan on it alone**: your other solar forecasts only fill in where it has none (past
-     its four days, or if it ever has no forecast).
+     its horizon, or if it ever has no forecast).
 
 ## What you see
 
@@ -53,8 +53,8 @@ Left blank, they are learned.
 
 | | |
 |---|---|
-| state | expected PV power now, kW |
-| `forecast` | the next four days, `[{time, value, lower, upper}]` in kW (p50, p10, p90): 15-minute rows for two days, hourly after |
+| state | expected PV power now, kW (unknown, with the reason in `status_detail`, if no weather covers now) |
+| `forecast` | from now to the end of the newest ECMWF and GEFS runs (60 hours after their start: about two and a half days), `[{time, value, lower, upper}]` in kW (p50, p10, p90): 15-minute rows for two days, hourly after |
 | `days` | each day's p10 / p50 / p90 and clear-sky kWh |
 | `arrays` | what it learned about each PV String |
 | `score` | its own honest score: daily error on weeks it was not trained on, and how often real output fell inside p10 to p90 |
