@@ -23,6 +23,8 @@ from . import sources
 from .site import SLOT_S, Array, Site, clear_power, fit, local_day, local_offset
 from .store import WeatherStore
 
+LIVE_WINDOW_S = 1800.0  # the last 30 minutes measured correct the next hours
+
 USER_AGENT = "Nimbus solar forecaster (+https://github.com/code-imstillalive/nimbus)"
 
 
@@ -223,15 +225,26 @@ def forecast(
     hourly after. Corrected through the day by the last 30 minutes measured (`recent` = (t, kW)),
     the correction fading with an e-folding of 90 minutes."""
     t0 = np.floor(now.timestamp() / SLOT_S) * SLOT_S
-    t = np.arange(t0, t0 + hours * 3600, SLOT_S)
-    lo, mid, hi, tier = M.predict(trained, site, arrays, t, store.latest(), tz)
+    # predicted from 30 minutes back, so each recent reading is compared with what was forecast
+    # for that same moment; only the rows from now on are published
+    t_all = np.arange(t0 - LIVE_WINDOW_S, t0 + hours * 3600, SLOT_S)
+    lo, mid, hi, tier = M.predict(trained, site, arrays, t_all, store.latest(), tz)
+    past = t_all < t0
+    t_past, mid_past = t_all[past], mid[past]
+    t, lo, mid, hi, tier = t_all[~past], lo[~past], mid[~past], hi[~past], tier[~past]
     clear = clear_power(site, arrays, t)
     ok = ~np.isnan(mid)
     ratio = None
     if recent is not None and ok.any():
         rt, rk = recent
-        k = (rt > now.timestamp() - 1800) & (rt <= now.timestamp()) & np.isfinite(rk)
-        f = np.interp(rt[k], t[ok], mid[ok]) if k.sum() >= 3 else np.array([])
+        k = (
+            (rt > now.timestamp() - LIVE_WINDOW_S)
+            & (rt <= now.timestamp())
+            & np.isfinite(rk)
+        )
+        tb, mb = np.append(t_past, t), np.append(mid_past, mid)
+        good = ~np.isnan(mb)
+        f = np.interp(rt[k], tb[good], mb[good]) if k.sum() >= 3 else np.array([])
         if len(f) and f.mean() >= 0.3:
             ratio = float(np.clip(rk[k].mean() / f.mean(), 0.2, 2.0))
             fac = 1 + (ratio - 1) * np.exp(-np.maximum(t - now.timestamp(), 0) / tau_s)
