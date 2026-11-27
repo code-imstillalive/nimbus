@@ -54,19 +54,39 @@ Left blank, they are learned.
 | | |
 |---|---|
 | state | expected PV power now, kW (unknown, with the reason in `status_detail`, if no weather covers now) |
-| `forecast` | about four days ahead (to the end of the newest GFS run, 120 hours after its start), `[{time, value, lower, upper}]` in kW (p50, p10, p90): 15-minute rows for two days, hourly after. Past about two and a half days ECMWF and GEFS have ended and it forecasts from GFS alone, with a wider likely range |
-| `days` | each day's p10 / p50 / p90 and clear-sky kWh, and the models behind it (`gfs` on the days GFS alone covers) |
+| `forecast` | about four days ahead (to the end of the newest GFS run, 120 hours after its start), `[{time, value, lower, upper, clear}]` in kW (p50, p10, p90, clear sky): 15-minute rows for two days, hourly after. Past about two and a half days ECMWF and GEFS have ended and it forecasts from GFS alone, with a wider likely range |
+| `today` | today so far and the rest: kWh made since midnight, the forecast for the rest of the day, and the day's total p10 / p50 / p90 |
+| `measured_today` | what the PV Strings made since midnight, 15-minute means in kW |
+| `days` | each day ahead: p10 / p50 / p90 and clear-sky kWh, and the models behind it (`gfs` on the days GFS alone covers) |
+| `scoreboard` | every scored day: the forecast made from the evening-before weather by a model trained without that week, its range, what was made, and the other solar forecasts' evening-before figures (`others`) |
+| `yardsticks` | the other solar forecasts installed (see below) and which of their sensors give each day |
 | `arrays` | what it learned about each PV String |
 | `score` | its own honest score: daily error on weeks it was not trained on, and how often real output fell inside p10 to p90 |
 | `status` | starting, fetching_history, learning, ready, no_arrays or error, with `status_detail` |
 | `live_correction` | how far the last 30 minutes measured are from the forecast (1.00 = on it) |
+| `made_at`, `haze` | when this forecast was made; the haze of your sky it learned (Linke turbidity) |
 
 ## The card
 
 It is the **Solar Lab** tab of the standard [Nimbus dashboard](dashboards.md), or add a card with
-`type: custom:nimbus-solar-card` (no settings needed): the power now, each day ahead with its
-likely range (the GFS-only days marked), the next 48 hours with its band, what it learned about each
-array, and its own score. It fits a phone.
+`type: custom:nimbus-solar-card` (no settings needed). It shows:
+
+- today (made so far and the rest), tomorrow, the days ahead and its own day-ahead error;
+- the forecast for every day with its likely range, the clear-sky line and today's measured output;
+- a table of every day, the next two hours, and your PV Strings as it learned them;
+- its scoreboard: every scored day's evening-before forecast against what your panels made
+  (in amber), with a summary.
+
+It fits a phone: the two columns stack and the charts are drawn at the card's own size.
+
+### Other solar forecasts, side by side (automatic)
+
+If Forecast.Solar, Open-Meteo Solar Forecast or Solcast is installed, the card finds it by itself
+(no setup) and shows its daily totals beside Nimbus's in the days table, and in the scoreboard its
+"tomorrow" total as it stood at 21:00 the evening before, against what your panels made. Several
+Forecast.Solar or Open-Meteo planes are added up. They are a comparison only: Nimbus never uses
+them for its own forecast. A forecaster whose sensors your recorder does not keep has no
+scoreboard figures.
 
 ## How good it is
 
