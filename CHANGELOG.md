@@ -17,6 +17,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Docs:** *Auto-include solar* finds Open-Meteo Solar Forecast by its integration, whatever its sensors are called (#2639).
 - Internal: tests 1019 → 1020.
 - Install shapes (#2394): touches anyone who edits a Battery Participant, Controllable Load or Power Signal; nothing changes for a part that is not edited. Seen on a tester's EV participant. The reference household and Mark Purcell's install: unseen, no change expected.
+- Devhub validation: **confirmed live on devhub (HA 2026.11.1) at e56cd1e3** (`release/0.118.0`, installed untagged through Home Assistant's marketplace by branch at 12:00 AEST, 27 Nov, restarted; read through 12:03).
+  - 125 of the 129 Nimbus entities carrying a version read 0.118.0; the other four are the daily reports (0.117.0). No Nimbus entity unavailable; plan `optimal` (solved 12:02). All 63 Solver numbers present and unchanged from a read just before the restart. No Nimbus Repair; no Nimbus error in the system log.
+  - The test box's EV Battery Participant, reopened: its money, kW and kWh boxes take any decimal (`step: any`); departure hour and required SoC are pre-filled as suggestions, not defaults. Saved with both emptied and a 0.15 Salvage value, then reopened: departure hour and required SoC empty, Salvage value 0.15. Restored to its earlier settings afterwards (reopened: identical).
+  - `sensor.nimbus_status` What's new leads with 0.118.0.
+- Consumer check: no setting, entity id or name changes. A part's emptied optional field is now left out of its saved settings (before, the old value stayed); number boxes accept decimals.
 
 ## [0.117.0] - 2026-11-26
 
