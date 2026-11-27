@@ -585,9 +585,9 @@ async def _async_setup_entry_impl(
 
     # Nimbus's own solar forecaster (Configure -> Solar forecaster; off by default). Started before
     # the platforms so its sensor finds it; its heavy work runs in a background task, never here.
-    from . import solar_forecaster_ha
-
     try:
+        from . import solar_forecaster_ha
+
         await solar_forecaster_ha.async_start(hass, entry)
     except Exception:  # a forecaster fault must not stop the rest of setup
         _LOGGER.exception(
@@ -1140,9 +1140,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> b
 
     await _flush_decision_inputs(hass, entry.entry_id)
 
-    from . import solar_forecaster_ha
+    try:
+        from . import solar_forecaster_ha
 
-    solar_forecaster_ha.async_stop(entry.entry_id)
+        solar_forecaster_ha.async_stop(entry.entry_id)
+    except Exception:  # stopping the forecaster must never block an unload
+        _LOGGER.exception("Nimbus: the solar forecaster did not stop cleanly")
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:

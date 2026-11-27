@@ -1120,9 +1120,9 @@ async def async_setup_entry(
     async_add_entities([NimbusStatusSensor(entry, sw_version)])
     # Nimbus's own solar forecaster: its sensor exists while the forecaster is switched on
     # (Configure -> Solar forecaster; solar_forecaster_ha.py).
-    from . import solar_forecaster_ha
+    from .const import CONF_SOLAR_FORECASTER_ENABLED
 
-    if solar_forecaster_ha.enabled(dict(entry.options)):
+    if entry.options.get(CONF_SOLAR_FORECASTER_ENABLED):
         async_add_entities([NimbusSolarForecastSensor(entry, sw_version)])
 
     # nimbus #2257: the battery's live allowed charge under the site's import
@@ -2730,13 +2730,13 @@ class NimbusSolverConfigSensor(SensorEntity):
             attrs["known_sources"] = known_sources.EMPTY
         # Nimbus's own solar forecaster: how the Solver uses it (forecast_only changes nothing),
         # and its sensor, only while it is switched on.
-        from . import solar_forecaster_ha
         from .const import (
+            CONF_SOLAR_FORECASTER_ENABLED,
             CONF_SOLAR_FORECASTER_USE,
             DEFAULT_SOLAR_FORECASTER_USE,
         )
 
-        if solar_forecaster_ha.enabled(dict(self._entry.options)):
+        if self._entry.options.get(CONF_SOLAR_FORECASTER_ENABLED):
             attrs["solar_forecaster_use"] = self._entry.options.get(
                 CONF_SOLAR_FORECASTER_USE, DEFAULT_SOLAR_FORECASTER_USE
             )

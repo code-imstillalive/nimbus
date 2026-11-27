@@ -30,9 +30,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from homeassistant.components.recorder import get_instance
-from homeassistant.components.recorder.history import get_significant_states
-from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -390,6 +387,14 @@ class SolarForecasterRuntime:
     ) -> tuple[np.ndarray, dict]:
         """5-minute means (kW) per array on one grid: raw history for the recorder's last days,
         long-term hourly statistics spread by the clear-sky shape before that."""
+        # recorder imports here, not at module level: the module stays importable where the recorder
+        # is not (the stub test harness), and only a running forecaster needs them
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.history import get_significant_states
+        from homeassistant.components.recorder.statistics import (
+            statistics_during_period,
+        )
+
         t0, t1 = start.timestamp(), end.timestamp()
         raw_from = max(t0, (end - dt.timedelta(days=RAW_HISTORY_DAYS)).timestamp())
         grid = np.arange(np.floor(t0 / 300) * 300, t1, 300.0)
