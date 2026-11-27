@@ -156,8 +156,14 @@ def _optional_field(
     ha-selector-number calls .toString() on the default with no
     null-check). Kept as one shared helper here since this schema has
     six such fields, not two."""
+    # The saved value is suggested, never a default: Home Assistant leaves
+    # an emptied optional field out of the submission, and a default would
+    # put the old value back, so the setting could never be removed (an
+    # EV's departure hour and required SoC, a tester, 27 Nov 2026).
     if default is not None:
-        schema_dict[vol.Optional(key, default=default)] = field_selector
+        schema_dict[vol.Optional(key, description={"suggested_value": default})] = (
+            field_selector
+        )
     else:
         schema_dict[vol.Optional(key)] = field_selector
 

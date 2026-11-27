@@ -98,26 +98,33 @@ def _schema(
     # `default=None` -- vol.Optional() with no default cleanly omits
     # the key from user_input if left blank, which the frontend renders
     # as a genuinely empty box instead of trying to stringify null.
+    # A saved value is a suggested_value, never a default: a default put an
+    # emptied field's old value back on save, so it could not be removed
+    # (27 Nov 2026).
     start_default = defaults.get(CONF_SCHEDULE_START_HOUR)
     if start_default is not None:
-        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR, default=start_default)] = (
-            _HOUR_SELECTOR
-        )
+        schema_dict[
+            vol.Optional(
+                CONF_SCHEDULE_START_HOUR, description={"suggested_value": start_default}
+            )
+        ] = _HOUR_SELECTOR
     else:
         schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR)] = _HOUR_SELECTOR
 
     end_default = defaults.get(CONF_SCHEDULE_END_HOUR)
     if end_default is not None:
-        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR, default=end_default)] = (
-            _HOUR_SELECTOR
-        )
+        schema_dict[
+            vol.Optional(
+                CONF_SCHEDULE_END_HOUR, description={"suggested_value": end_default}
+            )
+        ] = _HOUR_SELECTOR
     else:
         schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR)] = _HOUR_SELECTOR
 
     # Optional third field, only meaningful alongside the two above --
     # see const.py's own comment for the full three-mode explanation.
     # Same None-default crash avoidance as the schedule fields (2026-08-15
-    # ha-selector-number finding): only pass default= when a real value
+    # ha-selector-number finding): only suggest a value when a real one
     # already exists.
     load_default = defaults.get(CONF_EXPECTED_LOAD_KW)
     # No `step` constraint -- confirmed live 2026-08-15: HTML5 number
@@ -136,9 +143,11 @@ def _schema(
         )
     )
     if load_default is not None:
-        schema_dict[vol.Optional(CONF_EXPECTED_LOAD_KW, default=load_default)] = (
-            load_selector
-        )
+        schema_dict[
+            vol.Optional(
+                CONF_EXPECTED_LOAD_KW, description={"suggested_value": load_default}
+            )
+        ] = load_selector
     else:
         schema_dict[vol.Optional(CONF_EXPECTED_LOAD_KW)] = load_selector
 
@@ -152,7 +161,9 @@ def _schema(
         )
         current = defaults.get(key)
         if current is not None:
-            schema_dict[vol.Optional(key, default=current)] = sel
+            schema_dict[vol.Optional(key, description={"suggested_value": current})] = (
+                sel
+            )
         else:
             schema_dict[vol.Optional(key)] = sel
     schema_dict[

@@ -132,8 +132,14 @@ def _optional_field(
     """Same None-default-crashes-the-frontend fix as controllable_load_
     subentry.py's own helper -- see that module's comment (ha-selector-
     number calls .toString() on the default with no null-check)."""
+    # The saved value is suggested, never a default: Home Assistant leaves
+    # an emptied optional field out of the submission, and a default would
+    # put the old value back, so the setting could never be removed (an
+    # EV's departure hour and required SoC, a tester, 27 Nov 2026).
     if default is not None:
-        schema_dict[vol.Optional(key, default=default)] = field_selector
+        schema_dict[vol.Optional(key, description={"suggested_value": default})] = (
+            field_selector
+        )
     else:
         schema_dict[vol.Optional(key)] = field_selector
 
