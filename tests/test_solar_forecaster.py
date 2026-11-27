@@ -390,6 +390,35 @@ def _store_and_jobs(tmp_path):
         "2026-07-10",
     ]
 
+    # part 4: through the day the last 30 minutes measured correct the forecast: each reading is
+    # compared with what was forecast for that same moment (not for now), so on a morning ramp
+    # output running at 1.5x the forecast gives a correction of 1.5
+    from unittest.mock import patch
+
+    now = dt.datetime(2026, 1, 10, 0, 0, tzinfo=dt.UTC)
+    base = now.timestamp() - 3 * 3600
+
+    def ramp(_tr, _st, _arr, tt, _w, _tz):
+        mid = (np.asarray(tt, dtype=float) - base) / 3600.0  # 3 kW at `now`, rising
+        return 0.5 * mid, mid, 1.5 * mid, np.array(["ecmwf"] * len(mid), dtype=object)
+
+    rt = now.timestamp() - 1800 + 300.0 * np.arange(1, 7)
+    seen = 1.5 * (rt - base) / 3600.0
+
+    class _Weather:
+        def latest(self):
+            return {}
+
+    with (
+        patch.object(runner.M, "predict", ramp),
+        patch.object(runner, "clear_power", lambda _s, _a, tt: np.full(len(tt), 100.0)),
+    ):
+        fc = runner.forecast(
+            None, _Weather(), st, [], now, syd, recent=(rt, seen), hours=6
+        )
+    assert fc.live_ratio == pytest.approx(1.5, abs=0.01)
+    assert fc.rows[0]["time"] == now.isoformat()  # the published rows still start now
+
 
 def test_solar_forecaster_from_weather_files_to_a_forecast(tmp_path):
     """One behaviour end to end: the free models' files are read exactly, and an install
