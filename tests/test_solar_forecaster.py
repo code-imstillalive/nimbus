@@ -14,14 +14,13 @@ Two behaviours, each with named parts:
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 import struct
 
+import _ml_path  # noqa: F401
 import numpy as np
 import pytest
-
-import _ml_path  # noqa: F401
 from nimbus_load.solar_forecaster import grib, model, physics, site, sources
-
 
 # --- tiny GRIB2 writer (test side only) -------------------------------------
 
@@ -31,7 +30,7 @@ def _section(num: int, body: bytes) -> bytes:
 
 
 def _grib(ni, nj, la1, lo1, la2, lo2, sec5_body: bytes, data: bytes) -> bytes:
-    sm = lambda v: struct.pack(">I", v if v >= 0 else (1 << 31) | -v)  # noqa: E731
+    sm = lambda v: struct.pack(">I", v if v >= 0 else (1 << 31) | -v)
     s3 = bytearray(72 - 5)
     s3[12 - 5 : 14 - 5] = struct.pack(">H", 0)
     s3[30 - 5 : 34 - 5] = struct.pack(">I", ni)
@@ -53,7 +52,7 @@ def _grib(ni, nj, la1, lo1, la2, lo2, sec5_body: bytes, data: bytes) -> bytes:
 
 
 def _sec5(npts, tpl, ref, e, d, nbits, extra=b""):
-    sm16 = lambda v: v if v >= 0 else 0x8000 | -v  # noqa: E731 -- GRIB scale factors are sign-magnitude
+    sm16 = lambda v: v if v >= 0 else 0x8000 | -v
     return struct.pack(">IHfHHB", npts, tpl, ref, sm16(e), sm16(d), nbits) + extra
 
 
@@ -66,7 +65,9 @@ class _Bits:
 
     def bytes(self):
         b = self.b + [0] * (-len(self.b) % 8)
-        return bytes(int("".join(map(str, b[i : i + 8])), 2) for i in range(0, len(b), 8))
+        return bytes(
+            int("".join(map(str, b[i : i + 8])), 2) for i in range(0, len(b), 8)
+        )
 
 
 def _aec_encode(x, nbits, bs, rsi):
@@ -78,7 +79,7 @@ def _aec_encode(x, nbits, bs, rsi):
     for r0 in range(0, len(x), bs * rsi):
         seg = x[r0 : r0 + bs * rsi]
         mapped = [seg[0]]
-        for prev, cur in zip(seg, seg[1:]):
+        for prev, cur in itertools.pairwise(seg):
             th = min(prev, xmax - prev)
             diff = cur - prev
             if 0 <= diff <= th:
@@ -119,7 +120,9 @@ def test_solar_forecaster_reads_weather_files():
     w = _Bits()
     for v in x:
         w.put(int(v), nbits)
-    msg = _grib(ni, nj, 10.0, 100.0, 7.0, 104.0, _sec5(ni * nj, 0, 5.0, -1, 0, nbits), w.bytes())
+    msg = _grib(
+        ni, nj, 10.0, 100.0, 7.0, 104.0, _sec5(ni * nj, 0, 5.0, -1, 0, nbits), w.bytes()
+    )
     f, lats, lons = grib.decode(msg)
     assert f.shape == (nj, ni)
     assert np.allclose(f.ravel(), 5.0 + x * 0.5)
@@ -132,32 +135,75 @@ def test_solar_forecaster_reads_weather_files():
     field = (np.cumsum(rng.integers(-6, 7, ni * nj)) % 900 + 50).astype(np.int64)
     field[300:332] = field[299]  # a flat run: its mapped values are zero -> zero blocks
     data = _aec_encode([int(v) for v in field], nbits, bs, rsi)
-    extra = bytes([0, 8, bs]) + struct.pack(">H", rsi)  # type, flags (predictor), block size, RSI
-    msg = _grib(ni, nj, -20.0, 140.0, -27.25, 149.75, _sec5(ni * nj, 42, 0.0, 0, 1, nbits, extra), data)
+    extra = bytes([0, 8, bs]) + struct.pack(
+        ">H", rsi
+    )  # type, flags (predictor), block size, RSI
+    msg = _grib(
+        ni,
+        nj,
+        -20.0,
+        140.0,
+        -27.25,
+        149.75,
+        _sec5(ni * nj, 42, 0.0, 0, 1, nbits, extra),
+        data,
+    )
     f, lats, lons = grib.decode(msg)
     assert np.allclose(f.ravel(), field / 10.0)
     # decoding can stop just past the site's rows and still read the site
     g, _, _ = grib.decode(msg, point=(-22.0, 145.0))
-    assert grib.at_point(g, lats, lons, -22.0, 145.0) == pytest.approx(grib.at_point(f, lats, lons, -22.0, 145.0))
+    assert grib.at_point(g, lats, lons, -22.0, 145.0) == pytest.approx(
+        grib.at_point(f, lats, lons, -22.0, 145.0)
+    )
 
     # part 3: each source's averages become plain interval means
     run = dt.datetime(2026, 1, 1, 6, tzinfo=dt.UTC)
-    hourly = [100.0, 300.0, 500.0, 200.0, 0.0, 400.0]  # the true hourly means, hours 13-18
+    hourly = [
+        100.0,
+        300.0,
+        500.0,
+        200.0,
+        0.0,
+        400.0,
+    ]  # the true hourly means, hours 13-18
     gfs_steps = {}
     for k in range(13, 19):
         a = 12
-        gfs_steps[k] = {"dswrf": float(np.mean(hourly[: k - 12])), "ave": (a, k), "t2m": 300.15}
+        gfs_steps[k] = {
+            "dswrf": float(np.mean(hourly[: k - 12])),
+            "ave": (a, k),
+            "t2m": 300.15,
+        }
     s = sources.series("gfs", run, gfs_steps)
     assert np.allclose(s["ghi"], hourly)
     assert s["t"][0] == run.timestamp() + 12.5 * 3600
-    acc = np.cumsum([0.0, 360.0, 720.0]) * 3 * 3600  # ECMWF: J/m2 accumulated since the run start
-    ec_steps = {h: {"ssrd": a, "tcc": 0.5, "lcc": 0.2, "2t": 293.15} for h, a in zip((0, 3, 6), acc)}
+    acc = (
+        np.cumsum([0.0, 360.0, 720.0]) * 3 * 3600
+    )  # ECMWF: J/m2 accumulated since the run start
+    ec_steps = {
+        h: {"ssrd": a, "tcc": 0.5, "lcc": 0.2, "2t": 293.15}
+        for h, a in zip((0, 3, 6), acc)
+    }
     s = sources.series("ecmwf", run, ec_steps)
     assert np.allclose(s["ghi"], [360.0, 720.0]) and np.allclose(s["cloud"], 50.0)
-    ge = {15: {"dswrf_mean": 300.0, "ave_dswrf_mean": (12, 15), "dswrf_sd": 40.0, "ave_dswrf_sd": (12, 15),
-               "tcdc_mean": 60.0, "ave_tcdc_mean": (12, 15)},
-          18: {"dswrf_mean": 400.0, "ave_dswrf_mean": (12, 18), "dswrf_sd": 50.0, "ave_dswrf_sd": (12, 18),
-               "tcdc_mean": 50.0, "ave_tcdc_mean": (12, 18)}}
+    ge = {
+        15: {
+            "dswrf_mean": 300.0,
+            "ave_dswrf_mean": (12, 15),
+            "dswrf_sd": 40.0,
+            "ave_dswrf_sd": (12, 15),
+            "tcdc_mean": 60.0,
+            "ave_tcdc_mean": (12, 15),
+        },
+        18: {
+            "dswrf_mean": 400.0,
+            "ave_dswrf_mean": (12, 18),
+            "dswrf_sd": 50.0,
+            "ave_dswrf_sd": (12, 18),
+            "tcdc_mean": 50.0,
+            "ave_tcdc_mean": (12, 18),
+        },
+    }
     s = sources.series("gefs", run, ge)
     assert np.allclose(s["ghi"], [300.0, 500.0])  # 3-6 h mean = 2 x avg(0-6) - avg(0-3)
 
@@ -166,14 +212,24 @@ def _synthetic_install(days=40, seed=3):
     """A made-up install: one roof array and one vertical wall array, a third input with nothing
     on it, under synthetic weather from three 'models' that see the same clouds with errors."""
     st = site.Site(lat=-31.9, lon=115.9, altitude_m=20.0, linke=3.0)
-    truth = [site.Array("roof", 20, 0, kwp=6.0), site.Array("wall", 90, 0, kwp=2.0, diffuse_gain=1.5)]
+    truth = [
+        site.Array("roof", 20, 0, kwp=6.0),
+        site.Array("wall", 90, 0, kwp=2.0, diffuse_gain=1.5),
+    ]
     rng = np.random.default_rng(seed)
     t0 = dt.datetime(2026, 9, 1, tzinfo=dt.UTC).timestamp()
     t = np.arange(t0, t0 + days * 86400, 300.0)
     hour_c = np.arange(t0 + 1800, t0 + days * 86400, 3600.0)
     cloud_day = np.clip(rng.beta(2, 2, days), 0, 1)
     cloud_day[::4] = 0.0  # some clear days, as any real install has
-    kt_h = np.clip(1 - 0.8 * cloud_day[((hour_c - t0) // 86400).astype(int)] * rng.uniform(0.5, 1.2, len(hour_c)), 0.1, 1.0)
+    kt_h = np.clip(
+        1
+        - 0.8
+        * cloud_day[((hour_c - t0) // 86400).astype(int)]
+        * rng.uniform(0.5, 1.2, len(hour_c)),
+        0.1,
+        1.0,
+    )
     kt5 = np.interp(t, hour_c, kt_h)
     _, parts = site.power(st, truth, t, kt5, 22.0, per_array=True)
     measured = {k: v * rng.normal(1, 0.03, len(t)) for k, v in parts.items()}
@@ -183,11 +239,24 @@ def _synthetic_install(days=40, seed=3):
 
     def model_view(noise, step_h):
         tt = hour_c[::step_h]
-        g = np.clip(kt_h[::step_h] + rng.normal(0, noise, len(tt)), 0, 1.1) * cs[::step_h]
-        return {"t": tt, "ghi": g, "cloud": (1 - kt_h[::step_h]) * 100, "low_cloud": (1 - kt_h[::step_h]) * 60,
-                "t2m": np.full(len(tt), 22.0), "ghi_sd": np.full(len(tt), 60.0)}
+        g = (
+            np.clip(kt_h[::step_h] + rng.normal(0, noise, len(tt)), 0, 1.1)
+            * cs[::step_h]
+        )
+        return {
+            "t": tt,
+            "ghi": g,
+            "cloud": (1 - kt_h[::step_h]) * 100,
+            "low_cloud": (1 - kt_h[::step_h]) * 60,
+            "t2m": np.full(len(tt), 22.0),
+            "ghi_sd": np.full(len(tt), 60.0),
+        }
 
-    weather = {"ecmwf": model_view(0.08, 3), "gefs": model_view(0.10, 3), "gfs": model_view(0.12, 1)}
+    weather = {
+        "ecmwf": model_view(0.08, 3),
+        "gefs": model_view(0.10, 3),
+        "gfs": model_view(0.12, 1),
+    }
     return st, truth, t, measured, weather
 
 
@@ -201,12 +270,18 @@ def test_solar_forecaster_learns_an_install_and_forecasts():
     assert 80 < az[0] < 100
     g, dni, dhi = physics.clear_sky(np.array([t_noon]), zen, 0.0, 3.0)
     assert 900 < g[0] < 1150
-    assert physics.poa(g, dni, dhi, zen, np.array([0.0]), 0, 0, np.array([t_noon]))[0] == pytest.approx(g[0], rel=0.03)
+    assert physics.poa(g, dni, dhi, zen, np.array([0.0]), 0, 0, np.array([t_noon]))[
+        0
+    ] == pytest.approx(g[0], rel=0.03)
 
     # part 2: the install is learned: sizes within 5 %, the empty input marked unused, the
     # owner's directions kept exactly
-    st, truth, t, measured, weather = _synthetic_install()
-    learned = [site.Array("roof", 20, 0), site.Array("wall", 90, 0), site.Array("empty", 20, 0)]
+    st, _truth, t, measured, weather = _synthetic_install()
+    learned = [
+        site.Array("roof", 20, 0),
+        site.Array("wall", 90, 0),
+        site.Array("empty", 20, 0),
+    ]
     site.fit(st, learned, t, measured, tz_offset_s=8 * 3600)
     by = {a.key: a for a in learned}
     assert by["roof"].kwp == pytest.approx(6.0, rel=0.05)
@@ -219,7 +294,9 @@ def test_solar_forecaster_learns_an_install_and_forecasts():
     cut = t[0] + 34 * 86400
     trained = model.train(st, learned, t[t < cut], total[t < cut], weather, 8 * 3600)
     assert trained.report["days"] >= 30 and 1.0 <= trained.band_scale <= 2.5
-    keep = (t >= cut) & (t < t[-1] - 86400)  # the synthetic 3-hourly weather ends before the last day
+    keep = (t >= cut) & (
+        t < t[-1] - 86400
+    )  # the synthetic 3-hourly weather ends before the last day
     future = t[keep]
     lo, mid, hi, tier = model.predict(trained, st, learned, future, weather, 8 * 3600)
     day = future.astype(int) // 86400

@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import datetime as dt
+import itertools
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 
@@ -44,12 +45,20 @@ class Spec:
     name: str
     run_hours: tuple[int, ...]  # cycles to use, UTC
     step_h: int  # spacing of the files read
-    publish_lag_h: float  # hours after the cycle time until the last needed file is reliably there
+    publish_lag_h: (
+        float  # hours after the cycle time until the last needed file is reliably there
+    )
     attribution: str
 
 
 SPECS = {
-    "ecmwf": Spec("ecmwf", (0, 12), 3, 8.5, "Contains modified Copernicus/ECMWF open data (CC-BY-4.0)"),
+    "ecmwf": Spec(
+        "ecmwf",
+        (0, 12),
+        3,
+        8.5,
+        "Contains modified Copernicus/ECMWF open data (CC-BY-4.0)",
+    ),
     "gfs": Spec("gfs", (0, 6, 12, 18), 1, 4.5, "NOAA GFS"),
     "gefs": Spec("gefs", (0, 6, 12, 18), 3, 5.5, "NOAA GEFS"),
 }
@@ -93,15 +102,25 @@ def _value(get: Getter, url: str, start: int, end, lat: float, lon: float) -> fl
     return grib.at_point(field, lats, lons, lat, lon)
 
 
-def fetch_step(source: str, run: dt.datetime, step: int, lat: float, lon: float, get: Getter) -> dict:
+def fetch_step(
+    source: str, run: dt.datetime, step: int, lat: float, lon: float, get: Getter
+) -> dict:
     """The site's values in one forecast file (one step of one run)."""
     out: dict = {}
     if source == "ecmwf":
         url = _ecmwf_url(run, step)
-        index = [json.loads(x) for x in get(url + ".index").decode().splitlines() if x.strip()]
+        index = [
+            json.loads(x)
+            for x in get(url + ".index").decode().splitlines()
+            if x.strip()
+        ]
         for rec in index:
             p = rec.get("param")
-            if rec.get("levtype") == "sfc" and p in ("ssrd", "tcc", "lcc", "2t") and p not in out:
+            if (
+                rec.get("levtype") == "sfc"
+                and p in ("ssrd", "tcc", "lcc", "2t")
+                and p not in out
+            ):
                 end = rec["_offset"] + rec["_length"] - 1
                 out[p] = _value(get, url + ".grib2", rec["_offset"], end, lat, lon)
         return out
@@ -116,8 +135,13 @@ def fetch_step(source: str, run: dt.datetime, step: int, lat: float, lon: float,
     if source == "gefs":
         for kind, tag in (("geavg", "mean"), ("gespr", "sd")):
             url = _gefs_url(run, step, kind)
-            want = {("DSWRF", "surface"): "dswrf", ("TCDC", "entire atmosphere"): "tcdc"}
-            for key, (s, e, desc) in _noaa_ranges(get(url + ".idx").decode(), want).items():
+            want = {
+                ("DSWRF", "surface"): "dswrf",
+                ("TCDC", "entire atmosphere"): "tcdc",
+            }
+            for key, (s, e, desc) in _noaa_ranges(
+                get(url + ".idx").decode(), want
+            ).items():
                 out[f"{key}_{tag}"] = _value(get, url, s, e, lat, lon)
                 out[f"ave_{key}_{tag}"] = _ave_window(desc)
         return out
@@ -129,7 +153,9 @@ def steps_for(source: str, run: dt.datetime, t0: float, t1: float) -> list[int]:
     sp = SPECS[source]
     h0 = int((t0 - run.timestamp()) // 3600)
     h1 = int(-(-(t1 - run.timestamp()) // 3600))
-    h0 -= h0 % 6  # averages reset every 6 h (NOAA) / accumulate from the start (ECMWF): start on a boundary
+    h0 -= (
+        h0 % 6
+    )  # averages reset every 6 h (NOAA) / accumulate from the start (ECMWF): start on a boundary
     h0 = max(h0, 0)
     h1 = -(-h1 // sp.step_h) * sp.step_h
     return list(range(h0, h1 + 1, sp.step_h))
@@ -143,12 +169,14 @@ def fetch_run(source, run, steps, lat, lon, get, workers=6) -> dict[int, dict]:
         for f in cf.as_completed(futs):
             try:
                 out[futs[f]] = f.result()
-            except Exception:  # noqa: BLE001 -- one missing file must not lose the rest of the run
+            except Exception:  # noqa: BLE001, S110 -- one missing file must not lose the rest of the run
                 pass
     return out
 
 
-def series(source: str, run: dt.datetime, steps: dict[int, dict]) -> dict[str, np.ndarray]:
+def series(
+    source: str, run: dt.datetime, steps: dict[int, dict]
+) -> dict[str, np.ndarray]:
     """Fetched steps -> interval means centred on each interval: t (UTC s), ghi (W/m2) and extras."""
     r0 = run.timestamp()
     t, ghi, extra = [], [], {}
@@ -161,14 +189,25 @@ def series(source: str, run: dt.datetime, steps: dict[int, dict]) -> dict[str, n
 
     ks = sorted(steps)
     if source == "ecmwf":
-        for a, b in zip(ks, ks[1:]):
+        for a, b in itertools.pairwise(ks):
             sa, sb = steps[a], steps[b]
             if "ssrd" not in sa or "ssrd" not in sb:
                 continue
-            mean = (sb["ssrd"] - sa["ssrd"]) / ((b - a) * 3600.0)  # accumulated J/m2 -> W/m2
-            lcc = (sa["lcc"] + sb["lcc"]) / 2 * 100 if "lcc" in sa and "lcc" in sb else None
-            add(r0 + (a + b) / 2 * 3600, mean, cloud=(sa["tcc"] + sb["tcc"]) / 2 * 100,
-                low_cloud=lcc, t2m=(sa["2t"] + sb["2t"]) / 2 - 273.15)
+            mean = (sb["ssrd"] - sa["ssrd"]) / (
+                (b - a) * 3600.0
+            )  # accumulated J/m2 -> W/m2
+            lcc = (
+                (sa["lcc"] + sb["lcc"]) / 2 * 100
+                if "lcc" in sa and "lcc" in sb
+                else None
+            )
+            add(
+                r0 + (a + b) / 2 * 3600,
+                mean,
+                cloud=(sa["tcc"] + sb["tcc"]) / 2 * 100,
+                low_cloud=lcc,
+                t2m=(sa["2t"] + sb["2t"]) / 2 - 273.15,
+            )
     elif source == "gfs":
         for k in ks:
             s = steps[k]
@@ -182,7 +221,11 @@ def series(source: str, run: dt.datetime, steps: dict[int, dict]) -> dict[str, n
                 mean = (b - a) * s["dswrf"] - (b - 1 - a) * prev["dswrf"]
             else:
                 continue
-            add(r0 + (k - 0.5) * 3600, mean, t2m=s["t2m"] - 273.15 if "t2m" in s else None)
+            add(
+                r0 + (k - 0.5) * 3600,
+                mean,
+                t2m=s["t2m"] - 273.15 if "t2m" in s else None,
+            )
     elif source == "gefs":
         for k in ks:
             s, prev = steps[k], steps.get(k - 3, {})
@@ -201,8 +244,12 @@ def series(source: str, run: dt.datetime, steps: dict[int, dict]) -> dict[str, n
             if mean is None:
                 continue
             sd, cc = deave("dswrf_sd"), deave("tcdc_mean")
-            add(r0 + (k - 1.5) * 3600, mean, ghi_sd=None if sd is None else max(sd, 0.0),
-                cloud=None if cc is None else min(max(cc, 0.0), 100.0))
+            add(
+                r0 + (k - 1.5) * 3600,
+                mean,
+                ghi_sd=None if sd is None else max(sd, 0.0),
+                cloud=None if cc is None else min(max(cc, 0.0), 100.0),
+            )
     out = {"t": np.array(t, dtype=float), "ghi": np.array(ghi, dtype=float)}
     out.update({k: np.array(v, dtype=float) for k, v in extra.items()})
     return out
@@ -212,9 +259,11 @@ def newest_run(source: str, now_utc: dt.datetime, horizon_h: float) -> dt.dateti
     """The newest cycle whose files out to `horizon_h` should be published by `now_utc`."""
     sp = SPECS[source]
     t = now_utc.replace(minute=0, second=0, microsecond=0)
-    for back in range(0, 72):
+    for back in range(72):
         run = t - dt.timedelta(hours=back)
-        if run.hour in sp.run_hours and now_utc >= run + dt.timedelta(hours=sp.publish_lag_h + horizon_h / 60.0):
+        if run.hour in sp.run_hours and now_utc >= run + dt.timedelta(
+            hours=sp.publish_lag_h + horizon_h / 60.0
+        ):
             return run
     return t - dt.timedelta(hours=72)
 
@@ -222,4 +271,4 @@ def newest_run(source: str, now_utc: dt.datetime, horizon_h: float) -> dt.dateti
 def evening_before_run(source: str, day: dt.date) -> dt.datetime:
     """The run a day-ahead forecast for local `day` is made from: the day before, ECMWF 00Z, NOAA 06Z."""
     hour = 0 if source == "ecmwf" else 6
-    return dt.datetime.combine(day - dt.timedelta(days=1), dt.time(hour), dt.timezone.utc)
+    return dt.datetime.combine(day - dt.timedelta(days=1), dt.time(hour), dt.UTC)

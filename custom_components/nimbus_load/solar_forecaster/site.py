@@ -49,7 +49,9 @@ class Array:
         return self.tilt is not None and self.azimuth is not None
 
 
-def clear_points(t, y, zen, tz_offset_s: float, window_days: int = 7, frac: float = 0.92):
+def clear_points(
+    t, y, zen, tz_offset_s: float, window_days: int = 7, frac: float = 0.92
+):
     """Clear-sky moments: readings within `frac` of the highest reading at the same time of
     day over nearby days. Sturdier than whole clear days: a mostly cloudy day still
     contributes its sunny spells."""
@@ -81,7 +83,9 @@ def _score(y, g, dni, dhi, zen, az, tilt, azim, tc, air):
     return float(np.sqrt(np.mean((y - kwp * x) ** 2))), kwp, gain
 
 
-def fit(site: Site, arrays: list[Array], t, measured: dict, tz_offset_s: float, air_c=None):
+def fit(
+    site: Site, arrays: list[Array], t, measured: dict, tz_offset_s: float, air_c=None
+):
     """Learn haze, and each array's size and scattered-light gain (and direction where the
     owner gave none), from measured 5-minute means. Updates `site` and `arrays` in place."""
     t = np.asarray(t, dtype=float)
@@ -89,7 +93,11 @@ def fit(site: Site, arrays: list[Array], t, measured: dict, tz_offset_s: float, 
     zen, az = ph.sun_position(tc, site.lat, site.lon)
     air = np.full(len(t), 25.0) if air_c is None else np.asarray(air_c, dtype=float)
     keys = [a.key for a in arrays if a.key in measured]
-    total = np.sum([np.asarray(measured[k], dtype=float) for k in keys], axis=0) if keys else np.full(len(t), np.nan)
+    total = (
+        np.sum([np.asarray(measured[k], dtype=float) for k in keys], axis=0)
+        if keys
+        else np.full(len(t), np.nan)
+    )
     clear = clear_points(t, total, zen, tz_offset_s)
     m = clear & (zen < 80) & ~np.isnan(total)
     if m.sum() > 50:  # haze: the clear-sky shape that best matches the clear moments
@@ -120,7 +128,7 @@ def fit(site: Site, arrays: list[Array], t, measured: dict, tz_offset_s: float, 
                     r = _score(y[mk], *args, tilt, azim, tc[mk], air[mk])
                     if best is None or r[0] < best[0]:
                         best = (*r, tilt, azim)
-            e0, _, _, t0, a0 = best
+            _, _, _, t0, a0 = best
             for tilt in range(max(0, t0 - 5), min(90, t0 + 5) + 1):
                 for azim in range(a0 - 10, a0 + 11, 2):
                     r = _score(y[mk], *args, tilt, azim % 360, tc[mk], air[mk])
@@ -128,12 +136,23 @@ def fit(site: Site, arrays: list[Array], t, measured: dict, tz_offset_s: float, 
                         best = (*r, tilt, azim % 360)
             e, kwp, gain, a.tilt, a.azimuth = best
         a.kwp, a.diffuse_gain = round(kwp, 3), round(gain, 3)
-        a.learned = {"rmse_kw": round(e, 3), "clear_points": int(mk.sum()),
-                     "orientation": "owner" if a.owner_set else "learned"}
+        a.learned = {
+            "rmse_kw": round(e, 3),
+            "clear_points": int(mk.sum()),
+            "orientation": "owner" if a.owner_set else "learned",
+        }
     return site, arrays
 
 
-def power(site: Site, arrays: list[Array], t, kt, air_c, mid_s: float = SLOT_S / 2, per_array=False):
+def power(
+    site: Site,
+    arrays: list[Array],
+    t,
+    kt,
+    air_c,
+    mid_s: float = SLOT_S / 2,
+    per_array=False,
+):
     """DC kW from a clear-sky index on grid t (slots labelled by their start)."""
     t = np.asarray(t, dtype=float) + mid_s
     zen, az = ph.sun_position(t, site.lat, site.lon)
@@ -150,7 +169,9 @@ def power(site: Site, arrays: list[Array], t, kt, air_c, mid_s: float = SLOT_S /
     return (tot, parts) if per_array else tot
 
 
-def clear_power(site: Site, arrays: list[Array], t, mid_s: float = SLOT_S / 2, per_array=False):
+def clear_power(
+    site: Site, arrays: list[Array], t, mid_s: float = SLOT_S / 2, per_array=False
+):
     """DC kW under a clear sky."""
     t = np.asarray(t, dtype=float) + mid_s
     zen, az = ph.sun_position(t, site.lat, site.lon)

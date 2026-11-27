@@ -39,7 +39,9 @@ def sun_position(t_utc_s, lat: float, lon: float):
     )
     omega = 125.04 - 1934.136 * jc
     app_long = l0 + c - 0.00569 - 0.00478 * np.sin(omega * DEG)
-    eps0 = 23 + (26 + (21.448 - jc * (46.815 + jc * (0.00059 - jc * 0.001813))) / 60) / 60
+    eps0 = (
+        23 + (26 + (21.448 - jc * (46.815 + jc * (0.00059 - jc * 0.001813))) / 60) / 60
+    )
     eps = eps0 + 0.00256 * np.cos(omega * DEG)
     decl = np.arcsin(np.sin(eps * DEG) * np.sin(app_long * DEG))
     y = np.tan(eps * DEG / 2) ** 2
@@ -162,7 +164,9 @@ def poa(ghi, dni, dhi, zen_deg, az_deg, tilt, azimuth, t_utc_s, diffuse_gain=1.0
 
 
 def cell_temp(poa_w, air_c, wind_ms=1.0):
-    return air_c + poa_w * (45.0 - 20.0) / 800.0 * 9.5 / (5.7 + 3.8 * np.maximum(wind_ms, 0.0))
+    return air_c + poa_w * (45.0 - 20.0) / 800.0 * 9.5 / (
+        5.7 + 3.8 * np.maximum(wind_ms, 0.0)
+    )
 
 
 def dc_power(poa_w, kwp, air_c=25.0, wind_ms=1.0, gamma=-0.004):

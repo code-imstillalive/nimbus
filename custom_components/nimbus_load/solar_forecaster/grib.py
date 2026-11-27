@@ -4,6 +4,7 @@ Supports what NOAA's GFS 0.25 deg files use: grid template 3.0 (regular lat/lon)
 and 5.3 (complex packing with spatial differencing), no bitmap. Enough to read DSWRF / TMP / cloud at a point
 without ecCodes (which cannot be installed inside Home Assistant).
 """
+
 from __future__ import annotations
 
 import struct
@@ -29,7 +30,7 @@ def _read_fixed(bits, pos, n, w):
     """n unsigned integers of w bits each starting at bit pos -> (values, new pos)."""
     if w == 0 or n == 0:
         return np.zeros(n, dtype=np.int64), pos
-    seg = bits[pos:pos + n * w].reshape(n, w).astype(np.int64)
+    seg = bits[pos : pos + n * w].reshape(n, w).astype(np.int64)
     vals = seg @ (1 << np.arange(w - 1, -1, -1, dtype=np.int64))
     return vals, pos + n * w
 
@@ -37,9 +38,9 @@ def _read_fixed(bits, pos, n, w):
 def _sections(msg: bytes):
     out = {}
     i = 16
-    while i < len(msg) - 4 and msg[i:i + 4] != b"7777":
-        ln = struct.unpack(">I", msg[i:i + 4])[0]
-        out[msg[i + 4]] = msg[i:i + ln]
+    while i < len(msg) - 4 and msg[i : i + 4] != b"7777":
+        ln = struct.unpack(">I", msg[i : i + 4])[0]
+        out[msg[i + 4]] = msg[i : i + ln]
         i += ln
     return out
 
@@ -88,11 +89,13 @@ def decode(msg: bytes, point=None, upto=None):
         order = s5[47]
         nd = s5[48]
         pos = 0
+
         def take_sm():
             nonlocal pos
-            raw = int.from_bytes(data[pos // 8:pos // 8 + nd], "big")
+            raw = int.from_bytes(data[pos // 8 : pos // 8 + nd], "big")
             pos += 8 * nd
             return _sm(raw, nd)
+
         h = [take_sm() for _ in range(order)]
         hmin = take_sm()
         grp_ref, pos = _read_fixed(bits, pos, ng, nbits)
@@ -142,7 +145,7 @@ def decode(msg: bytes, point=None, upto=None):
             x = np.concatenate([x, np.full(npts - len(x), np.nan)])
     else:
         raise ValueError(f"data template {tpl5} not supported")
-    vals = (R + x * 2.0 ** E) / 10.0 ** D
+    vals = (R + x * 2.0**E) / 10.0**D
     lats = np.linspace(la1, la2, nj)
     lons = lo1 + np.arange(ni) * (((lo2 - lo1) % 360) or 360) / (ni - 1)
     return vals.reshape(nj, ni), lats, lons
@@ -151,15 +154,30 @@ def decode(msg: bytes, point=None, upto=None):
 def at_point(field, lats, lons, lat, lon):
     """Bilinear value at (lat, lon)."""
     fi = (lat - lats[0]) / (lats[1] - lats[0])
-    fj = ((lon - lons[0]) % 360) / (lons[1] - lons[0])  # grids starting at 0, -180 or 180 all work
+    fj = ((lon - lons[0]) % 360) / (
+        lons[1] - lons[0]
+    )  # grids starting at 0, -180 or 180 all work
     i0, j0 = int(np.floor(fi)), int(np.floor(fj))
     di, dj = fi - i0, fj - j0
     f = field
     j1 = (j0 + 1) % f.shape[1]
-    return float((1 - di) * (1 - dj) * f[i0, j0] + (1 - di) * dj * f[i0, j1] + di * (1 - dj) * f[i0 + 1, j0] + di * dj * f[i0 + 1, j1])
+    return float(
+        (1 - di) * (1 - dj) * f[i0, j0]
+        + (1 - di) * dj * f[i0, j1]
+        + di * (1 - dj) * f[i0 + 1, j0]
+        + di * dj * f[i0 + 1, j1]
+    )
 
 
-def _aec_decode(data: bytes, nbits: int, flags: int, bs: int, rsi: int, nsamples: int, stop_at: int | None = None):
+def _aec_decode(
+    data: bytes,
+    nbits: int,
+    flags: int,
+    bs: int,
+    rsi: int,
+    nsamples: int,
+    stop_at: int | None = None,
+):
     """CCSDS 121.0-B adaptive entropy decoding (what libaec does), numpy-assisted, for GRIB data template 5.42.
 
     Decodes unsigned samples of `nbits` with the unit-delay predictor (flag 8) and optional RSI byte padding (flag 32).
@@ -191,7 +209,7 @@ def _aec_decode(data: bytes, nbits: int, flags: int, bs: int, rsi: int, nsamples
     unc = (1 << id_len) - 1
 
     def rd(p, w):
-        return int(bits[p:p + w] @ (1 << np.arange(w - 1, -1, -1))) if w else 0
+        return int(bits[p : p + w] @ (1 << np.arange(w - 1, -1, -1))) if w else 0
 
     def unary(p):
         j = np.searchsorted(ones, p)
@@ -202,7 +220,7 @@ def _aec_decode(data: bytes, nbits: int, flags: int, bs: int, rsi: int, nsamples
         rsi_start = n_out
         b = 0
         while b < rsi and n_out < need and pos < nb - id_len:
-            oid = int(bits[pos:pos + id_len] @ w_id)
+            oid = int(bits[pos : pos + id_len] @ w_id)
             pos += id_len
             ref = pre and b == 0
             refv = 0
@@ -220,7 +238,7 @@ def _aec_decode(data: bytes, nbits: int, flags: int, bs: int, rsi: int, nsamples
                     elif z > 5:
                         z -= 1
                     cnt = z * bs
-                    out[n_out:n_out + cnt] = 0
+                    out[n_out : n_out + cnt] = 0
                     if ref:
                         out[n_out] = refv
                     n_out += cnt
@@ -242,7 +260,7 @@ def _aec_decode(data: bytes, nbits: int, flags: int, bs: int, rsi: int, nsamples
                         i += 1
                     vals.append(d1)
                     i += 1
-                out[n_out:n_out + bs] = vals[:bs]
+                out[n_out : n_out + bs] = vals[:bs]
                 n_out += bs
                 b += 1
                 continue
@@ -251,26 +269,30 @@ def _aec_decode(data: bytes, nbits: int, flags: int, bs: int, rsi: int, nsamples
                 pos += nbits
             cnt = bs - 1 if ref else bs
             if oid == unc:  # stored as is
-                v = bits[pos:pos + cnt * nbits].reshape(cnt, nbits).astype(np.int64) @ (1 << np.arange(nbits - 1, -1, -1))
+                v = bits[pos : pos + cnt * nbits].reshape(cnt, nbits).astype(
+                    np.int64
+                ) @ (1 << np.arange(nbits - 1, -1, -1))
                 pos += cnt * nbits
             else:  # split: all unary high parts, then all k-bit low parts
                 k = oid - 1
                 j = np.searchsorted(ones, pos)
-                ends = ones[j:j + cnt].astype(np.int64)
+                ends = ones[j : j + cnt].astype(np.int64)
                 starts = np.concatenate([[pos], ends[:-1] + 1])
                 fs = ends - starts
                 pos = int(ends[-1]) + 1
                 if k:
-                    lsb = bits[pos:pos + cnt * k].reshape(cnt, k).astype(np.int64) @ (1 << np.arange(k - 1, -1, -1))
+                    lsb = bits[pos : pos + cnt * k].reshape(cnt, k).astype(np.int64) @ (
+                        1 << np.arange(k - 1, -1, -1)
+                    )
                     pos += cnt * k
                     v = (fs << k) | lsb
                 else:
                     v = fs
             if ref:
                 out[n_out] = refv
-                out[n_out + 1:n_out + bs] = v
+                out[n_out + 1 : n_out + bs] = v
             else:
-                out[n_out:n_out + bs] = v
+                out[n_out : n_out + bs] = v
             n_out += bs
             b += 1
         if pre:  # undo the unit-delay predictor over this RSI
@@ -293,7 +315,7 @@ def _aec_decode(data: bytes, nbits: int, flags: int, bs: int, rsi: int, nsamples
             out[rsi_start:n_out] = seg
         if pad:
             pos = (pos + 7) // 8 * 8
-    return out[:min(n_out, nsamples)]
+    return out[: min(n_out, nsamples)]
 
 
 def _decode_values(s, upto=None):
@@ -309,11 +331,13 @@ def _decode_values(s, upto=None):
     nbits = s5[19]
     data = s7[5:]
     if tpl5 == 42:
-        x = _aec_decode(data, nbits, s5[21], s5[22], struct.unpack(">H", s5[23:25])[0], npts, upto).astype(float)
+        x = _aec_decode(
+            data, nbits, s5[21], s5[22], struct.unpack(">H", s5[23:25])[0], npts, upto
+        ).astype(float)
     elif tpl5 == 0:
         n = npts if upto is None else min(npts, upto)
         x, _ = _read_fixed(_bits(data), 0, n, nbits)
         x = x.astype(float)
     else:
         raise ValueError(f"data template {tpl5} not supported")
-    return (R + x * 2.0 ** E) / 10.0 ** D
+    return (R + x * 2.0**E) / 10.0**D

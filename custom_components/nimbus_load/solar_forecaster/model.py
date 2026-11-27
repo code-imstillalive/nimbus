@@ -39,10 +39,20 @@ TIERS = {
     "ecmwf+gefs": list(range(8)) + [10, 11, 12, 13],
     "gefs+gfs": list(range(4, 14)),
 }
-TIER_SOURCES = {"ecmwf+gefs+gfs": "egf", "ecmwf+gfs": "ef", "ecmwf+gefs": "eg", "gefs+gfs": "gf"}
+TIER_SOURCES = {
+    "ecmwf+gefs+gfs": "egf",
+    "ecmwf+gfs": "ef",
+    "ecmwf+gefs": "eg",
+    "gefs+gfs": "gf",
+}
 SOURCE_KEY = {"e": "ecmwf", "g": "gefs", "f": "gfs"}
 # Simpler beat deeper on the reference household's 44 days (12.5 % against 13-14 % daily error).
-PARAMS = {"n_estimators": 80, "max_depth": 2, "learning_rate": 0.1, "min_samples_leaf": 60}
+PARAMS = {
+    "n_estimators": 80,
+    "max_depth": 2,
+    "learning_rate": 0.1,
+    "min_samples_leaf": 60,
+}
 QUANTILES = (0.1, 0.5, 0.9)
 TARGET_COVER = 0.80
 
@@ -106,8 +116,24 @@ def features(site: Site, arrays: list[Array], t, weather: dict, tz_offset_s: flo
                 out[day == d] = np.average(v[k], weights=clear[k] + 1e-6)
         return out
 
-    X = np.column_stack([ktc, whole_day(ktc), ccc, lcc, kte, whole_day(kte), spread, cc, kt, whole_day(kt),
-                         elev, np.cos(np.radians(az)), np.sin(np.radians(az)), air])
+    X = np.column_stack(
+        [
+            ktc,
+            whole_day(ktc),
+            ccc,
+            lcc,
+            kte,
+            whole_day(kte),
+            spread,
+            cc,
+            kt,
+            whole_day(kt),
+            elev,
+            np.cos(np.radians(az)),
+            np.sin(np.radians(az)),
+            air,
+        ]
+    )
     return X, clear, elev, day
 
 
@@ -128,7 +154,9 @@ class Trained:
     report: dict = field(default_factory=dict)
 
 
-def train(site, arrays, t, measured_total, weather, tz_offset_s, folds: int = 6) -> Trained:
+def train(
+    site, arrays, t, measured_total, weather, tz_offset_s, folds: int = 6
+) -> Trained:
     """Blocked cross-validation for the honest score and the band width, then a fit on all."""
     t = np.asarray(t, dtype=float)
     y = np.asarray(measured_total, dtype=float)
@@ -138,7 +166,7 @@ def train(site, arrays, t, measured_total, weather, tz_offset_s, folds: int = 6)
     sun = elev > 3
     target = np.clip(np.where(clear > 0.05, y / np.maximum(clear, 0.05), 0), 0, 1.3)
     days = np.unique(day)
-    report: dict = {"days": int(len(days))}
+    report: dict = {"days": len(days)}
     scale = 1.2
     if len(days) >= folds * 2:
         fold_of = {d: k * folds // len(days) for k, d in enumerate(days)}
@@ -156,30 +184,61 @@ def train(site, arrays, t, measured_total, weather, tz_offset_s, folds: int = 6)
         judge = sun & (elev > 5)
         for s in np.arange(1.0, 2.51, 0.05):
             l2, h2 = p50 - s * (p50 - lo), np.minimum(p50 + s * (hi - p50), cap)
-            if np.mean((y[judge] >= l2[judge]) & (y[judge] <= h2[judge])) >= TARGET_COVER:
+            if (
+                np.mean((y[judge] >= l2[judge]) & (y[judge] <= h2[judge]))
+                >= TARGET_COVER
+            ):
                 scale = round(float(s), 2)
                 break
-        l2, h2 = np.maximum(p50 - scale * (p50 - lo), 0), np.minimum(p50 + scale * (hi - p50), cap)
+        l2, h2 = (
+            np.maximum(p50 - scale * (p50 - lo), 0),
+            np.minimum(p50 + scale * (hi - p50), cap),
+        )
         rows = []
         for d in days:
             k = day == d
             if k.sum() >= 200:
-                rows.append({"date": str(dt.date(1970, 1, 1) + dt.timedelta(days=int(d))),
-                             "actual_kwh": round(float(y[k].sum() / 12), 1),
-                             "forecast_kwh": round(float(p50[k].sum() / 12), 1),
-                             "p10_kwh": round(float(l2[k].sum() / 12), 1),
-                             "p90_kwh": round(float(h2[k].sum() / 12), 1)})
+                rows.append(
+                    {
+                        "date": str(dt.date(1970, 1, 1) + dt.timedelta(days=int(d))),
+                        "actual_kwh": round(float(y[k].sum() / 12), 1),
+                        "forecast_kwh": round(float(p50[k].sum() / 12), 1),
+                        "p10_kwh": round(float(l2[k].sum() / 12), 1),
+                        "p90_kwh": round(float(h2[k].sum() / 12), 1),
+                    }
+                )
         if rows:
             act = np.mean([r["actual_kwh"] for r in rows])
-            report.update({
-                "scored_days": len(rows),
-                "daily_error_pct": round(100 * float(np.mean([abs(r["forecast_kwh"] - r["actual_kwh"]) for r in rows])) / max(act, 1e-6), 1),
-                "p10_p90_cover": round(float(np.mean((y[judge] >= l2[judge]) & (y[judge] <= h2[judge]))), 3),
-                "rows": rows,
-            })
+            report.update(
+                {
+                    "scored_days": len(rows),
+                    "daily_error_pct": round(
+                        100
+                        * float(
+                            np.mean(
+                                [abs(r["forecast_kwh"] - r["actual_kwh"]) for r in rows]
+                            )
+                        )
+                        / max(act, 1e-6),
+                        1,
+                    ),
+                    "p10_p90_cover": round(
+                        float(
+                            np.mean((y[judge] >= l2[judge]) & (y[judge] <= h2[judge]))
+                        ),
+                        3,
+                    ),
+                    "rows": rows,
+                }
+            )
     report["band_scale"] = scale
     tiers = {name: _fit3(X[sun][:, cols], target[sun]) for name, cols in TIERS.items()}
-    return Trained(tiers=tiers, band_scale=scale, trained_at=dt.datetime.now(dt.timezone.utc).timestamp(), report=report)
+    return Trained(
+        tiers=tiers,
+        band_scale=scale,
+        trained_at=dt.datetime.now(dt.UTC).timestamp(),
+        report=report,
+    )
 
 
 def predict(trained: Trained, site, arrays, t, weather, tz_offset_s):
@@ -194,7 +253,10 @@ def predict(trained: Trained, site, arrays, t, weather, tz_offset_s):
             continue
         X, clear, elev, _ = features(site, arrays, t[m], weather, tz_offset_s)
         up = elev > -1
-        q = {k: np.clip(g.predict(X[:, cols]), 0, 1.08) * clear * up for k, g in trained.tiers[name].items()}
+        q = {
+            k: np.clip(g.predict(X[:, cols]), 0, 1.08) * clear * up
+            for k, g in trained.tiers[name].items()
+        }
         p50, s = q[0.5], trained.band_scale
         out[0][m] = np.maximum(p50 - s * (p50 - np.minimum(q[0.1], p50)), 0)
         out[1][m] = p50
