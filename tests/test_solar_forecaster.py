@@ -78,13 +78,16 @@ class _Bits:
         )
 
 
-def _aec_encode(x, nbits, bs, rsi):
-    """CCSDS 121 encoder with the unit-delay predictor, using all three block options the
-    decoder must read: split (k), a zero block, and stored-as-is."""
+def _aec_encode(x, nbits, bs, rsi, pad=False):
+    """CCSDS 121 encoder with the unit-delay predictor, using every block option the decoder
+    must read: split (k), a zero block, the second extension (with and without the reference
+    sample), and stored-as-is; `pad` byte-aligns each RSI (flag 32)."""
     xmax = (1 << nbits) - 1
     id_len = 4  # 8 < nbits <= 16
     w = _Bits()
     for r0 in range(0, len(x), bs * rsi):
+        if pad:
+            w.b += [0] * (-len(w.b) % 8)
         seg = x[r0 : r0 + bs * rsi]
         mapped = [seg[0]]
         for prev, cur in itertools.pairwise(seg):
@@ -104,6 +107,20 @@ def _aec_encode(x, nbits, bs, rsi):
                 w.put(0, id_len)  # low entropy
                 w.put(0, 1)  # zero block
                 w.put(1, 1)  # one zero block (fs = 0)
+                continue
+            if b == 2 * bs or (first and (r0 // (bs * rsi)) % 2):
+                # second extension: each pair is one unary number, (a+b)(a+b+1)/2 + b; with the
+                # reference sample the first code carries one value only
+                w.put(0, id_len)
+                w.put(1, 1)
+                if first:
+                    w.put(blk[0], nbits)
+                rest = list(vals)
+                if first:
+                    v = rest.pop(0)
+                    w.put(1, v * (v + 1) // 2 + v + 1)
+                for a, c in zip(rest[::2], rest[1::2], strict=True):
+                    w.put(1, (a + c) * (a + c + 1) // 2 + c + 1)
                 continue
             if b == bs:  # second block of each RSI: stored as is
                 w.put((1 << id_len) - 1, id_len)
@@ -158,6 +175,20 @@ def _reads_weather_files():
     )
     f, lats, lons = grib.decode(msg)
     assert np.allclose(f.ravel(), field / 10.0)
+    # the same field with each RSI byte-aligned (flag 32) reads the same
+    padded = _aec_encode([int(v) for v in field], nbits, bs, rsi, pad=True)
+    extra_pad = bytes([0, 8 | 32, bs]) + struct.pack(">H", rsi)
+    msg_pad = _grib(
+        ni,
+        nj,
+        -20.0,
+        140.0,
+        -27.25,
+        149.75,
+        _sec5(ni * nj, 42, 0.0, 0, 1, nbits, extra_pad),
+        padded,
+    )
+    assert padded != data and np.allclose(grib.decode(msg_pad)[0].ravel(), field / 10.0)
     # decoding can stop just past the site's rows and still read the site
     g, _, _ = grib.decode(msg, point=(-22.0, 145.0))
     assert grib.at_point(g, lats, lons, -22.0, 145.0) == pytest.approx(
@@ -389,6 +420,17 @@ def _store_and_jobs(tmp_path):
         "2026-01-11",
         "2026-07-10",
     ]
+    # a local day's window runs from that day's own local midnight to the next, so the days daylight
+    # saving starts (4 Oct 2026, 23 h) and ends (5 Apr 2026, 25 h) are not shifted by an hour
+    utc = lambda *a: dt.datetime(*a, tzinfo=dt.UTC).timestamp()
+    assert runner._day_window(dt.date(2026, 10, 4), syd) == (
+        utc(2026, 10, 3, 14),
+        utc(2026, 10, 4, 13),
+    )
+    assert runner._day_window(dt.date(2026, 4, 5), syd) == (
+        utc(2026, 4, 4, 13),
+        utc(2026, 4, 5, 14),
+    )
 
     # part 4: through the day the last 30 minutes measured correct the forecast: each reading is
     # compared with what was forecast for that same moment (not for now), so on a morning ramp
@@ -418,6 +460,16 @@ def _store_and_jobs(tmp_path):
         )
     assert fc.live_ratio == pytest.approx(1.5, abs=0.01)
     assert fc.rows[0]["time"] == now.isoformat()  # the published rows still start now
+
+    # with no weather covering now, the power now is unknown, not a confident 0 kW
+    def gap(*a):
+        lo, mid, hi, tier = ramp(*a)
+        late = np.asarray(a[3], dtype=float) >= now.timestamp() + 3600
+        return (*(np.where(late, x, np.nan) for x in (lo, mid, hi)), tier)
+
+    with patch.object(runner.M, "predict", gap):
+        fc = runner.forecast(None, _Weather(), st, [], now, syd, hours=6)
+    assert fc.now_kw is None and fc.rows[0]["time"] > now.isoformat()
 
 
 def test_solar_forecaster_from_weather_files_to_a_forecast(tmp_path):
