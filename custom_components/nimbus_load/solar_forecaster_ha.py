@@ -56,7 +56,7 @@ from .const import (
 from .coordinator import MAX_SANE_POWER_KW
 from .power_units import is_power_unit, power_to_kw
 from .solar_forecaster import runner, sources
-from .solar_forecaster.model import Trained
+from .solar_forecaster.model import TIERS, Trained
 from .solar_forecaster.site import Array, Site
 from .solar_forecaster.store import WeatherStore
 
@@ -296,7 +296,13 @@ class SolarForecasterRuntime:
             if not more:
                 break
             await asyncio.sleep(20)
-        if self.trained is None or self._model_age() > dt.timedelta(days=1):
+        if (
+            self.trained is None
+            or self._model_age() > dt.timedelta(days=1)
+            # saved by an older release without a tier this one has (days 3-5's GFS-only tier):
+            # learn it now rather than leave those days empty until the night's training
+            or set(TIERS) - set(self.trained.tiers)
+        ):
             await self._async_train()
         await self._async_forecast()
 
