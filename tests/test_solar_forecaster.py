@@ -366,9 +366,9 @@ def _learns_an_install_and_forecasts():
     )
     assert set(tier3) == {"gfs"} and not np.isnan(mid3).any()
     _, _, hi_all, _ = model.predict(trained, st, learned, future, no_gefs, 8 * 3600)
-    sunny = mid3 > 0.5
-    assert np.median(((hi3 - mid3) / mid3)[sunny]) > np.median(
-        ((hi_all - mid2) / mid2)[sunny]
+    sunny = (mid3 > 0.5) & (mid2 > 0.5)  # relative widths only where both have sun
+    assert np.median((hi3[sunny] - mid3[sunny]) / mid3[sunny]) > np.median(
+        (hi_all[sunny] - mid2[sunny]) / mid2[sunny]
     )
     # a model saved before this tier existed still forecasts (the far days wait for the night's training)
     old = dataclasses.replace(
