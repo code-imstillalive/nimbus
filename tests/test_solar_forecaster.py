@@ -290,8 +290,16 @@ def _learns_an_install_and_forecasts():
         site.Array("wall", 90, 0),
         site.Array("empty", 20, 0),
     ]
+    learned[0].learned = {
+        "label": "Roof",
+        "owner_set": True,
+    }  # what Home Assistant put there
     site.fit(st, learned, t, measured, 8 * 3600)
     by = {a.key: a for a in learned}
+    assert (by["roof"].learned["label"], by["roof"].learned["owner_set"]) == (
+        "Roof",
+        True,
+    )
     assert by["roof"].kwp == pytest.approx(6.0, rel=0.05)
     assert by["wall"].kwp == pytest.approx(2.0, rel=0.10)
     assert not by["empty"].active
