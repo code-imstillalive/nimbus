@@ -192,6 +192,28 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
         solar_forecaster_ha.async_stop(bare.entry_id)
         await hass.config_entries.async_unload(entry.entry_id)
 
+        # part 3b: other solar forecasts already installed are found by integration and key, not by
+        # name (two Forecast.Solar planes summed per day, Solcast's day 3 is two days ahead), and a
+        # yardstick is judged on its "tomorrow" total as it stood the evening before
+        reg = er.async_get(hass)
+        for uid, plat, key in (
+            ("p1_tomorrow", "forecast_solar", "energy_production_tomorrow"),
+            ("p2_tomorrow", "forecast_solar", "energy_production_tomorrow"),
+            ("p1_today", "forecast_solar", "energy_production_today"),
+            ("sc_d3", "solcast_solar", "total_kwh_forecast_d3"),
+            ("sc_peak", "solcast_solar", "peak_w_tomorrow"),  # not a daily total
+        ):
+            reg.async_get_or_create(
+                "sensor", plat, uid, suggested_object_id=uid, translation_key=key
+            )
+        found = solar_forecaster_ha.find_yardsticks(hass)
+        assert set(found) == {"Forecast.Solar", "Solcast"}
+        assert [len(found["Forecast.Solar"][k]) for k in (0, 1)] == [1, 2]
+        assert set(found["Solcast"]) == {2}
+        points = [(100.0, 40.0), (200.0, 42.5), (300.0, float("nan")), (400.0, 50.0)]
+        assert solar_forecaster_ha.value_at(points, 350.0) == 42.5
+        assert solar_forecaster_ha.value_at(points, 50.0) is None
+
     # part 4: the Solver. Three periods; the own forecast covers the first two.
     grid = [
         datetime(2026, 1, 10, 2, 0, tzinfo=UTC) + timedelta(minutes=30 * i)

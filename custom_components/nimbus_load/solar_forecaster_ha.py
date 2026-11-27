@@ -60,6 +60,62 @@ from .solar_forecaster.model import TIERS, Trained
 from .solar_forecaster.site import Array, Site
 from .solar_forecaster.store import WeatherStore
 
+# Other solar forecasts already installed, found by integration and by the translation keys of their
+# daily totals (never by entity name), so they appear with no configuration. Yardsticks only: shown
+# beside Nimbus's own forecast and score on the Solar Lab card, never an input to the forecast. A
+# forecaster with one config entry per panel plane (Forecast.Solar, Open-Meteo Solar Forecast) is the
+# sum of its entries. {platform: (name, {translation key: days ahead})}
+YARDSTICKS: dict[str, tuple[str, dict[str, int]]] = {
+    "forecast_solar": (
+        "Forecast.Solar",
+        {"energy_production_today": 0, "energy_production_tomorrow": 1},
+    ),
+    "open_meteo_solar_forecast": (
+        "Open-Meteo",
+        {
+            "energy_production_today": 0,
+            "energy_production_tomorrow": 1,
+            **{f"energy_production_d{n}": n for n in range(2, 8)},
+        },
+    ),
+    "solcast_solar": (
+        "Solcast",
+        {
+            "total_kwh_forecast_today": 0,
+            "total_kwh_forecast_tomorrow": 1,
+            **{f"total_kwh_forecast_d{n}": n - 1 for n in range(3, 8)},
+        },
+    ),
+}
+#: The evening-before value: a yardstick's "tomorrow" total as it stood at this local hour the day
+#: before (by then each has taken in the evening's weather, as Nimbus's own day-ahead has).
+YARDSTICK_HOUR = 21
+
+
+def find_yardsticks(hass: HomeAssistant) -> dict[str, dict[int, list[str]]]:
+    """{name: {days ahead: [entity ids]}} of the other solar forecasts installed (enabled only)."""
+    from homeassistant.helpers import entity_registry as er
+
+    found: dict[str, dict[int, list[str]]] = {}
+    for e in er.async_get(hass).entities.values():
+        spec = YARDSTICKS.get(e.platform)
+        if spec is None or e.disabled_by is not None:
+            continue
+        ahead = spec[1].get(e.translation_key or "")
+        if ahead is not None:
+            found.setdefault(spec[0], {}).setdefault(ahead, []).append(e.entity_id)
+    return {
+        name: {k: sorted(v) for k, v in sorted(days.items())}
+        for name, days in sorted(found.items())
+    }
+
+
+def value_at(points: list[tuple[float, float]], when: float) -> float | None:
+    """The last finite value at or before `when` (UTC seconds), from (time, value) points."""
+    before = [(ts, v) for ts, v in points if ts <= when and math.isfinite(v)]
+    return max(before)[1] if before else None
+
+
 _LOGGER = logging.getLogger(__name__)
 
 SIGNAL_UPDATED = "nimbus_solar_forecast_updated_{}"
@@ -124,6 +180,9 @@ class SolarForecasterRuntime:
         self.today: dict[str, Any] = {}
         self.measured_today: list[dict[str, Any]] = []
         self.made_at: str | None = None
+        self.yardsticks: dict[str, dict[str, float]] = {}  # {name: {date: kWh}}
+        # {name: {days ahead: [entity ids]}}: the card reads their live totals for the days table
+        self.yardstick_entities: dict[str, dict[str, list[str]]] = {}
         self.status = Status(arrays=[self._array_view(a) for a in self.arrays])
         self._unsubs: list = []
         self._busy = asyncio.Lock()
@@ -307,7 +366,80 @@ class SolarForecasterRuntime:
             or set(TIERS) - set(self.trained.tiers)
         ):
             await self._async_train()
+        await self._async_yardsticks()
         await self._async_forecast()
+
+    async def _async_yardsticks(self) -> None:
+        """Each scored day's evening-before "tomorrow" total of every other solar forecast
+        installed, from the recorder (a forecast the recorder does not keep stays empty)."""
+        rows = self.trained.report.get("rows", []) if self.trained else []
+        everything = find_yardsticks(self.hass)
+        self.yardstick_entities = {
+            name: {str(k): v for k, v in days.items()}
+            for name, days in everything.items()
+        }
+        found = {name: days[1] for name, days in everything.items() if 1 in days}
+        if not rows or not found:
+            self.yardsticks = {name: {} for name in everything}
+            return
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.history import get_significant_states
+
+        dates = [dt.date.fromisoformat(r["date"]) for r in rows]
+        cut = {
+            d: dt.datetime.combine(
+                d - dt.timedelta(days=1), dt.time(YARDSTICK_HOUR), self.tz
+            ).timestamp()
+            for d in dates
+        }
+        start = dt_util.utc_from_timestamp(min(cut.values()) - 2 * 86400)
+        end = dt_util.utc_from_timestamp(max(cut.values()) + 60)
+        ids = [i for v in found.values() for i in v]
+
+        def _read() -> dict[str, list[tuple[float, float]]]:
+            states = get_significant_states(
+                self.hass,
+                start,
+                end,
+                ids,
+                minimal_response=True,
+                significant_changes_only=False,
+            )
+            out: dict[str, list[tuple[float, float]]] = {}
+            for eid in ids:
+                unit = (self.hass.states.get(eid) or None) and self.hass.states.get(
+                    eid
+                ).attributes.get("unit_of_measurement")
+                scale = 0.001 if unit == "Wh" else 1.0
+                pts = []
+                for s in states.get(eid, []):
+                    raw = s["state"] if isinstance(s, dict) else s.state
+                    when = (
+                        dt_util.parse_datetime(s["last_changed"]).timestamp()
+                        if isinstance(s, dict)
+                        else s.last_changed.timestamp()
+                    )
+                    try:
+                        pts.append((when, float(raw) * scale))
+                    except (TypeError, ValueError):
+                        continue
+                out[eid] = pts
+            return out
+
+        try:
+            hist = await get_instance(self.hass).async_add_executor_job(_read)
+        except Exception as err:  # noqa: BLE001 -- yardsticks are optional; the card shows dashes
+            _LOGGER.debug("Nimbus solar forecaster: yardsticks not read (%s)", err)
+            return
+        out: dict[str, dict[str, float]] = {}
+        for name, eids in found.items():
+            per_day: dict[str, float] = {}
+            for d in dates:
+                vals = [value_at(hist.get(e, []), cut[d]) for e in eids]
+                if vals and all(v is not None for v in vals):
+                    per_day[d.isoformat()] = round(sum(vals), 1)
+            out[name] = per_day
+        self.yardsticks = out
 
     async def _tick_weather(self, _now) -> None:
         await self._async_weather()
@@ -317,6 +449,7 @@ class SolarForecasterRuntime:
 
     async def _tick_train(self, _now) -> None:
         await self._async_train()
+        await self._async_yardsticks()  # also picks up a forecaster installed since
         await self._async_forecast()
 
     def _model_age(self) -> dt.timedelta:
@@ -642,7 +775,19 @@ class SolarForecasterRuntime:
             "measured_today": self.measured_today,
             # its own daily score: each scored day's forecast (made from the evening-before
             # weather, on weeks it was not trained on) against what the panels made
-            "scoreboard": (self.trained.report.get("rows", []) if self.trained else []),
+            "scoreboard": [
+                {
+                    **r,
+                    "others": {
+                        name: days.get(r["date"])
+                        for name, days in self.yardsticks.items()
+                    },
+                }
+                for r in (self.trained.report.get("rows", []) if self.trained else [])
+            ],
+            # the other solar forecasts installed (yardsticks only, never inputs): their evening-
+            # before totals are in the scoreboard rows, their live daily totals are these entities
+            "yardsticks": self.yardstick_entities,
             "model": fc.tier if fc else None,
             "live_correction": fc.live_ratio if fc else None,
             "status": self.status.state,

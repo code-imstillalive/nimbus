@@ -4952,6 +4952,7 @@ class NimbusSolarForecastSensor(SensorEntity):
             "today",
             "measured_today",
             "scoreboard",
+            "yardsticks",
             "made_at",
             "arrays",
             "score",

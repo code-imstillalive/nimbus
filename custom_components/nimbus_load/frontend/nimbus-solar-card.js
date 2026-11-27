@@ -35,6 +35,7 @@ th{font:500 11px var(--mono);letter-spacing:.05em;text-transform:uppercase;color
 td:first-child,th:first-child{text-align:left}
 tr:last-child td{border-bottom:0}
 .g{color:var(--good);font-weight:600}.r{color:var(--bad)}
+.act{color:var(--sun);font-weight:700}th.act{color:var(--sun)}
 .bar{display:inline-block;height:6px;border-radius:3px;background:var(--sun);vertical-align:1px}
 .why{font-size:12px;color:var(--dim)}
 .note{font-size:13px;color:var(--dim);max-width:75ch;margin:8px 0 0}
@@ -79,7 +80,10 @@ class NimbusSolarCard extends HTMLElement {
     const dark = !!(hass.themes && hass.themes.darkMode);
     if (dark !== this.hasAttribute("dark")) this.toggleAttribute("dark", dark);
     const st = hass.states[this._config.entity];
-    const key = st ? st.last_updated + "|" + st.state + "|" + dark : "none|" + dark;
+    const ys = (st && st.attributes && st.attributes.yardsticks) || {};
+    const ids = Object.values(ys).flatMap((d) => Object.values(d).flat());
+    const key = (st ? st.last_updated + "|" + st.state : "none") + "|" + dark + "|" +
+      ids.map((i) => (hass.states[i] ? hass.states[i].state : "")).join(",");
     if (key === this._key) return;
     this._key = key;
     this._st = st;
@@ -101,6 +105,26 @@ class NimbusSolarCard extends HTMLElement {
 
   _num(v, k = 1) {
     return v == null || isNaN(+v) ? "–" : (+v).toFixed(k);
+  }
+
+  // the other solar forecasts installed (found by Nimbus, no configuration): their live total for the
+  // day `ahead` days from today, summed over their entries (one per panel plane); null if not offered
+  _other(name, ahead) {
+    const ys = (this._st && this._st.attributes && this._st.attributes.yardsticks) || {};
+    const ids = (ys[name] || {})[String(ahead)];
+    if (!ids || !ids.length) return null;
+    let sum = 0;
+    for (const id of ids) {
+      const s = this._hass.states[id];
+      const v = s ? parseFloat(s.state) : NaN;
+      if (!isFinite(v)) return null;
+      sum += s.attributes && s.attributes.unit_of_measurement === "Wh" ? v / 1000 : v;
+    }
+    return sum;
+  }
+
+  _ahead(date, todayIso) {
+    return Math.round((Date.parse(date + "T12:00:00") - Date.parse(todayIso + "T12:00:00")) / 864e5);
   }
 
   _models(m) {
@@ -164,16 +188,24 @@ class NimbusSolarCard extends HTMLElement {
       <div class="leg"><span><i style="background:var(--sun)"></i>forecast (p50)</span><span><i style="background:var(--band);height:9px"></i>p10–p90</span>
       <span><i style="background:var(--clear)"></i>clear sky</span><span><i style="background:var(--act)"></i>measured</span></div></div>`;
 
-    // days table
-    const dayRows = days.map((d) => {
+    // days table: ours, then every other solar forecast installed, for comparison
+    const others = Object.keys(a.yardsticks || {});
+    const todayIso = today ? today.date : new Date().toLocaleDateString("en-CA", { timeZone: tz });
+    const allDays = (today ? [{ ...today, today: true }] : []).concat(days);
+    const dayRows = allDays.map((d) => {
       const kt = d.clear > 0 ? d.p50 / d.clear : 0;
-      return `<tr><td>${this._esc(this._day(d.date))}</td><td><b>${this._num(d.p50)}</b></td><td>${this._num(d.p10)}–${this._num(d.p90)}</td>
+      const ahead = this._ahead(d.date, todayIso);
+      const oc = others.map((n) => `<td>${this._num(this._other(n, ahead))}</td>`).join("");
+      return `<tr><td>${d.today ? "Today" : this._esc(this._day(d.date))}</td><td><b>${this._num(d.p50)}</b></td><td>${this._num(d.p10)}–${this._num(d.p90)}</td>${oc}
         <td><span class="bar" style="width:${Math.round(60 * Math.min(kt, 1.1))}px"></span></td><td>${kt.toFixed(2)}</td><td class="why">${this._models(d.model)}</td></tr>`;
     }).join("");
-    const dayCard = `<div class="card"><h2>${days.length ? days.length + " days" : "Days"}</h2><div class="tw"><table>
-      <tr><th>day</th><th>p50</th><th>p10–p90</th><th></th><th>kt</th><th>weather</th></tr>${dayRows}</table></div>
-      <p class="why">kt is how much of a clear day it expects (1.0 = clear). Weather shows which models fed the day: past about
-      two and a half days ECMWF and GEFS have ended and GFS alone carries it, with a wider range.</p></div>`;
+    const othersNote = others.length
+      ? " " + others.map((n) => this._esc(n)).join(", ") + ": the other solar forecasts installed here, found automatically and shown for comparison only; Nimbus never uses them."
+      : "";
+    const dayCard = `<div class="card"><h2>${allDays.length ? allDays.length + " days" : "Days"}</h2><div class="tw"><table>
+      <tr><th>day</th><th>ours</th><th>p10–p90</th>${others.map((n) => `<th>${this._esc(n)}</th>`).join("")}<th></th><th>kt</th><th>weather</th></tr>${dayRows}</table></div>
+      <p class="why">kWh. kt is how much of a clear day it expects (1.0 = clear). Weather shows which models fed the day: past about
+      two and a half days ECMWF and GEFS have ended and GFS alone carries it, with a wider range.${othersNote}</p></div>`;
 
     // next two hours + strings
     const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -191,8 +223,8 @@ class NimbusSolarCard extends HTMLElement {
       const e = Math.abs(v - act) / Math.max(act, 1);
       return `<td class="${e < 0.1 ? "g" : e > 0.3 ? "r" : ""}">${(+v).toFixed(1)}</td>`;
     };
-    const sRows = rows.slice().reverse().map((r) => `<tr><td>${this._esc(this._day(r.date))}</td><td><b>${this._num(r.actual_kwh)}</b></td>
-      ${cell(r.forecast_kwh, r.actual_kwh)}<td>${this._num(r.p10_kwh)}–${this._num(r.p90_kwh)}</td>
+    const sRows = rows.slice().reverse().map((r) => `<tr><td>${this._esc(this._day(r.date))}</td><td class="act">${this._num(r.actual_kwh)}</td>
+      ${cell(r.forecast_kwh, r.actual_kwh)}${others.map((n) => cell((r.others || {})[n], r.actual_kwh)).join("")}<td>${this._num(r.p10_kwh)}–${this._num(r.p90_kwh)}</td>
       <td>${r.actual_kwh >= r.p10_kwh && r.actual_kwh <= r.p90_kwh ? "✓" : '<span class="r">✗</span>'}</td></tr>`).join("");
     let summary = "";
     if (rows.length) {
@@ -203,14 +235,29 @@ class NimbusSolarCard extends HTMLElement {
       const inside = rows.filter((r) => r.actual_kwh >= r.p10_kwh && r.actual_kwh <= r.p90_kwh).length;
       summary = `<tr><td><b>ours</b></td><td>${rows.length}</td><td>${mae.toFixed(1)} kWh</td><td>${((100 * mae) / m).toFixed(1)}%</td>
         <td>${b >= 0 ? "+" : ""}${b.toFixed(1)}</td><td>${Math.round((100 * inside) / rows.length)}%</td></tr>`;
+      for (const n of others) {
+        const rs = rows.filter((r) => (r.others || {})[n] != null);
+        if (!rs.length) {
+          summary += `<tr><td>${this._esc(n)}</td><td>0</td><td colspan="4" class="why">no evening-before figures in the recorder yet</td></tr>`;
+          continue;
+        }
+        const mo = rs.reduce((t, r) => t + r.actual_kwh, 0) / rs.length;
+        const eo = rs.map((r) => r.others[n] - r.actual_kwh);
+        const maeo = eo.reduce((t, x) => t + Math.abs(x), 0) / eo.length;
+        const bo = eo.reduce((t, x) => t + x, 0) / eo.length;
+        summary += `<tr><td>${this._esc(n)}</td><td>${rs.length}</td><td>${maeo.toFixed(1)} kWh</td><td>${((100 * maeo) / mo).toFixed(1)}%</td>
+          <td>${bo >= 0 ? "+" : ""}${bo.toFixed(1)}</td><td>–</td></tr>`;
+      }
     }
     const board = `<div class="two">
       <div class="card"><h2>Scoreboard · evening-before forecasts, every day</h2><div class="tw"><table>
-        <tr><th>day</th><th>actual</th><th>ours</th><th>p10–p90</th><th>in range</th></tr>${sRows || '<tr><td colspan="5" class="why">after the first training</td></tr>'}</table></div>
+        <tr><th>day</th><th class="act">actual</th><th>ours</th>${others.map((n) => `<th>${this._esc(n)}</th>`).join("")}<th>p10–p90</th><th>in range</th></tr>${sRows || '<tr><td colspan="5" class="why">after the first training</td></tr>'}</table></div>
         <p class="note">Each day forecast from the weather runs published the evening before, by a model trained without that week. Green within 10 %, red off by more than 30 %.</p></div>
       <div class="card"><h2>Scoreboard · summary</h2><div class="tw"><table>
         <tr><th>forecast</th><th>days</th><th>error</th><th>%</th><th>bias</th><th>in range</th></tr>${summary}</table></div>
-        <p class="note">Daily kWh error against what your PV Strings measured. Retrained every night on the latest weeks.</p></div></div>`;
+        <p class="note">Daily kWh error against what your PV Strings measured. Retrained every night on the latest weeks.${others.length
+          ? " The other solar forecasts installed here are found automatically and judged on their tomorrow total as it stood at 21:00 the evening before; yardsticks only, Nimbus never uses them."
+          : ""}</p></div></div>`;
 
     const how = `<div class="card"><h2>How it works</h2><p class="note">Every evening the three best free global weather models are saved:
       ECMWF (the European centre's model), NOAA's GFS and NOAA's 31-run GEFS ensemble. Nothing needs a key, and your location is never
