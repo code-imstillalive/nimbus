@@ -280,14 +280,18 @@ def forecast(
                 "value": round(float(np.nanmean(mid[j])), 3),
                 "lower": round(float(np.nanmean(lo[j])), 3),
                 "upper": round(float(np.nanmean(hi[j])), 3),
+                "clear": round(
+                    float(np.nanmean(clear[j])), 3
+                ),  # what a clear sky would give
             }
         )
     days = []
     day = local_day(t, tz)
+    today = day[0] if len(day) else None
     for d in np.unique(day):
         m = (day == d) & ok
-        if m.sum() < 200:
-            continue
+        if m.sum() < 200 and not (d == today and m.any()):
+            continue  # the horizon's last, cut-off day (today's remainder is always kept)
         days.append(
             {
                 "date": str(dt.date(1970, 1, 1) + dt.timedelta(days=int(d))),
@@ -297,6 +301,7 @@ def forecast(
                 "clear": round(float(clear[m].sum() / 12), 1),
                 # the models behind that day's daylight (days 3-5: GFS alone)
                 "model": _most(tier[m & (clear > 0)]) or _most(tier[m]),
+                "partial": bool(d == today),  # today: from now to midnight only
             }
         )
     first = np.flatnonzero(ok)

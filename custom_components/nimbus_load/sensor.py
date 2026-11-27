@@ -4946,7 +4946,18 @@ class NimbusSolarForecastSensor(SensorEntity):
     _attr_should_poll = False
     # The forecast rows and the per-day table are large and replaced every 5 minutes.
     _unrecorded_attributes = frozenset(
-        {"forecast", "days", "arrays", "score", "weather_runs", "attribution"}
+        {
+            "forecast",
+            "days",
+            "today",
+            "measured_today",
+            "scoreboard",
+            "made_at",
+            "arrays",
+            "score",
+            "weather_runs",
+            "attribution",
+        }
     )
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:

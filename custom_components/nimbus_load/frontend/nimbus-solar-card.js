@@ -1,12 +1,44 @@
-// nimbus-solar-card.js
+// nimbus-solar-card.js -- the Solar Lab tab
 //
-// Nimbus's own solar forecast (sensor.nimbus_solar_forecast, solar_forecaster_ha.py) on one plain card
-// that reads well on a phone: the expected power now, each day ahead (about four) with its likely range, the
-// next 48 hours as a line with its p10-p90 band (and today's measured output where the PV Strings
-// report it), what it learned about each array, and its own score. No configuration needed.
-//
-// Plain HTMLElement + shadow DOM + inline SVG, like this project's other cards; colours come from the
-// Home Assistant theme (light and dark).
+// Nimbus's own solar forecast (sensor.nimbus_solar_forecast, solar_forecaster_ha.py) as an instrument
+// panel for one roof: a header strip, four headline numbers, the forecast chart with today's measured
+// output, a table of every day, the next two hours, the strings as learned, and its own scoreboard.
+// Two columns that stack on a phone. Plain canvas charts drawn at the card's real size (never
+// stretched), redrawn when the card is resized. Amber for sun, slate for sky; light and dark themes.
+
+const NSC_CSS = `
+:host{display:block;--sun:#d98a00;--band:rgba(217,138,0,.18);--clear:#8a94a6;--act:#1d6fd8;--good:#1f7a4d;--bad:#b3261e;
+  --mono:ui-monospace,"IBM Plex Mono",Consolas,"Roboto Mono",monospace;--fg:var(--primary-text-color);--dim:var(--secondary-text-color);
+  --line:var(--divider-color,rgba(127,127,127,.25))}
+:host([dark]){--sun:#ffb347;--band:rgba(255,179,71,.18);--clear:#7d8799;--act:#5aa2ff;--good:#5fd39a;--bad:#ff7a70}
+.wrap{container-type:inline-size;display:grid;gap:12px}
+.top{display:flex;flex-wrap:wrap;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--sun);padding-bottom:8px}
+.top h1{font-size:26px;font-weight:700;line-height:1;margin:0;color:var(--fg)}
+.top span{color:var(--dim);font:12.5px var(--mono)}
+.hero{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.two{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px}
+.card{background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
+.k{font:500 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.v{font-size:32px;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums;color:var(--fg)}
+.v small{font-size:14px;font-weight:500;color:var(--dim);margin-left:4px}
+.s{color:var(--dim);font-size:13px}
+h2{font-size:17px;font-weight:700;margin:0 0 8px;color:var(--fg)}
+.cbox{position:relative;height:300px}.cbox.sm{height:190px}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+.leg{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font-size:12px;color:var(--dim)}
+.leg i{display:inline-block;width:12px;height:3px;margin-right:5px;vertical-align:3px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:13.5px;color:var(--fg)}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{font:500 11px var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--dim)}
+td:first-child,th:first-child{text-align:left}
+tr:last-child td{border-bottom:0}
+.g{color:var(--good);font-weight:600}.r{color:var(--bad)}
+.bar{display:inline-block;height:6px;border-radius:3px;background:var(--sun);vertical-align:1px}
+.why{font-size:12px;color:var(--dim)}
+.note{font-size:13px;color:var(--dim);max-width:75ch;margin:8px 0 0}
+@container (max-width:860px){.hero{grid-template-columns:repeat(2,minmax(0,1fr))}.two{grid-template-columns:minmax(0,1fr)}.v{font-size:26px}}
+`;
 
 class NimbusSolarCard extends HTMLElement {
   static getStubConfig() {
@@ -14,124 +46,355 @@ class NimbusSolarCard extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = { entity: "sensor.nimbus_solar_forecast", hours: 48, ...(config || {}) };
+    this._config = { entity: "sensor.nimbus_solar_forecast", ...(config || {}) };
   }
 
   getCardSize() {
-    return 6;
+    return 14;
+  }
+
+  getGridOptions() {
+    return { columns: "full", rows: "auto" };
+  }
+
+  connectedCallback() {
+    if (!this._ro && window.ResizeObserver) {
+      let t = 0;
+      this._ro = new ResizeObserver(() => {
+        clearTimeout(t);
+        t = setTimeout(() => this._charts(), 120);
+      });
+      this._ro.observe(this);
+    }
+  }
+
+  disconnectedCallback() {
+    if (this._ro) this._ro.disconnect();
+    this._ro = null;
   }
 
   set hass(hass) {
     this._hass = hass;
+    const dark = !!(hass.themes && hass.themes.darkMode);
+    if (dark !== this.hasAttribute("dark")) this.toggleAttribute("dark", dark);
     const st = hass.states[this._config.entity];
-    const key = st ? st.last_updated + "|" + st.state : "none";
+    const key = st ? st.last_updated + "|" + st.state + "|" + dark : "none|" + dark;
     if (key === this._key) return;
     this._key = key;
-    this._render(st);
+    this._st = st;
+    this._render();
   }
 
+  // ---- helpers ------------------------------------------------------------------------------
   _esc(s) {
     return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   }
 
-  _render(st) {
+  _tz() {
+    return (this._hass && this._hass.config && this._hass.config.time_zone) || undefined;
+  }
+
+  _day(d) {
+    return new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  }
+
+  _num(v, k = 1) {
+    return v == null || isNaN(+v) ? "–" : (+v).toFixed(k);
+  }
+
+  _models(m) {
+    return this._esc(String(m || "").toUpperCase().replace(/\+/g, " + "));
+  }
+
+  // ---- page ---------------------------------------------------------------------------------
+  _render() {
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
-    const css = `
-      :host { display: block; }
-      ha-card { padding: 16px; }
-      .h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-      .t { font-size: 1.1em; font-weight: 600; }
-      .s { color: var(--secondary-text-color); font-size: .85em; }
-      .now { font-size: 2.2em; font-weight: 600; line-height: 1.1; }
-      .now small { font-size: .45em; font-weight: 400; color: var(--secondary-text-color); margin-left: 4px; }
-      .days { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 12px 0; }
-      .d { border: 1px solid var(--divider-color); border-radius: 8px; padding: 8px 10px; }
-      .d b { font-size: 1.3em; }
-      svg { width: 100%; height: 150px; display: block; }
-      table { width: 100%; border-collapse: collapse; font-size: .85em; margin-top: 10px; }
-      td, th { padding: 4px 6px; border-bottom: 1px solid var(--divider-color); text-align: right; white-space: nowrap; }
-      td:first-child, th:first-child { text-align: left; white-space: normal; }
-      th { font-weight: 500; color: var(--secondary-text-color); }
-      .leg { display: flex; gap: 14px; flex-wrap: wrap; font-size: .8em; color: var(--secondary-text-color); margin-top: 4px; }
-      .leg i { display: inline-block; width: 12px; height: 3px; margin-right: 5px; vertical-align: middle; }
-    `;
+    const st = this._st;
     if (!st) {
-      this.shadowRoot.innerHTML = `<style>${css}</style><ha-card><div class="t">Solar forecast</div>
-        <p class="s">Turn on Nimbus's solar forecaster: Settings → Devices &amp; services → Nimbus → Configure → Solar forecaster.</p></ha-card>`;
+      this.shadowRoot.innerHTML = `<style>${NSC_CSS}</style><ha-card><div class="card"><h2>Solar Lab</h2>
+        <p class="note">Nimbus's own solar forecast is switched off. Turn it on: Settings → Devices &amp; services →
+        Nimbus → Configure → Solar forecaster.</p></div></ha-card>`;
       return;
     }
     const a = st.attributes || {};
-    const rows = Array.isArray(a.forecast) ? a.forecast : [];
+    const tz = this._tz();
     const days = Array.isArray(a.days) ? a.days : [];
-    const tz = (this._hass.config && this._hass.config.time_zone) || undefined;
-    const statusText = {
-      starting: "Starting",
-      fetching_history: "Fetching weather history",
-      learning: "Learning your panels",
-      ready: "Ready",
-      no_arrays: "No PV Strings yet",
-      error: "Needs attention",
-    }[a.status] || a.status || "";
-    const now = st.state && !isNaN(+st.state) ? (+st.state).toFixed(1) : "–";
-    const dayName = (d) => new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-    const iso = (off) => new Date(Date.now() + off * 864e5).toLocaleDateString("en-CA", { timeZone: tz });
-    const label = (d) => (d === iso(0) ? "Today" : d === iso(1) ? "Tomorrow" : dayName(d));
-    // every day it forecasts (about four); the far ones come from GFS alone, with a wider range
-    const dayCards = days.map((d) =>
-      `<div class="d"><div class="s">${this._esc(label(d.date))}</div>
-        <b>${d.p50}</b> kWh<div class="s">likely ${d.p10}–${d.p90} · clear ${d.clear}</div>${
-          d.model === "gfs" ? '<div class="s">GFS only: wider range</div>' : ""}</div>`).join("");
-    const score = a.score && a.score.daily_error_pct != null
-      ? `<div class="d"><div class="s">Its own score</div><b>${a.score.daily_error_pct}%</b><div class="s">daily error · range holds ${Math.round((a.score.p10_p90_cover || 0) * 100)}%</div></div>`
-      : "";
-
-    // chart: next N hours, p50 line over the p10-p90 band
-    let svg = "";
-    if (rows.length > 1) {
-      const t0 = Date.parse(rows[0].time), t1 = t0 + this._config.hours * 3600e3;
-      const pts = rows.filter((r) => Date.parse(r.time) <= t1);
-      const ymax = Math.max(1, ...pts.map((r) => r.upper || r.value)) * 1.1;
-      const W = 600, H = 150, L = 30, B = 18;
-      const X = (t) => L + ((W - L - 4) * (Date.parse(t) - t0)) / (t1 - t0);
-      const Y = (v) => H - B - ((H - B - 6) * v) / ymax;
-      const band = pts.map((r) => `${X(r.time)},${Y(r.upper)}`).join(" ") + " " + pts.slice().reverse().map((r) => `${X(r.time)},${Y(r.lower)}`).join(" ");
-      const line = pts.map((r) => `${X(r.time)},${Y(r.value)}`).join(" ");
-      let ticks = "";
-      for (let k = 0; k <= Math.ceil(ymax); k += Math.max(1, Math.round(ymax / 3))) {
-        ticks += `<line x1="${L}" x2="${W}" y1="${Y(k)}" y2="${Y(k)}" stroke="var(--divider-color)"/><text x="2" y="${Y(k) + 4}" font-size="10" fill="var(--secondary-text-color)">${k}</text>`;
-      }
-      for (let h = 0; h <= this._config.hours; h += 12) {
-        const tt = new Date(t0 + h * 3600e3);
-        const lab = tt.toLocaleString(undefined, { timeZone: tz, weekday: "short", hour: "2-digit", hour12: false });
-        const x = L + ((W - L - 4) * h) / this._config.hours;
-        ticks += `<text x="${x + 2}" y="${H - 4}" font-size="10" fill="var(--secondary-text-color)">${this._esc(lab)}</text>`;
-      }
-      svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Solar forecast, next ${this._config.hours} hours">
-        ${ticks}
-        <polygon points="${band}" fill="var(--warning-color, #ffa600)" fill-opacity=".18" stroke="none"/>
-        <polyline points="${line}" fill="none" stroke="var(--warning-color, #ffa600)" stroke-width="2"/>
-      </svg>
-      <div class="leg"><span><i style="background:var(--warning-color,#ffa600)"></i>forecast (kW)</span><span><i style="background:var(--warning-color,#ffa600);opacity:.3;height:8px"></i>likely range (p10–p90)</span></div>`;
-    } else {
-      svg = `<p class="s">${this._esc(a.status_detail || "The first forecast comes once it has about a week of history.")}</p>`;
-    }
-
+    const today = a.today && a.today.date ? a.today : null;
+    const score = a.score || {};
+    const rows = Array.isArray(a.scoreboard) ? a.scoreboard : [];
     const arrays = Array.isArray(a.arrays) ? a.arrays : [];
-    const arrTable = arrays.length
-      ? `<table><tr><th>Array</th><th>Size</th><th>Tilt</th><th>Faces</th></tr>${arrays.map((x) =>
-          `<tr><td>${this._esc(x.label || x.entity_id)}${x.active === false ? " <span class=\"s\">(unused)</span>" : ""}</td>
-           <td>${x.kwp ? x.kwp.toFixed(2) + " kW" : "–"}</td><td>${x.tilt != null ? Math.round(x.tilt) + "°" : "–"}</td>
-           <td>${x.azimuth != null ? Math.round(x.azimuth) + "°" : "–"} <span class="s">${this._esc(x.orientation || "")}</span></td></tr>`).join("")}</table>`
-      : "";
+    const statusText = {
+      starting: "starting",
+      fetching_history: "fetching weather history",
+      learning: "learning your panels",
+      ready: "ready",
+      no_arrays: "no PV Strings yet",
+      error: "needs attention",
+    }[a.status] || a.status || "";
 
-    this.shadowRoot.innerHTML = `<style>${css}</style><ha-card>
-      <div class="h"><span class="t">Solar forecast</span><span class="s">${this._esc(statusText)}${a.model ? " · " + this._esc(a.model.toUpperCase().replace(/\+/g, " + ")) : ""}</span></div>
-      <div class="now">${now}<small>kW now</small></div>
-      <div class="days">${dayCards}${score}</div>
-      ${svg}
-      ${arrTable}
-      <div class="s" style="margin-top:8px">${this._esc(a.attribution || "")}</div>
-    </ha-card>`;
+    // header strip
+    const made = a.made_at
+      ? new Date(a.made_at).toLocaleString(undefined, { timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false })
+      : "–";
+    const runs = a.weather_runs || {};
+    const src = ["ecmwf", "gefs", "gfs"].filter((k) => runs[k]).map((k) => `${k.toUpperCase()} ${this._esc(runs[k])}`).join(" · ");
+    const live = a.live_correction == null ? "live correction: waiting for sun" : `live correction ×${(+a.live_correction).toFixed(2)}`;
+    const top = `<div class="top"><h1>Solar Lab</h1><span>forecast ${this._esc(made)}</span><span>weather: ${src || "–"}</span>
+      <span>${this._esc(live)}</span><span>${this._esc(statusText)}${a.status_detail ? " · " + this._esc(a.status_detail) : ""}</span></div>`;
+
+    // hero
+    const tom = days[0];
+    const sum = (k) => days.reduce((s, d) => s + (+d[k] || 0), 0);
+    const now = st.state && !isNaN(+st.state) ? (+st.state).toFixed(1) : "–";
+    const hero = `<div class="hero">
+      <div class="card"><div class="k">Today</div><div class="v">${today ? this._num(today.p50) : "–"}<small>kWh</small></div>
+        <div class="s">${today ? `made so far ${this._num(today.made_so_far_kwh)} · rest ${this._num(today.rest_kwh)} · likely ${this._num(today.p10)}–${this._num(today.p90)}` : "the rest of today appears with the first forecast"} · now ${now} kW</div></div>
+      <div class="card"><div class="k">Tomorrow</div><div class="v">${tom ? this._num(tom.p50) : "–"}<small>kWh</small></div>
+        <div class="s">${tom ? `${this._day(tom.date)} · p10–p90 ${this._num(tom.p10)}–${this._num(tom.p90)} · clear ${this._num(tom.clear)}` : "–"}</div></div>
+      <div class="card"><div class="k">Next ${days.length || "–"} days</div><div class="v">${days.length ? sum("p50").toFixed(0) : "–"}<small>kWh</small></div>
+        <div class="s">clear-sky most ${days.length ? sum("clear").toFixed(0) : "–"} kWh</div></div>
+      <div class="card"><div class="k">Day-ahead error · ${score.scored_days ?? "–"} days</div><div class="v">${this._num(score.daily_error_pct)}<small>%</small></div>
+        <div class="s">range holds ${score.p10_p90_cover != null ? Math.round(score.p10_p90_cover * 100) : "–"}% of readings · weeks it never saw</div></div>
+    </div>`;
+
+    // main chart
+    const main = `<div class="card"><h2>Next ${days.length + (today ? 1 : 0) || ""} days, every 15 minutes</h2>
+      <div class="cbox"><canvas id="cMain"></canvas></div>
+      <div class="leg"><span><i style="background:var(--sun)"></i>forecast (p50)</span><span><i style="background:var(--band);height:9px"></i>p10–p90</span>
+      <span><i style="background:var(--clear)"></i>clear sky</span><span><i style="background:var(--act)"></i>measured</span></div></div>`;
+
+    // days table
+    const dayRows = days.map((d) => {
+      const kt = d.clear > 0 ? d.p50 / d.clear : 0;
+      return `<tr><td>${this._esc(this._day(d.date))}</td><td><b>${this._num(d.p50)}</b></td><td>${this._num(d.p10)}–${this._num(d.p90)}</td>
+        <td><span class="bar" style="width:${Math.round(60 * Math.min(kt, 1.1))}px"></span></td><td>${kt.toFixed(2)}</td><td class="why">${this._models(d.model)}</td></tr>`;
+    }).join("");
+    const dayCard = `<div class="card"><h2>${days.length ? days.length + " days" : "Days"}</h2><div class="tw"><table>
+      <tr><th>day</th><th>p50</th><th>p10–p90</th><th></th><th>kt</th><th>weather</th></tr>${dayRows}</table></div>
+      <p class="why">kt is how much of a clear day it expects (1.0 = clear). Weather shows which models fed the day: past about
+      two and a half days ECMWF and GEFS have ended and GFS alone carries it, with a wider range.</p></div>`;
+
+    // next two hours + strings
+    const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    const strRows = arrays.map((x) => `<tr><td>${this._esc(x.label || x.entity_id)}${x.active === false ? ' <span class="why">(unused)</span>' : ""}</td>
+      <td>${x.kwp ? (+x.kwp).toFixed(2) : "–"}</td><td>${x.tilt != null ? Math.round(x.tilt) + "°" : "–"}${x.orientation === "set by you" ? ' <span class="why">set by you</span>' : ""}</td>
+      <td>${x.azimuth != null ? Math.round(x.azimuth) + "° " + dirs[Math.round(x.azimuth / 45) % 8] : "–"}</td></tr>`).join("");
+    const side = `<div class="card"><h2>Next two hours</h2><div class="cbox sm"><canvas id="cMin"></canvas></div>
+      <p class="note">Every 15 minutes, corrected from the last 30 minutes measured${a.live_correction != null ? ` (×${(+a.live_correction).toFixed(2)})` : ""}.</p>
+      <h2 style="margin-top:14px">Your strings, as learned</h2><div class="tw"><table><tr><th>string</th><th>kWp</th><th>tilt</th><th>faces</th></tr>${strRows}
+      <tr><td colspan="4" class="why">haze (Linke turbidity) ${this._num(a.haze, 2)}</td></tr></table></div></div>`;
+
+    // scoreboards
+    const cell = (v, act) => {
+      if (v == null) return "<td>–</td>";
+      const e = Math.abs(v - act) / Math.max(act, 1);
+      return `<td class="${e < 0.1 ? "g" : e > 0.3 ? "r" : ""}">${(+v).toFixed(1)}</td>`;
+    };
+    const sRows = rows.slice().reverse().map((r) => `<tr><td>${this._esc(this._day(r.date))}</td><td><b>${this._num(r.actual_kwh)}</b></td>
+      ${cell(r.forecast_kwh, r.actual_kwh)}<td>${this._num(r.p10_kwh)}–${this._num(r.p90_kwh)}</td>
+      <td>${r.actual_kwh >= r.p10_kwh && r.actual_kwh <= r.p90_kwh ? "✓" : '<span class="r">✗</span>'}</td></tr>`).join("");
+    let summary = "";
+    if (rows.length) {
+      const m = rows.reduce((s, r) => s + r.actual_kwh, 0) / rows.length;
+      const e = rows.map((r) => r.forecast_kwh - r.actual_kwh);
+      const mae = e.reduce((s, x) => s + Math.abs(x), 0) / e.length;
+      const b = e.reduce((s, x) => s + x, 0) / e.length;
+      const inside = rows.filter((r) => r.actual_kwh >= r.p10_kwh && r.actual_kwh <= r.p90_kwh).length;
+      summary = `<tr><td><b>ours</b></td><td>${rows.length}</td><td>${mae.toFixed(1)} kWh</td><td>${((100 * mae) / m).toFixed(1)}%</td>
+        <td>${b >= 0 ? "+" : ""}${b.toFixed(1)}</td><td>${Math.round((100 * inside) / rows.length)}%</td></tr>`;
+    }
+    const board = `<div class="two">
+      <div class="card"><h2>Scoreboard · evening-before forecasts, every day</h2><div class="tw"><table>
+        <tr><th>day</th><th>actual</th><th>ours</th><th>p10–p90</th><th>in range</th></tr>${sRows || '<tr><td colspan="5" class="why">after the first training</td></tr>'}</table></div>
+        <p class="note">Each day forecast from the weather runs published the evening before, by a model trained without that week. Green within 10 %, red off by more than 30 %.</p></div>
+      <div class="card"><h2>Scoreboard · summary</h2><div class="tw"><table>
+        <tr><th>forecast</th><th>days</th><th>error</th><th>%</th><th>bias</th><th>in range</th></tr>${summary}</table></div>
+        <p class="note">Daily kWh error against what your PV Strings measured. Retrained every night on the latest weeks.</p></div></div>`;
+
+    const how = `<div class="card"><h2>How it works</h2><p class="note">Every evening the three best free global weather models are saved:
+      ECMWF (the European centre's model), NOAA's GFS and NOAA's 31-run GEFS ensemble. Nothing needs a key, and your location is never
+      sent anywhere: the files are global and Nimbus picks your point out of them. Each 5 minutes: the sun's exact position, the clear-sky
+      light on each PV String at the angle you gave it (or the angle it learned), panel heat loss, then a quantile gradient-boosted model
+      trained on your own measured output turns the models' cloud and light into p10 / p50 / p90 kW. The range is widened until 80 % of
+      real readings fall inside it. Through the day the last 30 minutes measured correct the next hours. Scored on weeks the model never saw.</p>
+      <p class="why">${this._esc(a.attribution || "")}</p></div>`;
+
+    this.shadowRoot.innerHTML = `<style>${NSC_CSS}</style><ha-card style="background:none;border:none;box-shadow:none">
+      <div class="wrap">${top}${hero}${main}<div class="two">${dayCard}${side}</div>${board}${how}</div></ha-card>`;
+    this._charts();
+  }
+
+  // ---- charts -------------------------------------------------------------------------------
+  _cv(id) {
+    const c = this.shadowRoot && this.shadowRoot.getElementById(id);
+    if (!c) return null;
+    const box = c.parentElement;
+    const r = window.devicePixelRatio || 1;
+    const w = box.clientWidth;
+    const h = box.clientHeight;
+    if (!w || !h) return null;
+    c.width = w * r;
+    c.height = h * r;
+    const x = c.getContext("2d");
+    x.setTransform(r, 0, 0, r, 0, 0);
+    x.clearRect(0, 0, w, h);
+    return { x, w, h };
+  }
+
+  _var(n) {
+    return getComputedStyle(this).getPropertyValue(n).trim() || "#888";
+  }
+
+  _axes(x, w, h, L, B, ym, t0, t1, step) {
+    const tz = this._tz();
+    x.strokeStyle = this._var("--line");
+    x.fillStyle = this._var("--dim");
+    x.font = "11px ui-monospace, Consolas, monospace";
+    x.lineWidth = 1;
+    const vs = ym > 8 ? 4 : ym > 3 ? 1 : 0.5;
+    for (let v = 0; v <= ym + 1e-9; v += vs) {
+      const Y = h - B - ((h - B - 8) * v) / ym;
+      x.beginPath();
+      x.moveTo(L, Y);
+      x.lineTo(w, Y);
+      x.stroke();
+      x.fillText(String(+v.toFixed(1)), 2, Y + 4);
+    }
+    for (let s = Math.ceil(t0 / step) * step; s <= t1; s += step) {
+      const X = L + ((w - L) * (s - t0)) / (t1 - t0);
+      x.beginPath();
+      x.moveTo(X, 8);
+      x.lineTo(X, h - B);
+      x.stroke();
+      const lab = new Date(s * 1000).toLocaleString(undefined, {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        ...(step >= 21600 ? { weekday: "short" } : {}),
+      });
+      if (X + 70 < w || step < 21600) x.fillText(lab, X + 3, h - 4);
+    }
+  }
+
+  _line(x, X, Y, ts, vs, colour, width, dash) {
+    x.beginPath();
+    x.setLineDash(dash || []);
+    let started = false;
+    ts.forEach((s, k) => {
+      const v = vs[k];
+      if (v == null || isNaN(v)) {
+        started = false;
+        return;
+      }
+      if (started) x.lineTo(X(s), Y(v));
+      else {
+        x.moveTo(X(s), Y(v));
+        started = true;
+      }
+    });
+    x.strokeStyle = colour;
+    x.lineWidth = width;
+    x.stroke();
+    x.setLineDash([]);
+  }
+
+  _series() {
+    const a = (this._st && this._st.attributes) || {};
+    const f = (Array.isArray(a.forecast) ? a.forecast : []).map((r) => ({ ...r, t: Date.parse(r.time) / 1000 }));
+    const m = (Array.isArray(a.measured_today) ? a.measured_today : []).map((r) => ({ t: Date.parse(r.time) / 1000, v: r.value }));
+    return { f, m, live: a.live_correction };
+  }
+
+  _charts() {
+    if (!this._st) return;
+    const { f, m } = this._series();
+    this._mainChart(f, m);
+    this._miniChart(f, m);
+  }
+
+  _mainChart(f, m) {
+    const c = this._cv("cMain");
+    if (!c) return;
+    const { x, w, h } = c;
+    const L = 28;
+    const B = 18;
+    if (f.length < 2) {
+      x.fillStyle = this._var("--dim");
+      x.font = "13px sans-serif";
+      x.fillText("The first forecast comes once it has about a week of history.", L, h / 2);
+      return;
+    }
+    const now = f[0].t;
+    const t0 = m.length ? Math.min(m[0].t, now) : now;
+    const t1 = f[f.length - 1].t;
+    const ym = Math.ceil(Math.max(1, ...f.map((r) => Math.max(r.upper || 0, r.clear || 0)), ...m.map((r) => r.v || 0)) / 2) * 2;
+    this._axes(x, w, h, L, B, ym, t0, t1, w < 720 ? 43200 : 21600);
+    const X = (s) => L + ((w - L) * (s - t0)) / (t1 - t0);
+    const Y = (v) => h - B - ((h - B - 8) * v) / ym;
+    x.beginPath();
+    f.forEach((r, k) => (k ? x.lineTo(X(r.t), Y(r.upper)) : x.moveTo(X(r.t), Y(r.upper))));
+    for (let k = f.length - 1; k >= 0; k--) x.lineTo(X(f[k].t), Y(f[k].lower));
+    x.closePath();
+    x.fillStyle = this._var("--band");
+    x.fill();
+    this._line(x, X, Y, f.map((r) => r.t), f.map((r) => r.clear), this._var("--clear"), 1, [4, 4]);
+    this._line(x, X, Y, f.map((r) => r.t), f.map((r) => r.value), this._var("--sun"), 2);
+    this._line(x, X, Y, m.map((r) => r.t), m.map((r) => r.v), this._var("--act"), 1.6);
+    const Xn = X(now);
+    x.strokeStyle = this._var("--fg") || "#888";
+    x.globalAlpha = 0.4;
+    x.beginPath();
+    x.moveTo(Xn, 8);
+    x.lineTo(Xn, h - B);
+    x.stroke();
+    x.globalAlpha = 1;
+    x.fillStyle = this._var("--dim");
+    x.fillText("now", Xn + 3, 18);
+    x.fillText("kW", L + 2, 18);
+  }
+
+  _miniChart(f, m) {
+    const c = this._cv("cMin");
+    if (!c) return;
+    const { x, w, h } = c;
+    const L = 28;
+    const B = 18;
+    if (!f.length) return;
+    const now = f[0].t;
+    const t0 = now - 3600;
+    const t1 = now + 7200;
+    const fw = f.filter((r) => r.t <= t1);
+    const mw = m.filter((r) => r.t >= t0);
+    const mx = Math.max(0, ...fw.map((r) => r.upper || 0), ...mw.map((r) => r.v || 0));
+    if (mx < 0.05) {
+      x.fillStyle = this._var("--dim");
+      x.font = "13px sans-serif";
+      x.fillText("Sun is down: this view starts at sunrise.", L, h / 2);
+      return;
+    }
+    const ym = Math.max(1, Math.ceil(mx * 1.15));
+    this._axes(x, w, h, L, B, ym, t0, t1, 1800);
+    const X = (s) => L + ((w - L) * (s - t0)) / (t1 - t0);
+    const Y = (v) => h - B - ((h - B - 8) * v) / ym;
+    x.beginPath();
+    fw.forEach((r, k) => (k ? x.lineTo(X(r.t), Y(r.upper)) : x.moveTo(X(r.t), Y(r.upper))));
+    for (let k = fw.length - 1; k >= 0; k--) x.lineTo(X(fw[k].t), Y(fw[k].lower));
+    x.closePath();
+    x.fillStyle = this._var("--band");
+    x.fill();
+    this._line(x, X, Y, fw.map((r) => r.t), fw.map((r) => r.value), this._var("--sun"), 2);
+    this._line(x, X, Y, mw.map((r) => r.t), mw.map((r) => r.v), this._var("--act"), 1.6);
+    const Xn = X(now);
+    x.strokeStyle = this._var("--fg") || "#888";
+    x.globalAlpha = 0.4;
+    x.beginPath();
+    x.moveTo(Xn, 8);
+    x.lineTo(Xn, h - B);
+    x.stroke();
+    x.globalAlpha = 1;
+    x.fillStyle = this._var("--dim");
+    x.fillText("now", Xn + 3, 18);
   }
 }
 
@@ -161,6 +424,6 @@ nimbusRegisterCard("nimbus-solar-card", NimbusSolarCard);
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "nimbus-solar-card",
-  name: "Nimbus Solar Forecast",
-  description: "Nimbus's own solar forecast: power now, today and tomorrow with their likely range, the next 48 hours, and what it learned about each array.",
+  name: "Nimbus Solar Lab",
+  description: "Nimbus's own solar forecast: today, each day ahead with its likely range, the forecast chart with today's measured output, the strings as learned and its own scoreboard.",
 });

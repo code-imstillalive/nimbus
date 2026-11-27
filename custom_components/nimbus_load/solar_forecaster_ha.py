@@ -121,6 +121,9 @@ class SolarForecasterRuntime:
         self.arrays = self._arrays_from_subentries()
         self.trained: Trained | None = None
         self.forecast: runner.Forecast | None = None
+        self.today: dict[str, Any] = {}
+        self.measured_today: list[dict[str, Any]] = []
+        self.made_at: str | None = None
         self.status = Status(arrays=[self._array_view(a) for a in self.arrays])
         self._unsubs: list = []
         self._busy = asyncio.Lock()
@@ -545,19 +548,22 @@ class SolarForecasterRuntime:
             self._publish()
             return
         now = dt_util.utcnow()
+        midnight = dt_util.start_of_local_day(dt_util.now(self.tz))
         try:
+            # since local midnight: today's output so far for the card, and its last 30
+            # minutes for the live correction
             t, measured = await self._async_measured(
-                now - dt.timedelta(minutes=40), now
+                min(now - dt.timedelta(minutes=40), midnight), now
             )
             keys = [a.key for a in self.arrays if a.active]
-            recent = (
-                (t, np.nansum([measured[k] for k in keys], axis=0)) if keys else None
-            )
-            if (
-                recent is not None
-                and np.isnan(np.array([measured[k] for k in keys])).all()
-            ):
-                recent = None
+            recent = None
+            if keys:
+                stack = np.array([measured[k] for k in keys])
+                total = np.where(
+                    np.isnan(stack).all(axis=0), np.nan, np.nansum(stack, axis=0)
+                )
+                if not np.isnan(total).all():
+                    recent = (t, total)
             fc = await self.hass.async_add_executor_job(
                 runner.forecast,
                 self.trained,
@@ -572,6 +578,8 @@ class SolarForecasterRuntime:
             _LOGGER.warning("Nimbus solar forecaster: forecast failed (%s)", err)
             return
         self.forecast = fc
+        self.made_at = now.isoformat()
+        self._today(fc, recent, midnight.timestamp())
         if self.status.state not in ("error",):
             self.status.state = "ready" if fc.rows else "learning"
         uncovered = "no weather covers this hour yet: the power now is unknown"
@@ -580,6 +588,41 @@ class SolarForecasterRuntime:
         elif self.status.detail == uncovered:
             self.status.detail = ""
         self._publish()
+
+    def _today(self, fc, recent, t_midnight: float) -> None:
+        """Today on the card: what the panels made since midnight (15-minute means) and the
+        day's total so far plus the forecast for the rest of it."""
+        self.measured_today, made = [], None
+        if recent is not None:
+            t, kw = recent
+            k = t >= t_midnight
+            if k.any():
+                made = float(np.nansum(kw[k]) / 12)
+                q = np.floor(t[k] / 900) * 900
+                for slot in np.unique(q):
+                    v = kw[k][q == slot]
+                    if np.isfinite(v).any():
+                        self.measured_today.append(
+                            {
+                                "time": dt_util.utc_from_timestamp(slot).isoformat(),
+                                "value": round(float(np.nanmean(v)), 3),
+                            }
+                        )
+        rest = next((d for d in fc.days if d.get("partial")), None)
+        if rest is None:
+            self.today = {}
+            return
+        base = made or 0.0
+        self.today = {
+            "date": rest["date"],
+            "made_so_far_kwh": None if made is None else round(made, 1),
+            "rest_kwh": rest["p50"],
+            "p10": round(base + rest["p10"], 1),
+            "p50": round(base + rest["p50"], 1),
+            "p90": round(base + rest["p90"], 1),
+            "clear": rest["clear"],
+            "model": rest["model"],
+        }
 
     @callback
     def _publish(self) -> None:
@@ -590,7 +633,16 @@ class SolarForecasterRuntime:
         fc = self.forecast
         return {
             "forecast": fc.rows if fc else [],
-            "days": fc.days if fc else [],
+            "days": [d for d in fc.days if not d.get("partial")] if fc else [],
+            "made_at": self.made_at,
+            "haze": round(
+                float(self.site.linke), 2
+            ),  # learned Linke turbidity of the sky
+            "today": self.today,
+            "measured_today": self.measured_today,
+            # its own daily score: each scored day's forecast (made from the evening-before
+            # weather, on weeks it was not trained on) against what the panels made
+            "scoreboard": (self.trained.report.get("rows", []) if self.trained else []),
             "model": fc.tier if fc else None,
             "live_correction": fc.live_ratio if fc else None,
             "status": self.status.state,
