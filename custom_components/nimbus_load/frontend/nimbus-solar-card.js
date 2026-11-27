@@ -1,7 +1,7 @@
 // nimbus-solar-card.js
 //
 // Nimbus's own solar forecast (sensor.nimbus_solar_forecast, solar_forecaster_ha.py) on one plain card
-// that reads well on a phone: the expected power now, today and tomorrow with their likely range, the
+// that reads well on a phone: the expected power now, each day ahead (about four) with its likely range, the
 // next 48 hours as a line with its p10-p90 band (and today's measured output where the PV Strings
 // report it), what it learned about each array, and its own score. No configuration needed.
 //
@@ -76,9 +76,11 @@ class NimbusSolarCard extends HTMLElement {
     const dayName = (d) => new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
     const iso = (off) => new Date(Date.now() + off * 864e5).toLocaleDateString("en-CA", { timeZone: tz });
     const label = (d) => (d === iso(0) ? "Today" : d === iso(1) ? "Tomorrow" : dayName(d));
-    const dayCards = days.slice(0, 2).map((d) =>
+    // every day it forecasts (about four); the far ones come from GFS alone, with a wider range
+    const dayCards = days.map((d) =>
       `<div class="d"><div class="s">${this._esc(label(d.date))}</div>
-        <b>${d.p50}</b> kWh<div class="s">likely ${d.p10}–${d.p90} · clear ${d.clear}</div></div>`).join("");
+        <b>${d.p50}</b> kWh<div class="s">likely ${d.p10}–${d.p90} · clear ${d.clear}</div>${
+          d.model === "gfs" ? '<div class="s">GFS only: wider range</div>' : ""}</div>`).join("");
     const score = a.score && a.score.daily_error_pct != null
       ? `<div class="d"><div class="s">Its own score</div><b>${a.score.daily_error_pct}%</b><div class="s">daily error · range holds ${Math.round((a.score.p10_p90_cover || 0) * 100)}%</div></div>`
       : "";

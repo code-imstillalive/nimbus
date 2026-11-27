@@ -477,7 +477,7 @@ def _store_and_jobs(tmp_path):
         fc = runner.forecast(
             None, _Weather(), st, [], now, syd, recent=(rt, seen), hours=6
         )
-    assert fc.live_ratio == pytest.approx(1.5, abs=0.01)
+    assert fc.live_ratio == pytest.approx(1.5, abs=0.01) and fc.tier == "ecmwf"
     assert fc.rows[0]["time"] == now.isoformat()  # the published rows still start now
 
     # with no weather covering now, the power now is unknown, not a confident 0 kW

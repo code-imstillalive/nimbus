@@ -216,6 +216,12 @@ class Forecast:
     now_kw: float | None
 
 
+def _most(tiers) -> str:
+    """The tier that covers most of these slots ("" if none)."""
+    used = [str(x) for x in tiers if x]
+    return max(set(used), key=used.count) if used else ""
+
+
 def forecast(
     trained: M.Trained,
     store: WeatherStore,
@@ -289,13 +295,17 @@ def forecast(
                 "p50": round(float(mid[m].sum() / 12), 1),
                 "p90": round(float(hi[m].sum() / 12), 1),
                 "clear": round(float(clear[m].sum() / 12), 1),
+                # the models behind that day's daylight (days 3-5: GFS alone)
+                "model": _most(tier[m & (clear > 0)]) or _most(tier[m]),
             }
         )
-    used = [x for x in tier[ok] if x]
+    first = np.flatnonzero(ok)
     return Forecast(
         rows=rows,
         days=days,
-        tier=max(set(used), key=used.count) if used else "",
+        tier=str(tier[first[0]])
+        if len(first)
+        else "",  # the models behind the forecast now
         live_ratio=None if ratio is None else round(ratio, 3),
         now_kw=round(float(mid[0]), 3)
         if ok[0]

@@ -55,7 +55,7 @@ Left blank, they are learned.
 |---|---|
 | state | expected PV power now, kW (unknown, with the reason in `status_detail`, if no weather covers now) |
 | `forecast` | about four days ahead (to the end of the newest GFS run, 120 hours after its start), `[{time, value, lower, upper}]` in kW (p50, p10, p90): 15-minute rows for two days, hourly after. Past about two and a half days ECMWF and GEFS have ended and it forecasts from GFS alone, with a wider likely range |
-| `days` | each day's p10 / p50 / p90 and clear-sky kWh |
+| `days` | each day's p10 / p50 / p90 and clear-sky kWh, and the models behind it (`gfs` on the days GFS alone covers) |
 | `arrays` | what it learned about each PV String |
 | `score` | its own honest score: daily error on weeks it was not trained on, and how often real output fell inside p10 to p90 |
 | `status` | starting, fetching_history, learning, ready, no_arrays or error, with `status_detail` |
@@ -64,8 +64,8 @@ Left blank, they are learned.
 ## The card
 
 It is the **Solar Lab** tab of the standard [Nimbus dashboard](dashboards.md), or add a card with
-`type: custom:nimbus-solar-card` (no settings needed): the power now, today and
-tomorrow with their likely range, the next 48 hours with its band, what it learned about each
+`type: custom:nimbus-solar-card` (no settings needed): the power now, each day ahead with its
+likely range (the GFS-only days marked), the next 48 hours with its band, what it learned about each
 array, and its own score. It fits a phone.
 
 ## How good it is
