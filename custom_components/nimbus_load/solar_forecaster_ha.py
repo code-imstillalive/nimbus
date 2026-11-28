@@ -350,7 +350,21 @@ class SolarForecasterRuntime:
         if self._task is not None and not self._task.done():
             self._task.cancel()
 
+    def _wh_path(self) -> Path:
+        return self.dir / "energy_hours.json"
+
+    def _save_wh_hours(self, wh: dict[str, float]) -> None:
+        """Today's hours as forecast, so the Energy dashboard keeps them through a restart."""
+        self.dir.mkdir(parents=True, exist_ok=True)
+        tmp = self._wh_path().with_suffix(".tmp")
+        tmp.write_text(json.dumps(wh))
+        tmp.replace(self._wh_path())
+
     def _load_saved(self) -> None:
+        try:
+            self.wh_hours = json.loads(self._wh_path().read_text())
+        except (OSError, ValueError):
+            self.wh_hours = {}
         path = self.dir / "model.pkl"
         if not path.exists():
             return
@@ -859,6 +873,10 @@ class SolarForecasterRuntime:
         self.forecast = fc
         self.made_at = now.isoformat()
         self.wh_hours = runner.wh_hours(fc.rows, self.wh_hours, midnight.timestamp())
+        try:
+            await self.hass.async_add_executor_job(self._save_wh_hours, self.wh_hours)
+        except OSError as err:
+            _LOGGER.debug("Nimbus solar forecaster: energy hours not saved (%s)", err)
         self._today(fc, recent, midnight.timestamp())
         if self.status.state not in ("error",):
             self.status.state = "ready" if fc.rows else "learning"
