@@ -122,10 +122,18 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
             await hass.async_block_till_done()
             result = await hass.config_entries.options.async_init(entry.entry_id)
         assert "solar_forecaster" in result["menu_options"]
+        from custom_components.nimbus_load.flows import solar_forecaster_steps as sfs
+
+        # a brand-new install with no statistics, at night: every input reads 0, so none can be
+        # judged and all are ticked (by day, the reading now decides)
+        with patch.object(sfs, "sun_elevation", create=True, return_value=-20.0):
+            assert await sfs.producing(hass, [roof1, idle]) == {roof1, idle}
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], {"next_step_id": "solar_forecaster"}
         )
         assert result["step_id"] == "solar_forecaster"
+        by_day = patch.object(sfs, "sun_elevation", create=True, return_value=45.0)
+        by_day.start()
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
             {
@@ -149,6 +157,7 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
             roof1,
             roof2,
         }  # an input with no output: offered, not ticked
+        by_day.stop()
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], {"arrays": [roof1, roof2]}
         )
