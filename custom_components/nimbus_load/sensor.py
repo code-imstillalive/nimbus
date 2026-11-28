@@ -4949,11 +4949,12 @@ class NimbusSolarEnergySensor(SensorEntity):
     _attr_should_poll = False
 
     _kind = "today"
+    _entity_id = "sensor.nimbus_solar_forecast_today"
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_solar_forecast_{self._kind}"
-        self.entity_id = f"sensor.nimbus_solar_forecast_{self._kind}"
+        self.entity_id = self._entity_id
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Nimbus",
@@ -5004,16 +5005,19 @@ class NimbusSolarEnergySensor(SensorEntity):
 class NimbusSolarTodaySensor(NimbusSolarEnergySensor):
     _attr_translation_key = "solar_forecast_today"
     _kind = "today"
+    _entity_id = "sensor.nimbus_solar_forecast_today"
 
 
 class NimbusSolarTodayRemainingSensor(NimbusSolarEnergySensor):
     _attr_translation_key = "solar_forecast_today_remaining"
     _kind = "today_remaining"
+    _entity_id = "sensor.nimbus_solar_forecast_today_remaining"
 
 
 class NimbusSolarTomorrowSensor(NimbusSolarEnergySensor):
     _attr_translation_key = "solar_forecast_tomorrow"
     _kind = "tomorrow"
+    _entity_id = "sensor.nimbus_solar_forecast_tomorrow"
 
 
 #: Nimbus's own solar forecast as daily energy, as other solar forecast integrations offer it.
