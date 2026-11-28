@@ -149,6 +149,36 @@ counter). Nimbus takes no such sensor in config, so it publishes no measurement
 rather than a wrong one. `tests/test_1172_no_capacity_measurement_from_a_power_sensor.py`
 pins that absence.
 
+## Solar forecast
+
+`sensor.nimbus_solar_forecast` exists while [Nimbus's own solar forecaster](solar-forecaster.md) is
+switched on (Configure → Solar forecaster). Its state is the expected PV power now (kW; unknown if
+no weather covers now); its `forecast` attribute runs about four days ahead (all three models to 120 hours) as `[{time, value, lower, upper}]` (p50, p10, p90), the
+shape every Solver reader understands, with `days`, `arrays`, `score` and `status` beside it.
+`weather` is the Solar Lab card's weather strip: one entry per 3-hour ECMWF interval, day and night,
+`{time, cloud, low_cloud, rain, shower, cape, temperature, sun_up, sky}` (cloud in %, rain and
+shower rain in mm/h, CAPE in J/kg, temperature in °C, `sky` the picture shown). The large
+attributes are not recorded.
+
+`sensor.nimbus_solar_forecast_today`, `sensor.nimbus_solar_forecast_today_remaining` and
+`sensor.nimbus_solar_forecast_tomorrow` give the same forecast as energy (kWh, p50; `p10` and
+`p90` beside it): today's total (made so far plus the rest), the rest of today, and tomorrow. The
+forecast can also be the solar forecast line on Home Assistant's Energy dashboard: expected Wh
+per hour, with today's earlier hours kept as they were forecast. Home Assistant's Energy settings
+list only service-type integrations as forecasts, and Nimbus is a hub, so you choose the solar
+source under Configure → Solar forecaster → *Show it in the Energy dashboard for*; Nimbus adds
+itself there and puts itself back whenever the Energy settings are saved without it (a Repair
+says so if that solar source is deleted).
+
+`weather.nimbus_weather` is the same ECMWF weather as a standard Home Assistant weather entity,
+also only while the solar forecaster is on: condition, temperature and cloud now (unavailable
+until the first weather arrives); `get_forecasts` gives `hourly` (one per 3-hour ECMWF interval,
+rain in mm for the interval) and `daily` (per local day: its worst daytime condition, highest and
+lowest temperature, rain in mm, average cloud). Its attributes add `rain_rate` and `shower_rate`
+(mm/h) and `storm_energy` (CAPE, J/kg) now. Conditions: `sunny`, `clear-night`, `partlycloudy`,
+`cloudy`, `rainy`, `pouring`, `lightning-rainy` (thunderstorms: CAPE of 800 J/kg or more with
+shower rain).
+
 ## Load forecast totals
 
 Each load's power forecast (`sensor.nimbus_<load>_power_forecast`, and each

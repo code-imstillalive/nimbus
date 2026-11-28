@@ -8,6 +8,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Nimbus's own solar forecast** (Configure → *Solar forecaster*, off by default): forecasts your panels from three free global weather models (ECMWF, NOAA GFS, NOAA GEFS), learning each PV String's size, shading and scattered light from its own output; `sensor.nimbus_solar_forecast` carries p10/p50/p90 for about four days (all three models to 120 hours; the plan takes the days after tomorrow only once the install has learned its bias at that range), its learned arrays and its own score. Choose what the plan does with it: forecast only, blend, or plan on it alone. *Find my panels now* adds a PV String for each per-MPPT or per-string power sensor. PV Strings gain optional tilt and direction. Two Repairs: no PV Strings, and no weather for over a day. The **Solar Lab** tab shows it all, with a gently animated weather strip under the chart: sun, cloud, rain, showers and thunderstorms every 3 hours, day and night (hover or tap for the numbers). The same weather is `weather.nimbus_weather`, a standard weather entity (now, 3-hourly and daily forecasts) for weather cards and automations, shown from the first download. It can be the solar forecast on Home Assistant's Energy dashboard (Configure → Solar forecaster → *Show it in the Energy dashboard for*; Nimbus keeps itself there, as the Energy settings screen lists only service-type integrations), and kWh sensors give today, the rest of today and tomorrow. Its weather strip and weather entity take ECMWF's newer 12Z run for the next 48 hours (the solar forecast stays on the evening-before run, measured no worse). It downloads about 230 MB of weather a day. See [the docs page](docs/solar-forecaster.md).
+
 ## [0.118.0] - 2026-11-27
 
 **The settings forms for a car, a controllable load and a power signal now save what you enter.**

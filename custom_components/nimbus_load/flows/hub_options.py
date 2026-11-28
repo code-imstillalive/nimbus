@@ -149,6 +149,7 @@ from ..price_input_check import (
 )
 from . import live_numbers, missing_entity_errors
 from .device_setup import DeviceSetupSteps
+from .solar_forecaster_steps import SolarForecasterSteps
 
 # nimbus #1661: the two price fields the Grid step shows outside "Advanced".
 # Household, 20 Oct 2026: every price source stays in view on the Grid
@@ -1479,7 +1480,9 @@ def _effective_schema_keys(schema: vol.Schema) -> list[str]:
     return keys
 
 
-class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
+class NimbusHubOptionsFlow(
+    DeviceSetupSteps, SolarForecasterSteps, OptionsFlowWithConfigEntry
+):
     """Edit the settings shared by every load, reached via the hub's own
     "Configure" button (not the per-load "+ Add"/edit).
 
@@ -1574,6 +1577,7 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
                 menu_options=[
                     "forecaster",
                     "solver_battery",
+                    "solar_forecaster",
                     "switchboard",
                     "pricing_suggestions",
                     "device_setup",
@@ -1584,6 +1588,7 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
             menu_options=[
                 "forecaster",
                 "solver_battery",
+                "solar_forecaster",
                 "switchboard",
                 "device_setup",
             ],

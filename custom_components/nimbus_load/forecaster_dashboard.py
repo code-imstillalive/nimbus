@@ -3,7 +3,7 @@ request and never written by Nimbus (HACS review, hacs/default#12099).
 
 The tabs, in this order:
 
-    Forecaster, Solver, Topology, Control Panel, Regret, Help
+    Forecaster, Solar Lab, Solver, Power Flow, Topology, Control Panel, Regret, Help
 
 Every card discovers its own entities, and the Solver and Help tabs
 (`solver_tab.py`, `help_tab.py`) are resolved against this install's own
@@ -61,6 +61,14 @@ STANDARD_VIEWS: tuple[dict[str, Any], ...] = (
             {"chart": "signals"},
             {"chart": "loads"},
         ),
+    },
+    {
+        # Household, 28 Nov 2026: Nimbus's own solar forecast, named "Solar Lab". Always on the
+        # dashboard: with the forecaster off, the card says where to switch it on.
+        "key": "solar_lab",
+        "card": "custom:nimbus-solar-card",
+        "title": "Solar Lab",
+        "path": "solar-lab",
     },
     {
         "key": "solver",

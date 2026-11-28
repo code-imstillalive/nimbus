@@ -3,6 +3,18 @@
     "sensor": {
       "device_readiness": {
         "default": "mdi:list-status"
+      },
+      "solar_forecast": {
+        "default": "mdi:solar-power-variant"
+      },
+      "solar_forecast_today": {
+        "default": "mdi:solar-power"
+      },
+      "solar_forecast_today_remaining": {
+        "default": "mdi:sun-clock"
+      },
+      "solar_forecast_tomorrow": {
+        "default": "mdi:solar-power-variant-outline"
       }
     },
     "select": {

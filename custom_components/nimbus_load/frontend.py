@@ -90,6 +90,8 @@ _CARDS: tuple[_CardAsset, ...] = (
     # through the site Nimbus is set up with, beside the Control Panel's
     # own forecast table.
     _CardAsset("nimbus-flow-card.js", "nimbus-flow-card"),
+    # Nimbus's own solar forecast (sensor.nimbus_solar_forecast) on one phone-friendly card.
+    _CardAsset("nimbus-solar-card.js", "nimbus-solar-card"),
 )
 
 

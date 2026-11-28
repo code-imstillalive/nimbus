@@ -43,6 +43,7 @@
         "menu_options": {
           "forecaster": "Forecaster settings (shared sensors + tuning for every load/signal)",
           "solver_battery": "Solver settings (your real battery/grid/solar setup, for dispatch planning)",
+          "solar_forecaster": "Solar forecaster (Nimbus's own forecast of your panels, from free weather models)",
           "switchboard": "Topology diagram settings (grid meter to start -- prices/daily kWh optional, next screen)",
           "pricing_suggestions": "Review pricing suggestions (nothing changes until you confirm)",
           "device_setup": "Device setup (what Nimbus found, and who is in charge)"
@@ -375,6 +376,31 @@
       "device_setup_no_control": {
         "title": "Control",
         "description": "There is no controllable load in the device setup. Add one with **+ Add → Controllable Load** on the Nimbus hub."
+      },
+      "solar_forecaster": {
+        "title": "Solar forecaster",
+        "description": "Nimbus forecasts your panels itself, from three free global weather models (ECMWF, NOAA GFS and NOAA's 31-run GEFS ensemble), learning each array's size, its shading and how much scattered light it gets from your own measured output. No account or key; your location is never sent anywhere. It downloads about 230 MB a day (less in winter), plus about 35 MB per day of history the first time.\n\nIt forecasts these PV Strings (add or edit them on the Nimbus hub's device page):\n{strings}",
+        "data": {
+          "solar_forecaster_enabled": "Turn on Nimbus's solar forecaster",
+          "solar_forecaster_use": "What the plan does with it",
+          "solar_forecaster_history_days": "Days of weather history to start from",
+          "find_panels": "Find my panels now (adds a PV String for each array it finds)",
+          "solar_forecaster_energy_source": "Show it in the Energy dashboard for"
+        },
+        "data_description": {
+          "solar_forecaster_enabled": "Publishes sensor.nimbus_solar_forecast. Its first forecast comes once it has a week of history (weather it fetches itself, and your PV Strings' recorded output).",
+          "solar_forecaster_use": "Start with \"Forecast only\" and compare it with your other solar forecasts for a while.",
+          "solar_forecaster_history_days": "More days learn more, and cost about 35 MB each once. 30 is a good start; it keeps learning every day after.",
+          "find_panels": "Looks for per-MPPT or per-string power sensors from your inverter's own integration. You tick which to add.",
+          "solar_forecaster_energy_source": "Pick the Energy dashboard solar source it forecasts. It covers all your panels, so pick one, and untick other forecasts on that source so they do not add up. Home Assistant's Energy settings do not list Nimbus themselves, so Nimbus adds itself here and puts itself back whenever those settings are saved without it."
+        }
+      },
+      "solar_forecaster_find": {
+        "title": "Find my panels",
+        "description": "Found {count} power sensor(s) that look like separate arrays (per MPPT or per string). The ticked ones become PV Strings; an input that made no power in the last 14 days is left unticked (no panels on it). Afterwards, open each PV String on the Nimbus hub's device page to enter its tilt and the direction it faces, if you know them; left blank, they are learned.",
+        "data": {
+          "arrays": "Arrays to add"
+        }
       }
     },
     "error": {
@@ -392,7 +418,8 @@
       "choose_shadow_first": "Move the device setup to shadow first (Device setup, Dry run).",
       "control_entity_needed": "Choose the entity Nimbus switches before allowing control.",
       "site_postcode_invalid": "The site postcode is four digits, for example 4000.",
-      "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list."
+      "entity_not_found": "That entity doesn't exist in Home Assistant. Check the entity ID for a typo, or pick it from the list.",
+      "no_arrays_found": "No per-MPPT or per-string power sensor was found. Add a PV String for each array by hand on the Nimbus hub's device page (its power sensor in W or kW)."
     },
     "abort": {
       "no_pricing_suggestions": "There are no pricing suggestions: every price field Nimbus can fill already has a value.",
@@ -505,16 +532,20 @@
       "step": {
         "user": {
           "title": "{action} a PV string (topology diagram)",
-          "description": "One real physical PV string or array. Pure wiring metadata for the topology dashboard card -- not a forecast target. Leave \"Power Source\" blank if this PV is wired independently (not through any inverter you've added here). 🔴 = required.",
+          "description": "One real physical PV string or array: for the topology card, and for Nimbus's own solar forecaster. Leave \"Power Source\" blank if this PV is wired independently (not through any inverter you've added here). 🔴 = required.",
           "data": {
             "pv_string_entity": "🔴 Power sensor for this string",
             "pv_string_label": "Label on the diagram (optional, e.g. \"West array\")",
-            "pv_string_power_source": "Power Source this string is wired through (optional)"
+            "pv_string_power_source": "Power Source this string is wired through (optional)",
+            "pv_string_tilt": "Tilt (optional)",
+            "pv_string_azimuth": "Direction it faces (optional)"
           },
           "data_description": {
             "pv_string_entity": "The real, per-string power sensor your inverter reports -- e.g. an MPPT/string-level power register, not the inverter's own total DC power.",
             "pv_string_label": "Free text, purely cosmetic -- e.g. compass direction or roof section (\"West array\", \"Garage roof\"). Defaults to a generic label if left blank.",
-            "pv_string_power_source": "Which Power Source (inverter) this string physically feeds into, if any. Leave blank for a string wired independently of any inverter you've configured here (e.g. a separate optimizer/micro-inverter setup)."
+            "pv_string_power_source": "Which Power Source (inverter) this string physically feeds into, if any. Leave blank for a string wired independently of any inverter you've configured here (e.g. a separate optimizer/micro-inverter setup).",
+            "pv_string_tilt": "Degrees from flat: 0 for flat, 90 for a wall. Used exactly as given; blank, Nimbus learns it.",
+            "pv_string_azimuth": "Degrees from north, clockwise: north 0, east 90, south 180, west 270. Used exactly as given; blank, Nimbus learns it."
           }
         }
       },
@@ -750,6 +781,13 @@
         "legacy": "legacy",
         "shadow": "shadow",
         "active": "active"
+      }
+    },
+    "solar_forecaster_use": {
+      "options": {
+        "forecast_only": "Forecast only (compare first; the plan does not use it)",
+        "blend": "Blend it with my other solar forecasts",
+        "replace": "Plan on it alone (my other forecasts only fill in where it has none)"
       }
     }
   },
@@ -1050,6 +1088,18 @@
     "configured_entity_unavailable": {
       "title": "Nimbus: {entity} is not reporting",
       "description": "`{entity}` has read unavailable or unknown, or has not existed, since {since}. Nimbus uses it for:\n{where}\n\nIf the device was removed or renamed, choose its replacement in those settings. If its integration has stopped, restart or repair that integration. This message clears itself once `{entity}` reports a value again."
+    },
+    "solar_forecaster_no_arrays": {
+      "title": "Nimbus solar forecaster: no panels to forecast",
+      "description": "The solar forecaster is on, but the Nimbus hub has no PV Strings. Open Settings → Devices & services → Nimbus → Configure → Solar forecaster and tick \"Find my panels now\", or add a PV String for each array on the hub's device page. This message clears itself once one exists."
+    },
+    "solar_forecaster_weather_failing": {
+      "title": "Nimbus solar forecaster: no weather for over a day",
+      "description": "The solar forecaster has not been able to download from any of its weather sources (ECMWF, NOAA GFS, NOAA GEFS) for more than a day, so its forecast is getting old. Check this Home Assistant can reach the internet (storage.googleapis.com and amazonaws.com). It retries every hour and this message clears itself."
+    },
+    "solar_forecaster_energy_source_gone": {
+      "title": "Nimbus solar forecast: its Energy dashboard source is gone",
+      "description": "Nimbus was set to show its solar forecast in the Energy dashboard for {source}, but the Energy dashboard no longer has that solar source. Pick another one under Nimbus → Configure → Solar forecaster (or \"Not in the Energy dashboard\"). This message clears itself."
     }
   },
   "exceptions": {
@@ -1717,6 +1767,18 @@
       "solar_delivery_sample_count": {
         "name": "Solver Solar Delivery Sample Count"
       },
+      "solar_forecast": {
+        "name": "Solar forecast"
+      },
+      "solar_forecast_today": {
+        "name": "Solar forecast today"
+      },
+      "solar_forecast_today_remaining": {
+        "name": "Solar forecast rest of today"
+      },
+      "solar_forecast_tomorrow": {
+        "name": "Solar forecast tomorrow"
+      },
       "solar_risk_effect_now_kw": {
         "name": "Solver Solar Risk Effect (Now)"
       },
@@ -1849,6 +1911,11 @@
       },
       "solver_p2p_block_3_start_hour": {
         "name": "P2P Block 3 From"
+      }
+    },
+    "weather": {
+      "weather": {
+        "name": "Weather"
       }
     }
   }

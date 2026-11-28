@@ -2,7 +2,9 @@
 the topology dashboard card. Reached via the "+ Add" button on the
 Nimbus hub's own device page, same mechanism as Load/Power Signal.
 
-Pure wiring/topology metadata -- NOT a forecasting target. power_source
+Wiring/topology metadata, and the arrays Nimbus's own solar forecaster
+(solar_forecaster_ha.py) learns and forecasts: each string's optional tilt
+and direction are used exactly as given, else learned. power_source
 is deliberately OPTIONAL, not a required parent link -- see const.py's
 own comment above SUBENTRY_TYPE_POWER_SOURCE for why (a real PV system
 can be wired through a specific inverter, or be its own wholly
@@ -22,9 +24,11 @@ from homeassistant.config_entries import (
 from homeassistant.helpers import selector
 
 from ..const import (
+    CONF_PV_STRING_AZIMUTH,
     CONF_PV_STRING_ENTITY,
     CONF_PV_STRING_LABEL,
     CONF_PV_STRING_POWER_SOURCE,
+    CONF_PV_STRING_TILT,
     SUBENTRY_TYPE_POWER_SOURCE,
 )
 from . import form_action_placeholders, missing_entity_errors
@@ -79,6 +83,21 @@ def _schema(defaults: dict[str, Any], entry: Any) -> vol.Schema:
             mode=selector.SelectSelectorMode.DROPDOWN,
         )
     )
+    # Nimbus's own solar forecaster uses each string's tilt and direction exactly as given;
+    # blank, it learns them from the string's own output. suggested_value (not default=), so a
+    # cleared field stays cleared (#339's pattern above).
+    for key, maximum in ((CONF_PV_STRING_TILT, 90), (CONF_PV_STRING_AZIMUTH, 359)):
+        schema_dict[
+            vol.Optional(key, description={"suggested_value": defaults.get(key)})
+        ] = selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0,
+                max=maximum,
+                step=1,
+                mode=selector.NumberSelectorMode.BOX,
+                unit_of_measurement="°",
+            )
+        )
     return vol.Schema(schema_dict)
 
 

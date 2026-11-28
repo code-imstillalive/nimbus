@@ -26,6 +26,7 @@ from custom_components.nimbus_load.const import DOMAIN
 
 STANDARD = [
     "Forecaster",
+    "Solar Lab",
     "Solver",
     "Power Flow",
     "Topology",
