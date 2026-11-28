@@ -369,8 +369,9 @@ class SolarForecasterRuntime:
             # reshapes _update_listeners, this does not crash: the guard skips and one listener
             # stays behind until the next restart. Do not swap this for a "safer" call that
             # leaves the listener registered on every reload.
-            if self._async_energy_link in manager._update_listeners:
-                manager._update_listeners.remove(self._async_energy_link)
+            listeners = getattr(manager, "_update_listeners", None)
+            if isinstance(listeners, list) and self._async_energy_link in listeners:
+                listeners.remove(self._async_energy_link)
 
         self._unsubs.append(_forget)
         await self._async_energy_link()
