@@ -423,9 +423,7 @@ def _store_and_jobs(tmp_path):
         },
     )
     # the same day as the run made two days before it saw it (days 3-5's learned bias uses this)
-    early = ws.dayahead(
-        [day + dt.timedelta(days=1)], lambda d: (t0, t0 + 2 * 86400), lead=2
-    )
+    early = ws.dayahead([day + dt.timedelta(days=1)], lambda d: (t[0], t[-1]), lead=2)
     assert np.allclose(early["ecmwf"]["t"], t)
     live = ws.latest()["ecmwf"]
     assert live["t"].min() == t.min() and live["t"].max() == nxt.timestamp() + 39 * 3600
