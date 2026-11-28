@@ -35,6 +35,7 @@ PLATFORM_OF_FILE = {
     "select.py": "select",
     "switch.py": "switch",
     "time.py": "time",
+    "weather.py": "weather",
     "sensor.py": "sensor",
     "sensor_flattened.py": "sensor",
     "sensor_p5min.py": "sensor",
