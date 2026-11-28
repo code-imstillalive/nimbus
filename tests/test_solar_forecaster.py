@@ -226,6 +226,20 @@ def _reads_weather_files():
     }
     s = sources.series("ecmwf", run, ec_steps)
     assert np.allclose(s["ghi"], [360.0, 720.0]) and np.allclose(s["cloud"], 50.0)
+    # night is never downloaded: only the steps touching daylight at the site (plus the ECMWF step
+    # before dawn and whole NOAA 6-hour blocks), and two kept ECMWF steps either side of the night
+    # are never averaged across it
+    run0 = dt.datetime(2026, 1, 1, 0, tzinfo=dt.UTC)  # 10:00 in Brisbane (UTC+10)
+    window = (run0.timestamp(), run0.timestamp() + 48 * 3600)
+    every = sources.steps_for("ecmwf", run0, *window)
+    lit = sources.steps_for("ecmwf", run0, *window, lat=-27.5, lon=153.0)
+    assert set(lit) < set(every) and 15 not in lit  # 15Z is 01:00 local: dark
+    noaa = sources.steps_for("gfs", run0, *window, lat=-27.5, lon=153.0)
+    assert all((k - 1) // 6 in {(m - 1) // 6 for m in noaa} for k in noaa) and len(
+        noaa
+    ) < len(sources.steps_for("gfs", run0, *window))
+    gap = {h: v for h, v in ec_steps.items() if h != 3}  # 0 and 6 kept, 3 left out
+    assert len(sources.series("ecmwf", run, gap)["t"]) == 0
     ge = {
         15: {
             "dswrf_mean": 300.0,
@@ -408,6 +422,11 @@ def _store_and_jobs(tmp_path):
             "ghi": np.full(9, 500.0),
         },
     )
+    # the same day as the run made two days before it saw it (days 3-5's learned bias uses this)
+    early = ws.dayahead(
+        [day + dt.timedelta(days=1)], lambda d: (t0, t0 + 2 * 86400), lead=2
+    )
+    assert np.allclose(early["ecmwf"]["t"], t)
     live = ws.latest()["ecmwf"]
     assert live["t"].min() == t.min() and live["t"].max() == nxt.timestamp() + 39 * 3600
     assert np.all(np.diff(live["t"]) > 0)
@@ -500,6 +519,27 @@ def _store_and_jobs(tmp_path):
     with patch.object(runner.M, "predict", far):
         fc = runner.forecast(None, _Weather(), st, [], now, syd, hours=6)
     assert fc.plan_until == now.timestamp() + 2 * 3600 and len(fc.rows) > 8
+
+    # a day three days ahead of the newest ECMWF run: until this install has learned its bias at
+    # that lead the plan does not take it; once learned it is corrected by the learned factor
+    from types import SimpleNamespace
+
+    class _Store(_Weather):
+        def runs(self, _source):
+            return [
+                dt.datetime.combine(
+                    now.date() - dt.timedelta(days=3), dt.time(0), dt.UTC
+                )
+            ]
+
+    with patch.object(runner.M, "predict", ramp):
+        plain = runner.forecast(None, _Store(), st, [], now, 0, hours=6)
+        lead3 = SimpleNamespace(report={"lead": {3: {"days": 12, "factor": 1.2}}})
+        fixed = runner.forecast(lead3, _Store(), st, [], now, 0, hours=6)
+    assert plain.plan_until is None and fixed.plan_until is not None
+    assert fixed.rows[2]["value"] == pytest.approx(
+        1.2 * plain.rows[2]["value"], rel=1e-3
+    )
 
 
 def test_solar_forecaster_from_weather_files_to_a_forecast(tmp_path):

@@ -109,14 +109,17 @@ class WeatherStore:
         _, first = np.unique(out["t"], return_index=True)
         return {k: v[first] for k, v in out.items()}
 
-    def dayahead(self, days: list[dt.date], day_window) -> dict:
-        """Per source, the evening-before run of each day, cut to that day's window.
-        `day_window(day) -> (t0, t1)` gives the day's UTC seconds."""
+    def dayahead(self, days: list[dt.date], day_window, lead: int = 1) -> dict:
+        """Per source, each day as the run made `lead` days before it saw it (1: the evening-before
+        run), cut to that day's window. `day_window(day) -> (t0, t1)` gives the day's UTC seconds."""
         out = {}
         for source in sources.SPECS:
             parts = []
             for d in days:
-                s = self.load(source, sources.evening_before_run(source, d))
+                run = sources.evening_before_run(
+                    source, d - dt.timedelta(days=lead - 1)
+                )
+                s = self.load(source, run)
                 if s is None:
                     continue
                 t0, t1 = day_window(d)

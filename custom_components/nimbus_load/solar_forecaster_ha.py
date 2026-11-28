@@ -756,6 +756,7 @@ class SolarForecasterRuntime:
                     "daily_error_pct",
                     "p10_p90_cover",
                     "band_scale",
+                    "lead",  # what it learned 2-4 days ahead (factor, days scored, error)
                 )
             }
             self.status.arrays = [self._array_view(a) for a in self.arrays]

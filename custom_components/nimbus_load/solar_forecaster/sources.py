@@ -32,6 +32,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import grib
+from . import physics as ph
 
 Getter = Callable[..., bytes]
 
@@ -56,11 +57,11 @@ SPECS = {
         0,
         3,
         9.0,
-        60,
+        120,
         "Contains modified Copernicus/ECMWF open data (CC-BY-4.0)",
     ),
     "gfs": Spec("gfs", 6, 3, 5.0, 120, "NOAA GFS (public domain)"),
-    "gefs": Spec("gefs", 6, 3, 6.0, 60, "NOAA GEFS (public domain)"),
+    "gefs": Spec("gefs", 6, 3, 6.0, 120, "NOAA GEFS (public domain)"),
 }
 
 
@@ -148,8 +149,21 @@ def fetch_step(
     raise ValueError(f"unknown source {source}")
 
 
-def steps_for(source: str, run: dt.datetime, t0: float, t1: float) -> list[int]:
-    """The file steps of `run` needed to cover [t0, t1] (UTC seconds), starting at an averaging boundary."""
+def steps_for(
+    source: str,
+    run: dt.datetime,
+    t0: float,
+    t1: float,
+    lat: float | None = None,
+    lon: float | None = None,
+) -> list[int]:
+    """The file steps of `run` needed to cover [t0, t1] (UTC seconds), starting at an averaging boundary.
+
+    With the site's `lat` / `lon`, night is left out: a solar forecast needs nothing from it, and it
+    is about a third of every run. What is kept still gives exactly the same daylight values:
+    ECMWF's accumulated radiation needs only the two steps around each daylight interval (the step
+    before dawn included), and NOAA's averages restart every 6 hours, so a 6-hour block is kept
+    whole whenever any of it is daylight."""
     sp = SPECS[source]
     h0 = int((t0 - run.timestamp()) // 3600)
     h1 = int(-(-(t1 - run.timestamp()) // 3600))
@@ -158,7 +172,25 @@ def steps_for(source: str, run: dt.datetime, t0: float, t1: float) -> list[int]:
     )  # averages reset every 6 h (NOAA) / accumulate from the start (ECMWF): start on a boundary
     h0 = max(h0, 0)
     h1 = -(-h1 // sp.step_h) * sp.step_h
-    return list(range(h0, h1 + 1, sp.step_h))
+    steps = list(range(h0, h1 + 1, sp.step_h))
+    if lat is None or lon is None:
+        return steps
+    r0 = run.timestamp()
+
+    def light(a_h: float, b_h: float) -> bool:
+        tt = r0 + np.linspace(a_h, b_h, 13) * 3600
+        zen, _ = ph.sun_position(tt, lat, lon)
+        return bool(
+            (zen < 91.0).any()
+        )  # the sun up (or just about) somewhere in (a, b]
+
+    if source == "ecmwf":
+        return [s for s in steps if light(s - sp.step_h, s) or light(s, s + sp.step_h)]
+    # a NOAA file at step s holds the average over its 6-hour block ((s - 1) // 6): (0, 6] for 3 and 6
+    blocks = {
+        (s - 1) // 6 for s in steps if light((s - 1) // 6 * 6, (s - 1) // 6 * 6 + 6)
+    }
+    return [s for s in steps if (s - 1) // 6 in blocks]
 
 
 def fetch_run(source, run, steps, lat, lon, get, workers=6) -> dict[int, dict]:
@@ -191,8 +223,8 @@ def series(
     if source == "ecmwf":
         for a, b in itertools.pairwise(ks):
             sa, sb = steps[a], steps[b]
-            if "ssrd" not in sa or "ssrd" not in sb:
-                continue
+            if "ssrd" not in sa or "ssrd" not in sb or b - a > SPECS["ecmwf"].step_h:
+                continue  # a gap (a missing file, or the night left out) is no interval
             mean = (sb["ssrd"] - sa["ssrd"]) / (
                 (b - a) * 3600.0
             )  # accumulated J/m2 -> W/m2

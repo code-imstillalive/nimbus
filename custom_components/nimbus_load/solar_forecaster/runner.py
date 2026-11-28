@@ -89,6 +89,8 @@ def fetch_weather(
                 run,
                 now.timestamp() - 3 * 3600,
                 run.timestamp() + sp.horizon_h * 3600,
+                lat,
+                lon,
             )
             got = sources.fetch_run(source, run, steps, lat, lon, get)
             if len(got) < 0.8 * len(steps):
@@ -116,7 +118,7 @@ def fetch_weather(
             continue
         for source in missing:
             run = sources.evening_before_run(source, day)
-            steps = sources.steps_for(source, run, t0, t1)
+            steps = sources.steps_for(source, run, t0, t1, lat, lon)
             got = sources.fetch_run(source, run, steps, lat, lon, get)
             if len(got) >= 0.8 * len(steps):
                 store.save(source, run, sources.series(source, run, got))
@@ -204,7 +206,60 @@ def train(
     if not keys:
         raise ValueError("no array produces any output")
     total = np.sum([np.asarray(measured[k], dtype=float) for k in keys], axis=0)
-    return M.train(site, arrays, t, total, weather, tz)
+    trained = M.train(site, arrays, t, total, weather, tz)
+    trained.report["lead"] = lead_bias(trained, store, site, arrays, t, total, tz)
+    return trained
+
+
+#: Days ahead whose bias is learned (1 = the evening-before forecast the model is trained on).
+LEADS = (2, 3, 4)
+#: A lead's correction is used (and the plan may use that day) once this many past days scored it.
+LEAD_MIN_DAYS = 10
+LEAD_FACTOR_RANGE = (0.8, 1.3)
+
+
+def lead_bias(
+    trained, store: WeatherStore, site: Site, arrays: list[Array], t, total, tz
+) -> dict:
+    """{lead: {"days", "factor", "error_pct"}}: how the forecast made `lead` days ahead (from the
+    runs this install stored then) compared with what the panels made. Without a correction the
+    model, trained on evening-before runs, reads further-out runs low (measured on the reference
+    household: -4 to -6 kWh a day 3-4 days out); the factor is total measured / total forecast."""
+    t = np.asarray(t, dtype=float)
+    total = np.asarray(total, dtype=float)
+    day = local_day(t, tz)
+    out = {}
+    for lead in LEADS:
+        pred, act = [], []
+        for d in np.unique(day):
+            k = (day == d) & ~np.isnan(total)
+            if k.sum() < 200:
+                continue
+            date = dt.date(1970, 1, 1) + dt.timedelta(days=int(d))
+            w = store.dayahead([date], lambda x: _day_window(x, tz), lead=lead)
+            if not {"ecmwf", "gfs"} <= set(w):
+                continue
+            _, mid, _, tier = M.predict(trained, site, arrays, t[k], w, tz)
+            full = np.isin(
+                tier.astype(str), [n for n in M.TIERS if n not in M.NOT_FOR_PLAN]
+            )
+            if np.isnan(mid).any() or full.mean() < 0.9:
+                continue
+            pred.append(float(mid.sum() / 12))
+            act.append(float(total[k].sum() / 12))
+        if len(pred) < LEAD_MIN_DAYS or sum(pred) <= 0:
+            out[lead] = {"days": len(pred)}
+            continue
+        p, a = np.array(pred), np.array(act)
+        f = float(np.clip(a.sum() / p.sum(), *LEAD_FACTOR_RANGE))
+        out[lead] = {
+            "days": len(pred),
+            "factor": round(f, 3),
+            "error_pct": round(
+                100 * float(np.mean(np.abs(f * p - a))) / float(a.mean()), 1
+            ),
+        }
+    return out
 
 
 def low_priority() -> None:
@@ -259,6 +314,7 @@ def forecast(
     """p10/p50/p90 kW in 5-minute steps for `hours` ahead, published as 15-minute rows for 48 h and
     hourly after. Corrected through the day by the last 30 minutes measured (`recent` = (t, kW)),
     the correction fading with an e-folding of 90 minutes."""
+    learned = (trained.report.get("lead", {}) if trained is not None else {}) or {}
     t0 = np.floor(now.timestamp() / SLOT_S) * SLOT_S
     # predicted from 30 minutes back, so each recent reading is compared with what was forecast
     # for that same moment; only the rows from now on are published
@@ -269,6 +325,26 @@ def forecast(
     t, lo, mid, hi, tier = t_all[~past], lo[~past], mid[~past], hi[~past], tier[~past]
     clear = clear_power(site, arrays, t)
     ok = ~np.isnan(mid)
+    # days ahead of each slot, counted from the newest ECMWF run (1 = what the evening-before run
+    # forecasts); a lead whose bias this install has learned is corrected by it
+    runs = store.runs("ecmwf") if hasattr(store, "runs") else []
+    if runs:
+        run_day = runs[-1].date()
+        ahead = np.array(
+            [
+                (dt.date(1970, 1, 1) + dt.timedelta(days=int(d)) - run_day).days
+                for d in local_day(t, tz)
+            ]
+        )
+    else:
+        ahead = np.ones(len(t), dtype=int)
+    fac_lead = np.array(
+        [
+            float((learned.get(int(k)) or {}).get("factor", 1.0)) if k >= 2 else 1.0
+            for k in ahead
+        ]
+    )
+    lo, mid, hi = lo * fac_lead, mid * fac_lead, hi * fac_lead
     ratio = None
     if recent is not None and ok.any():
         rt, rk = recent
@@ -328,7 +404,12 @@ def forecast(
             }
         )
     first = np.flatnonzero(ok)
-    proven = ok & ~np.isin(tier.astype(str), list(M.NOT_FOR_PLAN))
+    # 1 and 2 days ahead of the newest ECMWF run are today and tomorrow until the evening run
+    # lands, always planned on (as before); 3 and 4 only once their bias is learned
+    lead_ok = np.array(
+        [k <= 2 or "factor" in (learned.get(int(k)) or {}) for k in ahead]
+    )
+    proven = ok & lead_ok & ~np.isin(tier.astype(str), list(M.NOT_FOR_PLAN))
     if proven.all():
         plan_until = float(t[-1] + SLOT_S) if len(t) else None
     else:

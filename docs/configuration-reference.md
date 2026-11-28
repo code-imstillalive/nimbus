@@ -171,7 +171,7 @@ Nimbus's own solar forecast of your panels ([how it works](solar-forecaster.md))
 
 | Field | Purpose |
 |---|---|
-| Turn on Nimbus's solar forecaster | Publishes `sensor.nimbus_solar_forecast`. It downloads about 85 MB of weather a day. |
+| Turn on Nimbus's solar forecaster | Publishes `sensor.nimbus_solar_forecast`. It downloads about 145 MB of weather a day (less in winter). |
 | What the plan does with it | *Forecast only* (default: the plan does not use it), *Blend* (one more solar source), or *Plan on it alone* (other solar forecasts fill in only where it has none). |
 | Days of weather history to start from | 7 to 60, default 30; about 35 MB per day, once. |
 | Find my panels now | Lists per-MPPT or per-string power sensors from your inverter's own integration; the ticked ones become PV Strings. |

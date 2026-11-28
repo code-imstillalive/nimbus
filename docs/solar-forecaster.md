@@ -47,9 +47,10 @@ Left blank, they are learned.
    - **Plan on it alone**: your other solar forecasts only fill in where it has none (past
      its horizon, or if it ever has no forecast).
 
-   Either way the plan only takes the days it has proved itself on. Days 3 to 5 from GFS alone
-   are shown on the card but not planned on: on the reference household they lost to Open-Meteo
-   Solar Forecast (about 21 % daily error against 16.5 %).
+   Either way the plan only takes the days it has proved itself on: today and tomorrow always;
+   the days after only once your install has scored at least 10 past days at that range and
+   learned its bias there (see below). Until then those days are shown on the card but not
+   planned on.
 
 ## What you see
 
@@ -58,17 +59,17 @@ Left blank, they are learned.
 | | |
 |---|---|
 | state | expected PV power now, kW (unknown, with the reason in `status_detail`, if no weather covers now) |
-| `forecast` | about four days ahead (to the end of the newest GFS run, 120 hours after its start), `[{time, value, lower, upper, clear}]` in kW (p50, p10, p90, clear sky): 15-minute rows for two days, hourly after. Past about two and a half days ECMWF and GEFS have ended and it forecasts from GFS alone, with a wider likely range |
+| `forecast` | about four days ahead (ECMWF, GEFS and GFS all read to 120 hours), `[{time, value, lower, upper, clear}]` in kW (p50, p10, p90, clear sky): 15-minute rows for two days, hourly after |
 | `today` | today so far and the rest: kWh made since midnight, the forecast for the rest of the day, and the day's total p10 / p50 / p90 |
 | `measured_today` | what the PV Strings made since midnight, 15-minute means in kW |
-| `days` | each day ahead: p10 / p50 / p90 and clear-sky kWh, and the models behind it (`gfs` on the days GFS alone covers) |
+| `days` | each day ahead: p10 / p50 / p90 and clear-sky kWh, and the models behind it (`gfs` if only GFS was available) |
 | `scoreboard` | every scored day: the forecast made from the evening-before weather by a model trained without that week, its range, what was made, and the other solar forecasts' evening-before figures (`others`) |
 | `yardsticks` | the other solar forecasts installed (see below) and which of their sensors give each day |
 | `arrays` | what it learned about each PV String |
 | `score` | its own honest score: daily error on weeks it was not trained on, and how often real output fell inside p10 to p90 |
 | `status` | starting, fetching_history, learning, ready, no_arrays or error, with `status_detail` |
 | `live_correction` | how far the last 30 minutes measured are from the forecast (1.00 = on it) |
-| `plan_until` | how far ahead the plan may use it: the days it shows but has not proved itself on (GFS alone, 3 to 5 days out) are never planned on, even on *Blend* or *Plan on it alone*; there your other solar forecasts carry the plan |
+| `plan_until` | how far ahead the plan may use it: the days it shows but has not proved itself on (a range whose bias it has not learned yet, or GFS alone) are never planned on, even on *Blend* or *Plan on it alone*; there your other solar forecasts carry the plan |
 | `made_at`, `haze` | when this forecast was made; the haze of your sky it learned (Linke turbidity) |
 
 ## The card
@@ -107,16 +108,33 @@ the evening before, scored on weeks the model never saw):
 Its likely range held 80 % of real readings, which is what the Solver's
 [Stochastic plan](configuration-reference.md) needs.
 
-Three and four days ahead only GFS is left. From GFS runs actually made that far ahead (45
-days), its daily error was about 22 %, against 30 % for a plain "typical day for this time of
-year"; its likely range is widened there so that it still holds 80 % of real readings.
+### Further ahead (2 to 4 days)
+
+The model learns from the evening-before forecasts, and read further out the same weather runs
+come in low: on the reference household its forecasts 3 and 4 days ahead were 4 to 6 kWh a day
+under. So every night it compares the forecasts it made 2, 3 and 4 days ahead (from the runs it
+stored then) with what your panels made, and corrects each range by what it learned there.
+
+Measured on the reference household (about 40 days, runs actually made that far ahead, the
+correction learned on other days than the ones scored):
+
+| days ahead | Nimbus, all three models, corrected | Open-Meteo Solar Forecast |
+|---|---|---|
+| 1 | 14.1 % | 15.8 % |
+| 3 | 16.8 % | 16.6 % |
+| 4 | 13.7 % | 16.5 % |
+
+A new install has none of these older forecasts yet, so for its first ten days or so the days
+after tomorrow are shown but not planned on. If ECMWF and GEFS are ever unavailable, GFS alone
+carries the forecast with a wider likely range; that is never planned on.
 
 ## Limits
 
 - Its first forecast comes once it has about a week of history (it fetches the weather
   itself; your PV Strings' recorded output comes from Home Assistant's recorder and long-term
   statistics).
-- It downloads about 85 MB a day, plus about 35 MB per day of history the first time.
+- It downloads about 145 MB a day in summer (measured; less in winter, as it never downloads the
+  night), plus up to about 35 MB per day of history the first time.
 - It learns from your recorded output, so that output has to be honest:
   - gaps (a sensor unavailable, the recorder missing hours) are left out;
   - **curtailment is not detected yet**: hours when output was held back (export limits,

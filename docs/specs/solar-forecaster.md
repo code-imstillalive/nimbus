@@ -28,7 +28,7 @@ on the reference household), not a real p10/p90.
    clear-sky output: p10 / p50 / p90 every 5 minutes.
 5. **Calibrated band:** p10/p90 widened in blocked cross-validation until 80 % of
    real readings fall inside.
-6. **Resilient:** tiers trained without one source take over when it is missing; past ECMWF's and GEFS's 60 h a GFS-only tier, with a wider range, carries the forecast to 120 h.
+6. **Resilient:** tiers trained without one source take over when it is missing; all three models are read to 120 h; the bias at 2-4 days ahead is learned nightly from the runs stored then (factor clipped to 0.8-1.3, used from 10 scored days), and the plan takes 3 and 4 days ahead only once learned (1-2, today and tomorrow, always); GFS alone, with a wider range, is a fallback never planned on.
 
 ## Measured (reference household, 44 days, contiguous weeks held out)
 

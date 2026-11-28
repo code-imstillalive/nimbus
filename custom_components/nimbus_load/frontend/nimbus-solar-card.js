@@ -217,7 +217,7 @@ class NimbusSolarCard extends HTMLElement {
     const dayCard = `<div class="card"><h2>${allDays.length ? allDays.length + " days" : "Days"}</h2><div class="tw"><table>
       <tr><th>day</th><th>ours</th><th>p10–p90</th>${others.map((n) => `<th>${this._esc(n)}</th>`).join("")}<th></th><th>kt</th><th>weather</th></tr>${dayRows}</table></div>
       <p class="why">kWh. kt is how much of a clear day it expects (1.0 = clear). Weather shows which models fed the day: past about
-      two and a half days ECMWF and GEFS have ended and GFS alone carries it, with a wider range.${othersNote}</p></div>`;
+      all three models reach about four days; days after tomorrow are planned on only once its bias at that range is learned.${othersNote}</p></div>`;
 
     // next two hours + strings
     const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];

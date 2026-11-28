@@ -45,7 +45,7 @@ TIERS = {
         11,
         12,
         13,
-    ],  # days 3-5: past ECMWF's and GEFS's 60 h only GFS is left
+    ],  # GFS alone: only while ECMWF and GEFS are missing (never planned on)
 }
 TIER_SOURCES = {
     "ecmwf+gefs+gfs": "egf",
@@ -54,17 +54,14 @@ TIER_SOURCES = {
     "gefs+gfs": "gf",
     "gfs": "f",
 }
-# GFS alone is used only 2.5 days and more ahead, where its error has grown: its likely range is
-# widened so that it still holds 80 % of real readings (measured on the reference household, 45 days
-# of runs made 3 and 4 days ahead: the day-ahead band held 79 % and 76 %; x1.15 to x1.20 restores 80 %).
+# GFS alone is weaker, and further ahead weaker still: its likely range is widened so that it still
+# holds 80 % of real readings (measured on the reference household, 45 days of runs made 3 and 4
+# days ahead: the day-ahead band held 79 % and 76 %; x1.15 to x1.20 restores 80 %).
 TIER_BAND_WIDEN = {"gfs": 1.15}
 #: Tiers shown on the card but never handed to the Solver: GFS alone 3 and 4 days ahead lost to
 #: Open-Meteo Solar Forecast on the reference household (20.5 / 21.2 % daily error against 16.6 /
-#: 16.5 %, 41 days, 28 Nov 2026), so a plan on "blend" or "plan on it alone" never takes those days.
-NOT_FOR_PLAN = frozenset({"gfs"})
-#: Tiers shown on the card but never handed to the Solver: GFS alone 3 and 4 days ahead lost to
-#: Open-Meteo Solar Forecast on the reference household (20.5 / 21.2 % daily error against 16.6 /
-#: 16.5 %, 41 days, 28 Nov 2026), so a plan on "blend" or "plan on it alone" never takes those days.
+#: 16.5 %, 41 days, 28 Nov 2026). With ECMWF and GEFS now read to 120 h it is only a fallback for
+#: when they are missing, and a plan on "blend" or "plan on it alone" never takes it.
 NOT_FOR_PLAN = frozenset({"gfs"})
 SOURCE_KEY = {"e": "ecmwf", "g": "gefs", "f": "gfs"}
 # Simpler beat deeper on the reference household's 44 days (12.5 % against 13-14 % daily error).

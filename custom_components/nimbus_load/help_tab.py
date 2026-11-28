@@ -1855,11 +1855,11 @@ FEATURES: tuple[tuple[str, str, str | tuple[str, ...] | None], ...] = (
             "*Blend* (one more solar source) or *Plan on it alone* (your other "
             "forecasts fill in only where it has none, e.g. past its horizon).\n\n"
             "**What you see.** `sensor.nimbus_solar_forecast`: kW now, about the next four "
-            "days as `forecast` (the last ones from GFS alone, with a wider range), each day's p10/p50/p90 kWh as `days`, what it "
+            "days as `forecast` (days after tomorrow planned on only once it has learned its bias there), each day's p10/p50/p90 kWh as `days`, what it "
             "learned about each array as `arrays`, and its own honest score "
             "(`score`: daily error on weeks it was not trained on).\n\n"
             "**Limits.** It needs about a week of history before its first "
-            "forecast; it downloads about 85 MB a day (plus about 35 MB per history "
+            "forecast; it downloads about 145 MB a day (plus about 35 MB per history "
             "day the first time); cloud timing on stormy days cannot be known the "
             "evening before, by it or anyone."
         ),
