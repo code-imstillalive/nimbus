@@ -257,6 +257,7 @@ def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
     assert result["menu_options"] == [
         "forecaster",
         "solver_battery",
+        "solar_forecaster",
         "switchboard",
         "device_setup",
     ]
@@ -269,6 +270,7 @@ def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
     assert result["menu_options"] == [
         "forecaster",
         "solver_battery",
+        "solar_forecaster",
         "switchboard",
         "pricing_suggestions",
         "device_setup",

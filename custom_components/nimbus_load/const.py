@@ -77,6 +77,11 @@ CONF_POWER_SOURCE_DC_SENSOR: Final = "power_source_dc_sensor"
 CONF_PV_STRING_ENTITY: Final = "pv_string_entity"
 CONF_PV_STRING_LABEL: Final = "pv_string_label"
 CONF_PV_STRING_POWER_SOURCE: Final = "pv_string_power_source"
+# Nimbus's own solar forecaster (solar_forecaster/): the array's tilt (degrees from flat) and the
+# direction it faces (degrees from north, clockwise: north 0, east 90, south 180, west 270). Both
+# optional: given, they are used exactly; blank, they are learned from the string's own output.
+CONF_PV_STRING_TILT: Final = "pv_string_tilt"
+CONF_PV_STRING_AZIMUTH: Final = "pv_string_azimuth"
 
 # Battery Tower fields -- one real physical battery pack/tower. Only
 # the 4 fields nimbus-topology-card.js's own _batteryBox() actually renders
@@ -1898,3 +1903,28 @@ SOLVER_LOAD_FORECAST_SOURCE_POLICIES: Final = (
     "blend",
     "persistence",
 )
+
+
+# --- Nimbus's own solar forecaster (solar_forecaster/, solar_forecaster_ha.py) ------------------
+# Off by default: it downloads weather (~85 MB a day, ~35 MB per history day once) and trains a
+# model, so the household turns it on. `use` decides what the Solver does with it:
+#   forecast_only -- publish sensor.nimbus_solar_forecast, change nothing in the plan (compare first);
+#   blend         -- add it as one more member of the solar blend;
+#   replace       -- plan on it alone; the other sources come back only while it has no forecast.
+CONF_SOLAR_FORECASTER_ENABLED: Final = "solar_forecaster_enabled"
+DEFAULT_SOLAR_FORECASTER_ENABLED: Final = False
+CONF_SOLAR_FORECASTER_USE: Final = "solar_forecaster_use"
+SOLAR_FORECASTER_USE_FORECAST_ONLY: Final = "forecast_only"
+SOLAR_FORECASTER_USE_BLEND: Final = "blend"
+SOLAR_FORECASTER_USE_REPLACE: Final = "replace"
+SOLAR_FORECASTER_USES: Final = (
+    SOLAR_FORECASTER_USE_FORECAST_ONLY,
+    SOLAR_FORECASTER_USE_BLEND,
+    SOLAR_FORECASTER_USE_REPLACE,
+)
+DEFAULT_SOLAR_FORECASTER_USE: Final = SOLAR_FORECASTER_USE_FORECAST_ONLY
+# Days of weather history fetched for the first training (and kept): ~35 MB each, once.
+CONF_SOLAR_FORECASTER_HISTORY_DAYS: Final = "solar_forecaster_history_days"
+DEFAULT_SOLAR_FORECASTER_HISTORY_DAYS: Final = 30
+SOLAR_FORECASTER_MIN_TRAINING_DAYS: Final = 7
+SOLAR_FORECASTER_UNIQUE_ID_SUFFIX: Final = "solar_forecast"

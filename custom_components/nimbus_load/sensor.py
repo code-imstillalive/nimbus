@@ -1118,6 +1118,12 @@ async def async_setup_entry(
     # this way only for readability (config -> health -> status,
     # matching _evaluate()'s own priority order).
     async_add_entities([NimbusStatusSensor(entry, sw_version)])
+    # Nimbus's own solar forecaster: its sensor exists while the forecaster is switched on
+    # (Configure -> Solar forecaster; solar_forecaster_ha.py).
+    from .const import CONF_SOLAR_FORECASTER_ENABLED
+
+    if entry.options.get(CONF_SOLAR_FORECASTER_ENABLED):
+        async_add_entities([NimbusSolarForecastSensor(entry, sw_version)])
 
     # nimbus #2257: the battery's live allowed charge under the site's import
     # limit, read by the going-live dispatch blueprint.
@@ -2722,6 +2728,22 @@ class NimbusSolverConfigSensor(SensorEntity):
         except Exception:
             _LOGGER.debug("Nimbus: known_sources lookup failed", exc_info=True)
             attrs["known_sources"] = known_sources.EMPTY
+        # Nimbus's own solar forecaster: how the Solver uses it (forecast_only changes nothing),
+        # and its sensor, only while it is switched on.
+        from .const import (
+            CONF_SOLAR_FORECASTER_ENABLED,
+            CONF_SOLAR_FORECASTER_USE,
+            DEFAULT_SOLAR_FORECASTER_USE,
+        )
+
+        if self._entry.options.get(CONF_SOLAR_FORECASTER_ENABLED):
+            attrs["solar_forecaster_use"] = self._entry.options.get(
+                CONF_SOLAR_FORECASTER_USE, DEFAULT_SOLAR_FORECASTER_USE
+            )
+            attrs["solar_forecaster_sensor"] = "sensor.nimbus_solar_forecast"
+        else:
+            attrs["solar_forecaster_use"] = None
+            attrs["solar_forecaster_sensor"] = None
         # DC-006 slice 3: the solar forecast binding the Solver reads through
         # the device contract; None (today's reading) unless `active`.
         attrs["device_contract_solar_forecast"] = getattr(
@@ -4909,3 +4931,61 @@ class NimbusBatteryAllowedChargeSensor(SensorEntity):
             "grid_sensor": grid_id,
             "battery_power_sensor": battery_id,
         }
+
+
+class NimbusSolarForecastSensor(SensorEntity):
+    """Nimbus's own solar forecast (solar_forecaster_ha.py): the expected PV power now, with the next
+    four days as `forecast: [{time, value, lower, upper}]` (kW; p50, p10, p90), the generic shape
+    every Solver reader already understands, plus what the forecaster learned and how it scores."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "solar_forecast"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "kW"
+    _attr_should_poll = False
+    # The forecast rows and the per-day table are large and replaced every 5 minutes.
+    _unrecorded_attributes = frozenset(
+        {"forecast", "days", "arrays", "score", "weather_runs", "attribution"}
+    )
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        from .const import SOLAR_FORECASTER_UNIQUE_ID_SUFFIX
+
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_{SOLAR_FORECASTER_UNIQUE_ID_SUFFIX}"
+        self.entity_id = "sensor.nimbus_solar_forecast"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+        from . import solar_forecaster_ha
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                solar_forecaster_ha.SIGNAL_UPDATED.format(self._entry.entry_id),
+                self.async_write_ha_state,
+            )
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        from . import solar_forecaster_ha
+
+        rt = solar_forecaster_ha.runtime_for(self._entry.entry_id)
+        return None if rt is None else rt.state_kw()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        from . import solar_forecaster_ha
+
+        rt = solar_forecaster_ha.runtime_for(self._entry.entry_id)
+        return {} if rt is None else rt.attributes()

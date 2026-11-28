@@ -583,6 +583,17 @@ async def _async_setup_entry_impl(
 
     entry.runtime_data = coordinators
 
+    # Nimbus's own solar forecaster (Configure -> Solar forecaster; off by default). Started before
+    # the platforms so its sensor finds it; its heavy work runs in a background task, never here.
+    try:
+        from . import solar_forecaster_ha
+
+        await solar_forecaster_ha.async_start(hass, entry)
+    except Exception:  # a forecaster fault must not stop the rest of setup
+        _LOGGER.exception(
+            "Nimbus: the solar forecaster could not start; the rest of Nimbus runs on"
+        )
+
     # Unload ordering (2026-09-01, confirmed with DEBUG logs; the 0.1 s settle sleep of
     # v0.94.47 didn't work and was removed): async_on_unload callbacks run after
     # async_unload_entry() returns, so an old timer, price watcher or retry task could
@@ -1128,6 +1139,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> b
     from .decision_inputs_store import async_flush as _flush_decision_inputs
 
     await _flush_decision_inputs(hass, entry.entry_id)
+
+    try:
+        from . import solar_forecaster_ha
+
+        solar_forecaster_ha.async_stop(entry.entry_id)
+    except Exception:  # stopping the forecaster must never block an unload
+        _LOGGER.exception("Nimbus: the solar forecaster did not stop cleanly")
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:

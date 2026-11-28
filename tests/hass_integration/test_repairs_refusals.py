@@ -52,7 +52,12 @@ async def test_a_stale_setup_offer_is_refused_and_writes_nothing(hass: HomeAssis
     assert entry.options.get(TARGET) is None
 
 
-async def test_a_repair_for_a_hub_that_has_gone_is_refused(hass: HomeAssistant):
+async def test_a_fix_that_no_longer_applies_is_refused_or_only_confirmed(
+    hass: HomeAssistant,
+):
+    """Merged (one in, one out for the solar forecaster's real-HA test): a Repair whose hub has gone
+    aborts, and an unknown kind is only confirmed."""
+    # test_a_repair_for_a_hub_that_has_gone_is_refused
     gone = {
         "entry_id": "no-such-entry",
         "part": "hub",
@@ -80,8 +85,7 @@ async def test_a_repair_for_a_hub_that_has_gone_is_refused(hass: HomeAssistant):
             step,
         )
 
-
-async def test_an_unknown_repair_kind_is_only_confirmed(hass: HomeAssistant):
+    # test_an_unknown_repair_kind_is_only_confirmed
     flow = await async_create_fix_flow(hass, "some_issue", {"kind": "not_a_nimbus_fix"})
     assert type(flow) is ConfirmRepairFlow
     assert (

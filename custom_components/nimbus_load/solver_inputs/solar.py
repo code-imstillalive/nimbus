@@ -307,6 +307,89 @@ def _add_legacy_members(
         )
 
 
+def _own_forecast_end(entity_id: str) -> datetime | None:
+    """The end of the period Nimbus's own solar forecast covers, or None while it has no rows."""
+    sw = _solver_writer()
+    try:
+        rows = sw.ha_get(entity_id)["attributes"].get("forecast") or []
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+    ):
+        return None
+    if not rows:
+        return None
+    try:
+        last = solver_shared.parse_iso(rows[-1]["time"])
+        step = (
+            solver_shared.parse_iso(rows[-1]["time"])
+            - solver_shared.parse_iso(rows[-2]["time"])
+            if len(rows) > 1
+            else timedelta(hours=1)
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    return last + step
+
+
+def _apply_own_solar_forecaster(
+    cfg: dict,
+    grid_times: list[datetime],
+    n_periods: int,
+    values: list,
+    lowers: list,
+    uppers: list,
+    is_solcast: list,
+) -> None:
+    """Nimbus's own solar forecaster (solar_forecaster_ha.py), as the household chose under
+    Configure -> Solar forecaster. `replace`: plan on it alone for every period it covers; `blend`:
+    one more member for those periods. Past its end (it covers about four days), or while it has no
+    forecast at all, the other sources carry the plan, so an outage or a long horizon never leaves
+    the plan without solar. `forecast_only` (and switched off) changes nothing. In place."""
+    use = cfg.get("solar_forecaster_use")
+    entity = cfg.get("solar_forecaster_sensor")
+    if not entity or use not in ("blend", "replace"):
+        return
+    end = _own_forecast_end(entity)
+    if end is None:
+        return
+    own = _fetch_solar_source_safe(entity, grid_times, n_periods)
+    if own is None:
+        return
+    covered = np.array([t < end for t in grid_times])
+    ov, ol, ou = (np.array(x, dtype=float) for x in own)
+    if values:
+        others = (
+            np.mean(values, axis=0),
+            np.min(lowers, axis=0),
+            np.max(uppers, axis=0),
+        )
+    else:
+        others = (ov, ol, ou)
+    # beyond its coverage the member stands in as the others' own blend (neutral there)
+    fv, fl, fu = (
+        np.where(covered, mine, theirs)
+        for mine, theirs in zip((ov, ol, ou), others, strict=True)
+    )
+    if use == "replace":
+        if values and not covered.all():
+            keep = (np.array(values), np.array(lowers), np.array(uppers))
+            values[:] = [np.where(covered, fv, row) for row in keep[0]]
+            lowers[:] = [np.where(covered, fl, row) for row in keep[1]]
+            uppers[:] = [np.where(covered, fu, row) for row in keep[2]]
+        else:
+            values[:], lowers[:], uppers[:] = [fv], [fl], [fu]
+            is_solcast[:] = [False]
+        return
+    values.append(fv)
+    lowers.append(fl)
+    uppers.append(fu)
+    is_solcast.append(False)
+
+
 #: A member's contract reason as #543's warning names it.
 _DROP_REASON = {"shape_not_recognized": "shape not recognized"}
 _DROP_DETAIL = {
@@ -498,6 +581,16 @@ def build_solar_arrays(
         _add_contract_members(binding, cfg, grid_times, _add_member)
     else:
         _add_legacy_members(cfg, grid_times, n_periods, _add_member)
+
+    _apply_own_solar_forecaster(
+        cfg,
+        grid_times,
+        n_periods,
+        solar_values,
+        solar_lowers,
+        solar_uppers,
+        solar_is_solcast,
+    )
 
     _apply_running_low_gate(
         cfg,
