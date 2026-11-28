@@ -108,6 +108,7 @@ RISK_TIERS: list[tuple[str, str, int]] = [
     ("ml/*", "load forecaster (ML)", 2),
     ("solar_forecaster/*", "solar forecaster", 2),
     ("solar_forecaster_ha.py", "solar forecaster", 2),
+    ("weather.py", "solar forecaster", 2),
     ("coordinator.py", "load forecaster (ML)", 2),
     ("thermal_forecast.py", "load forecaster (ML)", 2),
     ("anomaly.py", "load forecaster (ML)", 2),
