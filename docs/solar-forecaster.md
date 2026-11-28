@@ -87,7 +87,9 @@ It is the **Solar Lab** tab of the standard [Nimbus dashboard](dashboards.md), o
   solar power. On a phone, neighbouring hours share a picture showing the worst of them;
 - the same weather is also `weather.nimbus_weather`, a standard Home Assistant weather entity
   (now, every 3 hours, and per day), for the standard weather card and for automations such as
-  "thunderstorms in the next few hours" ([entities](entities.md));
+  "thunderstorms in the next few hours" ([entities](entities.md)). The weather needs only the
+  download, not the trained model, so both appear within minutes of switching the forecaster on,
+  a week before the first solar forecast;
 - a table of every day, the next two hours, and your PV Strings as it learned them;
 - its scoreboard: every scored day's evening-before forecast against what your panels made
   (in amber), with a summary.
@@ -139,6 +141,15 @@ after tomorrow are shown but not planned on. If ECMWF and GEFS are ever unavaila
 carries the forecast with a wider likely range; that is never planned on.
 
 ## Limits
+
+- It works anywhere: your location and time zone come from Home Assistant's own settings, and
+  the weather models are global (checked against real runs for the southern and northern
+  hemispheres, east and west of Greenwich).
+- Each PV String needs a **power** sensor (W or kW). An inverter that reports only energy
+  (kWh totals) is not supported yet.
+- The weather's temperature is the model's for its grid cell (about 25 km). On a coast or a hillside
+  that can be a few degrees off what you measure; the solar forecast is unaffected, because it
+  learns from your own panels.
 
 - Its first forecast comes once it has about a week of history (it fetches the weather
   itself; your PV Strings' recorded output comes from Home Assistant's recorder and long-term

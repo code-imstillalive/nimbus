@@ -194,8 +194,7 @@ class NimbusWeather(WeatherEntity):
         from . import solar_forecaster_ha
 
         rt = solar_forecaster_ha.runtime_for(self._entry.entry_id)
-        fc = rt.forecast if rt is not None else None
-        return list(fc.weather) if fc is not None else []
+        return list(rt.weather) if rt is not None else []
 
     def _now(self) -> dict | None:
         return now_entry(self._weather(), dt_util.utcnow().timestamp())

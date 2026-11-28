@@ -307,8 +307,16 @@ class Forecast:
     # the plan may use the forecast up to here (UTC seconds; None: not at all): the slots from now
     # on until the first one a tier in model.NOT_FOR_PLAN (or no tier) covers
     plan_until: float | None = None
-    # the weather strip: one picture per 3-hour ECMWF interval from a day back to the horizon
-    weather: list[dict] = field(default_factory=list)
+
+
+def weather_strip(store: WeatherStore, site: Site, now: dt.datetime) -> list[dict]:
+    """The weather strip (and weather.nimbus_weather): one entry per 3-hour ECMWF interval from a
+    day back to the end of the newest run. Needs only the downloaded weather, not a trained model,
+    so it shows from the first download, a week before the first solar forecast."""
+    t0 = now.timestamp()
+    return W.strip(
+        store.latest().get("ecmwf"), site.lat, site.lon, t0 - 86400, t0 + 6 * 86400
+    )
 
 
 def _most(tiers) -> str:
@@ -440,9 +448,6 @@ def forecast(
         if len(first)
         else "",  # the models behind the forecast now
         plan_until=plan_until,
-        weather=W.strip(
-            wx.get("ecmwf"), site.lat, site.lon, t0 - 24 * 3600, t0 + hours * 3600
-        ),
         live_ratio=None if ratio is None else round(ratio, 3),
         now_kw=round(float(mid[0]), 3)
         if ok[0]

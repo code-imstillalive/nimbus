@@ -477,6 +477,18 @@ def _store_and_jobs(tmp_path):
     live = ws.latest()["ecmwf"]
     assert live["t"].min() == t.min() and live["t"].max() == nxt.timestamp() + 39 * 3600
     assert np.all(np.diff(live["t"]) > 0)
+    # the weather strip comes from the stored weather alone (no trained model): a new install
+    # shows it from its first download, not a week later with the first solar forecast
+    pics = runner.weather_strip(
+        ws, site.Site(lat=-31.9, lon=115.9), nxt + dt.timedelta(hours=24)
+    )
+    assert len(pics) == int((live["t"] >= nxt.timestamp()).sum()) > 0 and {
+        e["sky"] for e in pics
+    } <= set(weather.NIGHT) | {
+        "cloudy",
+        "partly_cloudy_night",
+        "clear_night",
+    }
 
     # part 2: recorded states become 5-minute means (time-weighted, half a slot needed); an hourly
     # long-term mean is spread over its hour in the clear-sky shape and keeps its mean

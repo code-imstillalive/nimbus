@@ -244,6 +244,8 @@ class SolarForecasterRuntime:
         self.arrays = self._arrays_from_subentries()
         self.trained: Trained | None = None
         self.forecast: runner.Forecast | None = None
+        # the weather strip (runner.weather_strip): from the downloaded weather alone
+        self.weather: list[dict] = []
         self.today: dict[str, Any] = {}
         self.measured_today: list[dict[str, Any]] = []
         self.made_at: str | None = None
@@ -813,6 +815,12 @@ class SolarForecasterRuntime:
             self._publish()
 
     async def _async_forecast(self) -> None:
+        try:
+            self.weather = await self.hass.async_add_executor_job(
+                runner.weather_strip, self.store, self.site, dt_util.utcnow()
+            )
+        except Exception as err:  # noqa: BLE001 -- the last weather stays published
+            _LOGGER.debug("Nimbus solar forecaster: weather strip not made (%s)", err)
         if self.trained is None:
             self._publish()
             return
@@ -905,7 +913,7 @@ class SolarForecasterRuntime:
             "days": [d for d in fc.days if not d.get("partial")] if fc else [],
             "made_at": self.made_at,
             # the weather strip under the chart (sky picture, cloud %, rain mm/h, CAPE per 3 h)
-            "weather": fc.weather if fc else [],
+            "weather": self.weather,
             # how far ahead the plan may use it (the rest is shown, not planned on)
             "plan_until": (
                 dt_util.utc_from_timestamp(fc.plan_until).isoformat()
