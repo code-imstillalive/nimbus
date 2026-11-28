@@ -490,6 +490,17 @@ def _store_and_jobs(tmp_path):
         fc = runner.forecast(None, _Weather(), st, [], now, syd, hours=6)
     assert fc.now_kw is None and fc.rows[0]["time"] > now.isoformat()
 
+    # the plan may use the forecast only as far as it has proved itself: from the first slot GFS
+    # alone carries (days 3-5, shown on the card) the plan takes the other solar forecasts
+    def far(*a):
+        lo, mid, hi, tier = ramp(*a)
+        tt = np.asarray(a[3], dtype=float)
+        return lo, mid, hi, np.where(tt >= now.timestamp() + 2 * 3600, "gfs", tier)
+
+    with patch.object(runner.M, "predict", far):
+        fc = runner.forecast(None, _Weather(), st, [], now, syd, hours=6)
+    assert fc.plan_until == now.timestamp() + 2 * 3600 and len(fc.rows) > 8
+
 
 def test_solar_forecaster_from_weather_files_to_a_forecast(tmp_path):
     """One behaviour end to end: the free models' files are read exactly, and an install

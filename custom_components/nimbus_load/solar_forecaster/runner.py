@@ -234,6 +234,9 @@ class Forecast:
     tier: str
     live_ratio: float | None
     now_kw: float | None
+    # the plan may use the forecast up to here (UTC seconds; None: not at all): the slots from now
+    # on until the first one a tier in model.NOT_FOR_PLAN (or no tier) covers
+    plan_until: float | None = None
 
 
 def _most(tiers) -> str:
@@ -325,12 +328,19 @@ def forecast(
             }
         )
     first = np.flatnonzero(ok)
+    proven = ok & ~np.isin(tier.astype(str), list(M.NOT_FOR_PLAN))
+    if proven.all():
+        plan_until = float(t[-1] + SLOT_S) if len(t) else None
+    else:
+        cut = int(np.argmin(proven))  # the first slot the plan may not use
+        plan_until = float(t[cut]) if cut > 0 else None
     return Forecast(
         rows=rows,
         days=days,
         tier=str(tier[first[0]])
         if len(first)
         else "",  # the models behind the forecast now
+        plan_until=plan_until,
         live_ratio=None if ratio is None else round(ratio, 3),
         now_kw=round(float(mid[0]), 3)
         if ok[0]

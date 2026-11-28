@@ -308,10 +308,15 @@ def _add_legacy_members(
 
 
 def _own_forecast_end(entity_id: str) -> datetime | None:
-    """The end of the period Nimbus's own solar forecast covers, or None while it has no rows."""
+    """The end of the period the plan may take Nimbus's own solar forecast for: its rows' end, cut
+    at its `plan_until` (days it shows but has not proved itself on, e.g. GFS alone 3-5 days out,
+    are never planned on). None while it has no rows, or no day it may be planned on."""
     sw = _solver_writer()
     try:
-        rows = sw.ha_get(entity_id)["attributes"].get("forecast") or []
+        attrs = sw.ha_get(entity_id)["attributes"]
+        rows = attrs.get("forecast") or []
+        has_gate = "plan_until" in attrs
+        gate = attrs.get("plan_until")
     except (
         urllib.error.HTTPError,
         urllib.error.URLError,
@@ -332,7 +337,15 @@ def _own_forecast_end(entity_id: str) -> datetime | None:
         )
     except (KeyError, TypeError, ValueError):
         return None
-    return last + step
+    end = last + step
+    if has_gate:
+        if gate is None:
+            return None  # nothing it may be planned on yet
+        try:
+            end = min(end, solver_shared.parse_iso(gate))
+        except (TypeError, ValueError):
+            return None
+    return end
 
 
 def _apply_own_solar_forecaster(

@@ -843,6 +843,12 @@ class SolarForecasterRuntime:
             "forecast": fc.rows if fc else [],
             "days": [d for d in fc.days if not d.get("partial")] if fc else [],
             "made_at": self.made_at,
+            # how far ahead the plan may use it (the rest is shown, not planned on)
+            "plan_until": (
+                dt_util.utc_from_timestamp(fc.plan_until).isoformat()
+                if fc and fc.plan_until is not None
+                else None
+            ),
             "haze": round(
                 float(self.site.linke), 2
             ),  # learned Linke turbidity of the sky

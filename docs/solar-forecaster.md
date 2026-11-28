@@ -47,6 +47,10 @@ Left blank, they are learned.
    - **Plan on it alone**: your other solar forecasts only fill in where it has none (past
      its horizon, or if it ever has no forecast).
 
+   Either way the plan only takes the days it has proved itself on. Days 3 to 5 from GFS alone
+   are shown on the card but not planned on: on the reference household they lost to Open-Meteo
+   Solar Forecast (about 21 % daily error against 16.5 %).
+
 ## What you see
 
 `sensor.nimbus_solar_forecast`:
@@ -64,6 +68,7 @@ Left blank, they are learned.
 | `score` | its own honest score: daily error on weeks it was not trained on, and how often real output fell inside p10 to p90 |
 | `status` | starting, fetching_history, learning, ready, no_arrays or error, with `status_detail` |
 | `live_correction` | how far the last 30 minutes measured are from the forecast (1.00 = on it) |
+| `plan_until` | how far ahead the plan may use it: the days it shows but has not proved itself on (GFS alone, 3 to 5 days out) are never planned on, even on *Blend* or *Plan on it alone*; there your other solar forecasts carry the plan |
 | `made_at`, `haze` | when this forecast was made; the haze of your sky it learned (Linke turbidity) |
 
 ## The card

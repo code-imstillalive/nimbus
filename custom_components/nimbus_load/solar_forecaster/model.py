@@ -58,6 +58,14 @@ TIER_SOURCES = {
 # widened so that it still holds 80 % of real readings (measured on the reference household, 45 days
 # of runs made 3 and 4 days ahead: the day-ahead band held 79 % and 76 %; x1.15 to x1.20 restores 80 %).
 TIER_BAND_WIDEN = {"gfs": 1.15}
+#: Tiers shown on the card but never handed to the Solver: GFS alone 3 and 4 days ahead lost to
+#: Open-Meteo Solar Forecast on the reference household (20.5 / 21.2 % daily error against 16.6 /
+#: 16.5 %, 41 days, 28 Nov 2026), so a plan on "blend" or "plan on it alone" never takes those days.
+NOT_FOR_PLAN = frozenset({"gfs"})
+#: Tiers shown on the card but never handed to the Solver: GFS alone 3 and 4 days ahead lost to
+#: Open-Meteo Solar Forecast on the reference household (20.5 / 21.2 % daily error against 16.6 /
+#: 16.5 %, 41 days, 28 Nov 2026), so a plan on "blend" or "plan on it alone" never takes those days.
+NOT_FOR_PLAN = frozenset({"gfs"})
 SOURCE_KEY = {"e": "ecmwf", "g": "gefs", "f": "gfs"}
 # Simpler beat deeper on the reference household's 44 days (12.5 % against 13-14 % daily error).
 PARAMS = {

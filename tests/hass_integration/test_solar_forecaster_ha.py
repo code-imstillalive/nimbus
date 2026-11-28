@@ -293,4 +293,23 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
     v, *_ = run("replace", None, own)  # no rows yet: unchanged
     assert len(v) == 1 and list(v[0]) == [5.0, 5.0, 5.0]
     v, *_ = run("forecast_only", grid[2], own)
+    # the Solver takes it no further than its plan_until (days shown but not proved are never
+    # planned on), and not at all when it says none
+    rows = [
+        {"time": (grid[0] + timedelta(minutes=15 * i)).isoformat()} for i in range(16)
+    ]
+
+    class _Writer:
+        def __init__(self, gate):
+            self.attrs = {"forecast": rows, "plan_until": gate}
+
+        def ha_get(self, _entity):
+            return {"attributes": self.attrs}
+
+    with patch.object(
+        solar_inputs, "_solver_writer", lambda: _Writer(grid[1].isoformat())
+    ):
+        assert solar_inputs._own_forecast_end("sensor.x") == grid[1]
+    with patch.object(solar_inputs, "_solver_writer", lambda: _Writer(None)):
+        assert solar_inputs._own_forecast_end("sensor.x") is None
     assert len(v) == 1 and list(v[0]) == [5.0, 5.0, 5.0]
