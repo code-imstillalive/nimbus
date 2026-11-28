@@ -101,10 +101,28 @@ PRODUCING_KW = 0.05
 PRODUCING_LOOKBACK_DAYS = 14
 
 
+#: Below this sun height (degrees) a reading of 0 kW says nothing about the panels.
+PRODUCING_SUN_MIN_DEG = 10.0
+
+
+def sun_elevation(hass) -> float:
+    """The sun's height above the horizon at the home location now, in degrees."""
+    import time
+
+    from ..solar_forecaster import physics as ph
+
+    zen, _ = ph.sun_position(
+        [time.time()], float(hass.config.latitude), float(hass.config.longitude)
+    )
+    return 90.0 - float(zen[0])
+
+
 async def producing(hass, ids: list[str]) -> set[str]:
     """The inputs that actually made power: an hourly mean of at least PRODUCING_KW in the last
-    PRODUCING_LOOKBACK_DAYS of long-term statistics; without statistics, the reading now. An MPPT
-    input with no panels on it never gets there, so Find my panels leaves it unticked."""
+    PRODUCING_LOOKBACK_DAYS of long-term statistics; without statistics, the reading now, but only
+    while the sun is up (at night on a brand-new install every input reads 0, so each is given the
+    benefit of the doubt). An MPPT input with no panels on it never gets there, so Find my panels
+    leaves it unticked."""
     import datetime as dt
 
     from homeassistant.util import dt as dt_util
@@ -135,10 +153,16 @@ async def producing(hass, ids: list[str]) -> set[str]:
     except Exception as err:  # noqa: BLE001 -- no recorder or no statistics: the reading now
         _LOGGER.debug("Find my panels: no statistics (%s); using the readings now", err)
     out = set()
+    dark = None  # worked out only if an input has no statistics
     for eid in ids:
         if eid in peak:
             if peak[eid] >= PRODUCING_KW:
                 out.add(eid)
+            continue
+        if dark is None:
+            dark = sun_elevation(hass) < PRODUCING_SUN_MIN_DEG
+        if dark:  # no history and no sun: cannot tell, so ticked
+            out.add(eid)
             continue
         st = hass.states.get(eid)
         try:
