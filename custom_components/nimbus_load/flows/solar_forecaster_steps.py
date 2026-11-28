@@ -147,6 +147,75 @@ async def producing(hass, ids: list[str]) -> set[str]:
     return out
 
 
+#: Two power sensors are the same panels when their hourly means move together this closely, over
+#: at least DUPLICATE_MIN_HOURS daylight hours, at the same size (a device's sensor and an older
+#: Modbus copy of it, say). Measured on the reference household: each real pair 0.999-1.000 at a
+#: size ratio of 1.00-1.02, while two separate roof arrays facing the same way reach 0.993 -- so
+#: the bar sits between, and a second identical array is never mistaken for a copy.
+DUPLICATE_CORR = 0.998
+DUPLICATE_RATIO = (0.9, 1.1)
+DUPLICATE_MIN_HOURS = 24
+
+
+def panels_match(a: dict[float, float], b: dict[float, float]) -> float | None:
+    """How closely two sensors' hourly means {hour start: kW} track (their correlation over the
+    daylight hours either reports) when they look like the same panels; None when they do not."""
+    import numpy as np
+
+    hours = sorted(set(a) & set(b))
+    x = np.array([a[h] for h in hours], dtype=float)
+    y = np.array([b[h] for h in hours], dtype=float)
+    sun = (x > PRODUCING_KW) | (y > PRODUCING_KW)
+    if sun.sum() < DUPLICATE_MIN_HOURS or x[sun].std() == 0 or y[sun].std() == 0:
+        return None
+    corr = float(np.corrcoef(x[sun], y[sun])[0, 1])
+    ratio = float(x[sun].sum() / max(y[sun].sum(), 1e-9))
+    same = corr >= DUPLICATE_CORR and DUPLICATE_RATIO[0] <= ratio <= DUPLICATE_RATIO[1]
+    return corr if same else None
+
+
+async def hourly_means(hass, ids: list[str]) -> dict[str, dict[float, float]]:
+    """{entity: {hour start (UTC seconds): mean kW}} over the last PRODUCING_LOOKBACK_DAYS of
+    long-term statistics; {} where the recorder has none."""
+    import datetime as dt
+
+    from homeassistant.util import dt as dt_util
+
+    from ..power_units import is_power_unit, power_to_kw
+
+    out: dict[str, dict[float, float]] = {}
+    try:  # recorder imports here: the options flow stays importable without the recorder
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.statistics import (
+            statistics_during_period,
+        )
+
+        end = dt_util.utcnow()
+        start = end - dt.timedelta(days=PRODUCING_LOOKBACK_DAYS)
+        rows = await get_instance(hass).async_add_executor_job(
+            statistics_during_period, hass, start, end, set(ids), "hour", None, {"mean"}
+        )
+    except Exception as err:  # noqa: BLE001 -- no recorder or no statistics
+        _LOGGER.debug("Find my panels: no statistics (%s)", err)
+        return out
+    for eid, rs in rows.items():
+        st = hass.states.get(eid)
+        unit = st.attributes.get("unit_of_measurement") if st else None
+        series = {}
+        for r in rs:
+            m, start_ = r.get("mean"), r.get("start")
+            if m is None or start_ is None:
+                continue
+            ts = start_ if isinstance(start_, int | float) else start_.timestamp()
+            series[float(ts)] = (
+                power_to_kw(float(m), unit)
+                if unit and is_power_unit(unit)
+                else float(m)
+            )
+        out[eid] = series
+    return out
+
+
 class SolarForecasterSteps:
     """Options-flow steps; mixed into the hub's options flow handler."""
 
@@ -264,9 +333,32 @@ class SolarForecasterSteps:
                 description_placeholders={"count": "0"},
             )
         made = await producing(self.hass, [f["value"] for f in found])
+        # a sensor that reads the same panels as an existing PV String (another integration's
+        # copy, or per-MPPT next to per-string) is offered but never ticked: adding it would
+        # count those panels twice
+        strings = {
+            s.data.get(CONF_PV_STRING_ENTITY): s.title
+            for s in self._pv_strings()
+            if s.data.get(CONF_PV_STRING_ENTITY)
+        }
+        means = await hourly_means(
+            self.hass, [f["value"] for f in found] + list(strings)
+        )
+        twin = {}
+        for f in found:  # the PV String it tracks most closely, if any
+            scores = {
+                title: panels_match(means.get(f["value"], {}), means.get(eid, {}))
+                for eid, title in strings.items()
+            }
+            scores = {k: v for k, v in scores.items() if v is not None}
+            if scores:
+                twin[f["value"]] = max(scores, key=scores.get)
         for f in found:  # an input that never made power is offered, but not ticked
-            if f["value"] not in made:
+            if f["value"] in twin:
+                f["label"] += f" — same panels as {twin[f['value']]}?"
+            elif f["value"] not in made:
                 f["label"] += f" — no output in the last {PRODUCING_LOOKBACK_DAYS} days"
+        made -= set(twin)
         return self.async_show_form(
             step_id="solar_forecaster_find",
             data_schema=vol.Schema(

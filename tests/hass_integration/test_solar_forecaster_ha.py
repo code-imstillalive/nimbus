@@ -239,6 +239,26 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
         assert set(found) == {"Forecast.Solar", "Solcast"}
         assert [len(found["Forecast.Solar"][k]) for k in (0, 1)] == [1, 2]
         assert set(found["Solcast"]) == {2}
+        # Find my panels: a second sensor on the same panels (same shape, about the same size)
+        # is a duplicate; a different array (another shape) is not
+        from custom_components.nimbus_load.flows import solar_forecaster_steps as fsteps
+
+        hours = [3600.0 * h for h in range(72)]
+        shape = [max(0.0, 5 * np.sin(np.pi * ((h % 24) - 6) / 12)) for h in range(72)]
+        mppt = dict(zip(hours, shape, strict=True))
+        copy = {
+            h: v * 1.02 for h, v in mppt.items()
+        }  # another integration's reading of it
+        rng = np.random.default_rng(3)
+        twin_roof = {h: max(0.0, v + rng.normal(0, 0.25)) for h, v in mppt.items()}
+        wall = {
+            h: (v * 0.4 if (h // 3600) % 24 < 12 else v * 0.05) for h, v in mppt.items()
+        }
+        assert fsteps.panels_match(mppt, copy) is not None
+        assert (
+            fsteps.panels_match(mppt, twin_roof) is None
+        )  # a second array facing the same way
+        assert fsteps.panels_match(mppt, wall) is None
         points = [(100.0, 40.0), (200.0, 42.5), (300.0, float("nan")), (400.0, 50.0)]
         assert solar_forecaster_ha.value_at(points, 350.0) == 42.5
         assert solar_forecaster_ha.value_at(points, 50.0) is None
