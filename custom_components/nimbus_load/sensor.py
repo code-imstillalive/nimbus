@@ -1123,7 +1123,12 @@ async def async_setup_entry(
     from .const import CONF_SOLAR_FORECASTER_ENABLED
 
     if entry.options.get(CONF_SOLAR_FORECASTER_ENABLED):
-        async_add_entities([NimbusSolarForecastSensor(entry, sw_version)])
+        async_add_entities(
+            [
+                NimbusSolarForecastSensor(entry, sw_version),
+                *(cls(entry, sw_version) for cls in SOLAR_ENERGY_SENSORS),
+            ]
+        )
 
     # nimbus #2257: the battery's live allowed charge under the site's import
     # limit, read by the going-live dispatch blueprint.
@@ -4931,6 +4936,92 @@ class NimbusBatteryAllowedChargeSensor(SensorEntity):
             "grid_sensor": grid_id,
             "battery_power_sensor": battery_id,
         }
+
+
+class NimbusSolarEnergySensor(SensorEntity):
+    """Expected solar energy (kWh, p50) today, for the rest of today, and tomorrow, with the
+    likely range (p10, p90) beside it. From the same forecast as sensor.nimbus_solar_forecast."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_suggested_display_precision = 1
+    _attr_should_poll = False
+
+    _kind = "today"
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_solar_forecast_{self._kind}"
+        self.entity_id = f"sensor.nimbus_solar_forecast_{self._kind}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+        from . import solar_forecaster_ha
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                solar_forecaster_ha.SIGNAL_UPDATED.format(self._entry.entry_id),
+                self.async_write_ha_state,
+            )
+        )
+
+    def _day(self) -> dict[str, Any]:
+        from . import solar_forecaster_ha
+
+        rt = solar_forecaster_ha.runtime_for(self._entry.entry_id)
+        if rt is None or rt.forecast is None:
+            return {}
+        if self._kind == "tomorrow":
+            ahead = [d for d in rt.forecast.days if not d.get("partial")]
+            return ahead[0] if ahead else {}
+        t = rt.today or {}
+        if self._kind == "today_remaining":
+            rest = next((d for d in rt.forecast.days if d.get("partial")), None)
+            return {**rest, "p50": t.get("rest_kwh", rest["p50"])} if rest else {}
+        return t
+
+    @property
+    def native_value(self) -> float | None:
+        v = self._day().get("p50")
+        return None if v is None else float(v)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        d = self._day()
+        return {k: d.get(k) for k in ("date", "p10", "p90") if k in d}
+
+
+class NimbusSolarTodaySensor(NimbusSolarEnergySensor):
+    _attr_translation_key = "solar_forecast_today"
+    _kind = "today"
+
+
+class NimbusSolarTodayRemainingSensor(NimbusSolarEnergySensor):
+    _attr_translation_key = "solar_forecast_today_remaining"
+    _kind = "today_remaining"
+
+
+class NimbusSolarTomorrowSensor(NimbusSolarEnergySensor):
+    _attr_translation_key = "solar_forecast_tomorrow"
+    _kind = "tomorrow"
+
+
+#: Nimbus's own solar forecast as daily energy, as other solar forecast integrations offer it.
+SOLAR_ENERGY_SENSORS = (
+    NimbusSolarTodaySensor,
+    NimbusSolarTodayRemainingSensor,
+    NimbusSolarTomorrowSensor,
+)
 
 
 class NimbusSolarForecastSensor(SensorEntity):

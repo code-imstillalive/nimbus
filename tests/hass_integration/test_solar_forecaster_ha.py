@@ -25,6 +25,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.nimbus_load import energy as nimbus_energy
 from custom_components.nimbus_load import solar_forecaster_ha
 from custom_components.nimbus_load import weather as nimbus_weather
 from custom_components.nimbus_load.const import (
@@ -172,6 +173,14 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
         # weather.nimbus_weather: the same ECMWF weather as a standard weather entity, present
         # while the forecaster is on (no weather yet: unavailable)
         assert hass.states.get("weather.nimbus_weather").state == "unavailable"
+        # today / rest of today / tomorrow in kWh, and the Energy dashboard's solar forecast:
+        # there, but empty until the first forecast
+        for kind in ("today", "today_remaining", "tomorrow"):
+            st = hass.states.get(f"sensor.nimbus_solar_forecast_{kind}")
+            assert st is not None and st.attributes["unit_of_measurement"] == "kWh"
+        assert (
+            await nimbus_energy.async_get_solar_forecast(hass, entry.entry_id) is None
+        )
         t = datetime(2026, 11, 28, 0, 0, tzinfo=UTC).timestamp()  # 10:00 in Brisbane
         strip = [
             {

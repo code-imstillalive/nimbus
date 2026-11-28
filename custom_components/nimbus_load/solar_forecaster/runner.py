@@ -309,6 +309,33 @@ class Forecast:
     plan_until: float | None = None
 
 
+def wh_hours(
+    rows: list[dict], keep: dict[str, float] | None = None, since: float | None = None
+) -> dict[str, float]:
+    """Expected Wh per clock hour (keyed by the hour's start, UTC ISO) from the forecast rows (kW;
+    15-minute rows, then hourly): what Home Assistant's Energy dashboard plots as a solar forecast.
+    `keep`: the previous result, whose hours from `since` (local midnight) up to the first row's
+    hour are kept, so today's earlier hours stay on the dashboard as they were forecast."""
+    ts = [dt.datetime.fromisoformat(r["time"]).timestamp() for r in rows]
+    out: dict[float, float] = {}
+    for i, r in enumerate(rows):
+        # each row stands for its own spacing (15 minutes, later an hour): the smaller gap to a
+        # neighbour, so a gap with no rows (no weather there) is never filled in
+        gaps = [ts[j + 1] - ts[j] for j in (i - 1, i) if 0 <= j and j + 1 < len(ts)]
+        step = min([*gaps, 3600.0])
+        h = ts[i] // 3600 * 3600
+        out[h] = out.get(h, 0.0) + max(float(r["value"]), 0.0) * 1000 * step / 3600
+    first = min(out) if out else None
+    merged: dict[str, float] = {}
+    for k, v in (keep or {}).items():
+        t = dt.datetime.fromisoformat(k).timestamp()
+        if since is not None and t >= since and (first is None or t < first):
+            merged[k] = v
+    for h, v in sorted(out.items()):
+        merged[dt.datetime.fromtimestamp(h, dt.UTC).isoformat()] = round(v, 1)
+    return merged
+
+
 def weather_strip(store: WeatherStore, site: Site, now: dt.datetime) -> list[dict]:
     """The weather strip (and weather.nimbus_weather): one entry per 3-hour ECMWF interval from a
     day back to the end of the newest run. Needs only the downloaded weather, not a trained model,

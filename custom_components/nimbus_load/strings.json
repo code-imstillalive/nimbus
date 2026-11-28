@@ -1761,6 +1761,18 @@
       "solar_delivery_sample_count": {
         "name": "Solver Solar Delivery Sample Count"
       },
+      "solar_forecast": {
+        "name": "Solar forecast"
+      },
+      "solar_forecast_today": {
+        "name": "Solar forecast today"
+      },
+      "solar_forecast_today_remaining": {
+        "name": "Solar forecast rest of today"
+      },
+      "solar_forecast_tomorrow": {
+        "name": "Solar forecast tomorrow"
+      },
       "solar_risk_effect_now_kw": {
         "name": "Solver Solar Risk Effect (Now)"
       },
@@ -1823,9 +1835,6 @@
       },
       "worst_candidate_cost": {
         "name": "Backtest Worst Candidate Cost"
-      },
-      "solar_forecast": {
-        "name": "Solar forecast"
       }
     },
     "switch": {

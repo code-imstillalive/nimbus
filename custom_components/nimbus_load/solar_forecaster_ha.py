@@ -246,6 +246,8 @@ class SolarForecasterRuntime:
         self.forecast: runner.Forecast | None = None
         # the weather strip (runner.weather_strip): from the downloaded weather alone
         self.weather: list[dict] = []
+        # expected Wh per hour for Home Assistant's Energy dashboard (energy.py)
+        self.wh_hours: dict[str, float] = {}
         self.today: dict[str, Any] = {}
         self.measured_today: list[dict[str, Any]] = []
         self.made_at: str | None = None
@@ -856,6 +858,7 @@ class SolarForecasterRuntime:
             return
         self.forecast = fc
         self.made_at = now.isoformat()
+        self.wh_hours = runner.wh_hours(fc.rows, self.wh_hours, midnight.timestamp())
         self._today(fc, recent, midnight.timestamp())
         if self.status.state not in ("error",):
             self.status.state = "ready" if fc.rows else "learning"

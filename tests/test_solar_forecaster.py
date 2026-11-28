@@ -477,6 +477,24 @@ def _store_and_jobs(tmp_path):
     live = ws.latest()["ecmwf"]
     assert live["t"].min() == t.min() and live["t"].max() == nxt.timestamp() + 39 * 3600
     assert np.all(np.diff(live["t"]) > 0)
+    # the Energy dashboard's Wh per hour: 15-minute rows summed into their hour, today's earlier
+    # hours kept as they were forecast, yesterday's dropped
+    h0 = dt.datetime(2026, 1, 10, 2, tzinfo=dt.UTC)
+    rows = [
+        {"time": (h0 + dt.timedelta(minutes=15 * k)).isoformat(), "value": 4.0}
+        for k in range(8)
+    ] + [{"time": (h0 + dt.timedelta(hours=3)).isoformat(), "value": 2.0}]
+    kept = {
+        (h0 - dt.timedelta(hours=1)).isoformat(): 3000.0,
+        (h0 - dt.timedelta(days=1)).isoformat(): 9.0,
+    }
+    wh = runner.wh_hours(rows, kept, since=(h0 - dt.timedelta(hours=2)).timestamp())
+    assert wh == {
+        (h0 - dt.timedelta(hours=1)).isoformat(): 3000.0,
+        h0.isoformat(): 4000.0,
+        (h0 + dt.timedelta(hours=1)).isoformat(): 4000.0,
+        (h0 + dt.timedelta(hours=3)).isoformat(): 2000.0,
+    }
     # the weather strip comes from the stored weather alone (no trained model): a new install
     # shows it from its first download, not a week later with the first solar forecast
     pics = runner.weather_strip(

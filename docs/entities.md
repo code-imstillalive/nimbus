@@ -160,6 +160,13 @@ shape every Solver reader understands, with `days`, `arrays`, `score` and `statu
 shower rain in mm/h, CAPE in J/kg, temperature in °C, `sky` the picture shown). The large
 attributes are not recorded.
 
+`sensor.nimbus_solar_forecast_today`, `sensor.nimbus_solar_forecast_today_remaining` and
+`sensor.nimbus_solar_forecast_tomorrow` give the same forecast as energy (kWh, p50; `p10` and
+`p90` beside it): today's total (made so far plus the rest), the rest of today, and tomorrow. The
+forecast is also a solar forecast source for Home Assistant's Energy dashboard (Settings →
+Dashboards → Energy → your solar panels → *Forecast production* → Nimbus): expected Wh per hour,
+with today's earlier hours kept as they were forecast.
+
 `weather.nimbus_weather` is the same ECMWF weather as a standard Home Assistant weather entity,
 also only while the solar forecaster is on: condition, temperature and cloud now (unavailable
 until the first weather arrives); `get_forecasts` gives `hourly` (one per 3-hour ECMWF interval,
