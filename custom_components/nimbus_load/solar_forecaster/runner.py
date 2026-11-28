@@ -374,10 +374,12 @@ def overlay(base: dict, newer: dict | None) -> dict:
     if not newer or not len(newer.get("t", ())):
         return base
     out = {k: np.array(v, dtype=float, copy=True) for k, v in base.items()}
+    for k in newer:  # a field only the newer run has (rain, say, over an older file)
+        out.setdefault(k, np.full(len(out["t"]), np.nan))
     pos = {float(t): i for i, t in enumerate(out["t"])}
     extra = [j for j, t in enumerate(newer["t"]) if float(t) not in pos]
     for k, v in newer.items():
-        if k == "t" or k not in out:
+        if k == "t":
             continue
         for j, t in enumerate(newer["t"]):
             i = pos.get(float(t))

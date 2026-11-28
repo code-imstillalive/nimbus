@@ -489,10 +489,15 @@ def _store_and_jobs(tmp_path):
         "t": np.array([0.0, 10800.0, 21600.0]),
         "cloud": np.array([10.0, 20.0, 30.0]),
     }
-    newer = {"t": np.array([10800.0, 32400.0]), "cloud": np.array([90.0, 95.0])}
+    newer = {
+        "t": np.array([10800.0, 32400.0]),
+        "cloud": np.array([90.0, 95.0]),
+        "rain": np.array([2.0, 0.5]),  # a field the older file does not have
+    }
     both = runner.overlay(base, newer)
     assert np.allclose(both["t"], [0, 10800, 21600, 32400])
     assert np.allclose(both["cloud"], [10, 90, 30, 95])
+    assert np.allclose(both["rain"], [np.nan, 2.0, np.nan, 0.5], equal_nan=True)
     # the Energy dashboard's Wh per hour: 15-minute rows summed into their hour, today's earlier
     # hours kept as they were forecast, yesterday's dropped
     h0 = dt.datetime(2026, 1, 10, 2, tzinfo=dt.UTC)
