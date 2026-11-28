@@ -417,16 +417,28 @@ class SolarForecasterRuntime:
 
     # --- the three jobs -----------------------------------------------------------------------
     async def _async_bootstrap(self) -> None:
-        """At start: forecast with the saved model at once, then fetch until the history is in,
-        then train if there is no current model."""
+        """At start: forecast with the saved model at once, then fetch until the history is in.
+        With no model yet, it trains as soon as a week of history is in (so the first forecast
+        comes in minutes, not after the whole history), keeps fetching, and trains again on the
+        full history at the end."""
         await self._async_forecast()
+        early = False
         for _ in range(self.history_days // 3 + 3):
             more = await self._async_weather()
+            if (
+                self.trained is None
+                and self.status.history_days >= SOLAR_FORECASTER_MIN_TRAINING_DAYS
+            ):
+                await self._async_train()  # the first forecast, on the first week
+                await self._async_yardsticks()
+                await self._async_forecast()
+                early = self.trained is not None
             if not more:
                 break
             await asyncio.sleep(20)
         if (
-            self.trained is None
+            early  # trained on part of the history: again on all of it
+            or self.trained is None
             or self._model_age() > dt.timedelta(days=1)
             # saved by an older release without a tier this one has (days 3-5's GFS-only tier):
             # learn it now rather than leave those days empty until the night's training
