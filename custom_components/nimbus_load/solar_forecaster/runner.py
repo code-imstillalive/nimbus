@@ -333,9 +333,7 @@ def wh_hours(
     rows: list[dict], keep: dict[str, float] | None = None, since: float | None = None
 ) -> dict[str, float]:
     """Expected Wh per clock hour (keyed by the hour's start, UTC ISO) from the forecast rows (kW;
-    15-minute rows, then hourly): the shape Home Assistant's Energy dashboard takes as a solar
-    forecast (for the standalone integration; Home Assistant offers only service-type
-    integrations there, and Nimbus is a hub).
+    15-minute rows, then hourly): what Home Assistant's Energy dashboard plots as a solar forecast.
     `keep`: the previous result, whose hours from `since` (local midnight) up to the first row's
     hour are kept, so today's earlier hours stay on the dashboard as they were forecast."""
     ts = [dt.datetime.fromisoformat(r["time"]).timestamp() for r in rows]

@@ -85,9 +85,9 @@ It is the **Solar Lab** tab of the standard [Nimbus dashboard](dashboards.md), o
   forecast. The pictures move gently (the sun glows, rain falls, lightning flashes; still if your
   device asks for reduced motion); hover or tap one for its cloud, rain, storm energy and
   solar power. On a phone, neighbouring hours share a picture showing the worst of them;
-- today, the rest of today and tomorrow are kWh sensors, like other solar forecast integrations
-  offer (Home Assistant's Energy dashboard lists only service-type integrations as forecast
-  sources, and Nimbus is a hub, so it is not offered there);
+- the forecast also feeds Home Assistant's own **Energy dashboard** (Settings → Dashboards →
+  Energy → your solar panels → *Forecast production* → Nimbus), and today, the rest of today
+  and tomorrow are kWh sensors, like other solar forecast integrations offer;
 - the same weather is also `weather.nimbus_weather`, a standard Home Assistant weather entity
   (now, every 3 hours, and per day), for the standard weather card and for automations such as
   "thunderstorms in the next few hours" ([entities](entities.md)). The weather needs only the
