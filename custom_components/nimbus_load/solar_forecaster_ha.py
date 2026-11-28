@@ -362,7 +362,13 @@ class SolarForecasterRuntime:
             return
         manager.async_listen_updates(self._async_energy_link)
 
-        def _forget() -> None:  # the Energy manager has no unsubscribe of its own
+        def _forget() -> None:
+            # Deliberate use of a private attribute. EnergyManager.async_listen_updates returns
+            # no unsubscribe, and there is no public way to stop listening, so on unload we
+            # remove our own callback from its list. If a future Home Assistant renames or
+            # reshapes _update_listeners, this does not crash: the guard skips and one listener
+            # stays behind until the next restart. Do not swap this for a "safer" call that
+            # leaves the listener registered on every reload.
             if self._async_energy_link in manager._update_listeners:
                 manager._update_listeners.remove(self._async_energy_link)
 
