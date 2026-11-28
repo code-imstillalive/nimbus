@@ -250,7 +250,7 @@ class NimbusSolarCard extends HTMLElement {
       for (const n of others) {
         const rs = rows.filter((r) => (r.others || {})[n] != null);
         if (!rs.length) {
-          summary += `<tr><td>${this._esc(n)}</td><td>0</td><td colspan="4" class="why">no evening-before figures in the recorder yet</td></tr>`;
+          summary += `<tr><td>${this._esc(n)}</td><td>0</td><td colspan="4" class="why">no evening-before figures yet: Nimbus notes them itself at 21:00 each evening</td></tr>`;
           continue;
         }
         const mo = rs.reduce((t, r) => t + r.actual_kwh, 0) / rs.length;
@@ -268,7 +268,7 @@ class NimbusSolarCard extends HTMLElement {
       <div class="card"><h2>Scoreboard · summary</h2><div class="tw"><table>
         <tr><th>forecast</th><th>days</th><th>error</th><th>%</th><th>bias</th><th>in range</th></tr>${summary}</table></div>
         <p class="note">Daily kWh error against what your PV Strings measured. Retrained every night on the latest weeks.${others.length
-          ? " The other solar forecasts installed here are found automatically and judged on their tomorrow total as it stood at 21:00 the evening before; yardsticks only, Nimbus never uses them."
+          ? " The other solar forecasts installed here are found automatically and judged on their tomorrow total as it stood at 21:00 the evening before (from the recorder, or noted by Nimbus itself when the recorder does not keep it); yardsticks only, Nimbus never uses them."
           : ""}</p></div></div>`;
 
     const how = `<div class="card"><h2>How it works</h2><p class="note">Every evening the three best free global weather models are saved:

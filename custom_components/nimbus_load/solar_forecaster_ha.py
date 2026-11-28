@@ -329,6 +329,11 @@ class SolarForecasterRuntime:
                 self.hass, self._tick_train, hour=3, minute=30, second=0
             )
         )
+        self._unsubs.append(
+            async_track_time_change(
+                self.hass, self._tick_snapshot, hour=YARDSTICK_HOUR, minute=0, second=0
+            )
+        )
         self._task = self.hass.async_create_background_task(
             self._async_bootstrap(), "nimbus solar forecaster start"
         )
@@ -509,7 +514,8 @@ class SolarForecasterRuntime:
             hist = await get_instance(self.hass).async_add_executor_job(_read)
         except Exception as err:  # noqa: BLE001 -- yardsticks are optional; the card shows dashes
             _LOGGER.debug("Nimbus solar forecaster: yardsticks not read (%s)", err)
-            return
+            hist = {}
+        logged = await self.hass.async_add_executor_job(self._load_snapshots)
         out: dict[str, dict[str, float]] = {}
         for name, eids in found.items():
             per_day: dict[str, float] = {}
@@ -517,8 +523,50 @@ class SolarForecasterRuntime:
                 vals = [value_at(hist.get(e, []), cut[d]) for e in eids]
                 if vals and all(v is not None for v in vals):
                     per_day[d.isoformat()] = round(sum(vals), 1)
+                elif name in logged.get(d.isoformat(), {}):  # its own 21:00 snapshot
+                    per_day[d.isoformat()] = logged[d.isoformat()][name]
             out[name] = per_day
         self.yardsticks = out
+
+    async def _tick_snapshot(self, _now) -> None:
+        """At YARDSTICK_HOUR: each other solar forecast's "tomorrow" total, kept in the forecaster's
+        own file, so the scoreboard can judge it even where the recorder does not keep its sensors
+        (a recorder that excludes Solcast, say)."""
+        found = find_yardsticks(self.hass)
+        tomorrow = (dt_util.now(self.tz).date() + dt.timedelta(days=1)).isoformat()
+        snap: dict[str, float] = {}
+        for name, days in found.items():
+            ids = days.get(1, [])
+            vals = []
+            for eid in ids:
+                st = self.hass.states.get(eid)
+                try:
+                    unit = st.attributes.get("unit_of_measurement") if st else None
+                    vals.append(float(st.state) * (0.001 if unit == "Wh" else 1.0))
+                except (AttributeError, TypeError, ValueError):
+                    vals.append(None)
+            if ids and all(v is not None for v in vals):
+                snap[name] = round(sum(vals), 1)
+        if snap:
+            await self.hass.async_add_executor_job(self._save_snapshot, tomorrow, snap)
+
+    def _snapshot_path(self) -> Path:
+        return self.dir / "yardsticks.json"
+
+    def _load_snapshots(self) -> dict[str, dict[str, float]]:
+        try:
+            return json.loads(self._snapshot_path().read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def _save_snapshot(self, day: str, snap: dict[str, float]) -> None:
+        log = self._load_snapshots()
+        log[day] = snap
+        keep = sorted(log)[-90:]  # about three months
+        self.dir.mkdir(parents=True, exist_ok=True)
+        tmp = self._snapshot_path().with_suffix(".tmp")
+        tmp.write_text(json.dumps({d: log[d] for d in keep}))
+        tmp.replace(self._snapshot_path())
 
     async def _tick_weather(self, _now) -> None:
         await self._async_weather()

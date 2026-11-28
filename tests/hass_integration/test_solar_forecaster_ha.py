@@ -202,6 +202,14 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
             )
             is not None
         )
+        # the 21:00 snapshot of the other forecasts' "tomorrow" is kept in the forecaster's own file
+        # (the scoreboard's source where the recorder does not keep those sensors)
+        rt = solar_forecaster_ha.runtime_for(bare.entry_id)
+        await hass.async_add_executor_job(
+            rt._save_snapshot, "2026-01-10", {"Solcast": 34.1}
+        )
+        logged = await hass.async_add_executor_job(rt._load_snapshots)
+        assert logged["2026-01-10"] == {"Solcast": 34.1}
         solar_forecaster_ha.async_stop(bare.entry_id)
         await hass.config_entries.async_unload(entry.entry_id)
 

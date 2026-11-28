@@ -91,8 +91,9 @@ If Forecast.Solar, Open-Meteo Solar Forecast or Solcast is installed, the card f
 (no setup) and shows its daily totals beside Nimbus's in the days table, and in the scoreboard its
 "tomorrow" total as it stood at 21:00 the evening before, against what your panels made. Several
 Forecast.Solar or Open-Meteo planes are added up. They are a comparison only: Nimbus never uses
-them for its own forecast. A forecaster whose sensors your recorder does not keep has no
-scoreboard figures.
+them for its own forecast. Nimbus also notes each one's "tomorrow" itself at 21:00, so a forecaster
+whose sensors your recorder does not keep (Solcast, on some installs) is scored from the day after
+you switch the forecaster on.
 
 ## How good it is
 
