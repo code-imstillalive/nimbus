@@ -113,6 +113,26 @@ def fetch_weather(
             else:
                 store.save(source, run, sources.series(source, run, got))
                 rep.fetched.append(f"{source} {run:%Y-%m-%d %H}Z")
+    # the weather refresh (the strip and weather entity only): ECMWF's newest 12Z run, when it is
+    # newer than the 00Z run the forecast uses
+    wr = sources.newest_refresh_run(now)
+    main = store.runs("ecmwf")
+    if (
+        wr is not None
+        and (not main or wr > main[-1])
+        and not store.has(sources.WEATHER_REFRESH, wr)
+    ):
+        span = [
+            s
+            for s in range(
+                0, sources.WEATHER_REFRESH_H + 1, sources.SPECS["ecmwf"].step_h
+            )
+            if wr.timestamp() + s * 3600 >= now.timestamp() - 3 * 3600
+        ]
+        got = sources.fetch_run("ecmwf", wr, [], lat, lon, get, night_steps=span)
+        if span and len(got) >= 0.8 * len(span):
+            store.save(sources.WEATHER_REFRESH, wr, sources.series("ecmwf", wr, got))
+            rep.fetched.append(f"ecmwf weather {wr:%Y-%m-%d %H}Z")
     # history: the evening-before runs of the last `history_days` local days, newest first
     today = dt.datetime.fromtimestamp(
         now.timestamp() + float(local_offset(np.array([now.timestamp()]), tz)[0]),
@@ -341,9 +361,35 @@ def weather_strip(store: WeatherStore, site: Site, now: dt.datetime) -> list[dic
     day back to the end of the newest run. Needs only the downloaded weather, not a trained model,
     so it shows from the first download, a week before the first solar forecast."""
     t0 = now.timestamp()
-    return W.strip(
-        store.latest().get("ecmwf"), site.lat, site.lon, t0 - 86400, t0 + 6 * 86400
-    )
+    ec = store.latest().get("ecmwf")
+    refresh = store.runs(sources.WEATHER_REFRESH)
+    main = store.runs("ecmwf")
+    if refresh and ec and (not main or refresh[-1] > main[-1]):
+        ec = overlay(ec, store.load(sources.WEATHER_REFRESH, refresh[-1]))
+    return W.strip(ec, site.lat, site.lon, t0 - 86400, t0 + 6 * 86400)
+
+
+def overlay(base: dict, newer: dict | None) -> dict:
+    """`base` with `newer`'s values wherever `newer` has them (same 3-hour interval times)."""
+    if not newer or not len(newer.get("t", ())):
+        return base
+    out = {k: np.array(v, dtype=float, copy=True) for k, v in base.items()}
+    pos = {float(t): i for i, t in enumerate(out["t"])}
+    extra = [j for j, t in enumerate(newer["t"]) if float(t) not in pos]
+    for k, v in newer.items():
+        if k == "t" or k not in out:
+            continue
+        for j, t in enumerate(newer["t"]):
+            i = pos.get(float(t))
+            if i is not None and not np.isnan(v[j]):
+                out[k][i] = v[j]
+    if extra:  # intervals only the newer run has (past the end of the base)
+        for k, v in list(out.items()):
+            add = newer[k][extra] if k in newer else np.full(len(extra), np.nan)
+            out[k] = np.concatenate([v, add])
+        order = np.argsort(out["t"])
+        out = {k: v[order] for k, v in out.items()}
+    return out
 
 
 def _most(tiers) -> str:

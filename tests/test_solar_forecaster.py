@@ -477,6 +477,22 @@ def _store_and_jobs(tmp_path):
     live = ws.latest()["ecmwf"]
     assert live["t"].min() == t.min() and live["t"].max() == nxt.timestamp() + 39 * 3600
     assert np.all(np.diff(live["t"]) > 0)
+    # the weather refresh (ECMWF's newest 12Z run, weather fields only) overrides the strip where
+    # it reaches and the 00Z run fills in beyond; it is out about 9 hours after its cycle
+    assert sources.newest_refresh_run(dt.datetime(2026, 1, 12, 20, tzinfo=dt.UTC)) == (
+        dt.datetime(2026, 1, 11, 12, tzinfo=dt.UTC)
+    )
+    assert sources.newest_refresh_run(
+        dt.datetime(2026, 1, 12, 21, 30, tzinfo=dt.UTC)
+    ) == dt.datetime(2026, 1, 12, 12, tzinfo=dt.UTC)
+    base = {
+        "t": np.array([0.0, 10800.0, 21600.0]),
+        "cloud": np.array([10.0, 20.0, 30.0]),
+    }
+    newer = {"t": np.array([10800.0, 32400.0]), "cloud": np.array([90.0, 95.0])}
+    both = runner.overlay(base, newer)
+    assert np.allclose(both["t"], [0, 10800, 21600, 32400])
+    assert np.allclose(both["cloud"], [10, 90, 30, 95])
     # the Energy dashboard's Wh per hour: 15-minute rows summed into their hour, today's earlier
     # hours kept as they were forecast, yesterday's dropped
     h0 = dt.datetime(2026, 1, 10, 2, tzinfo=dt.UTC)

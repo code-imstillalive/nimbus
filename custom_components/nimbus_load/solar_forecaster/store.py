@@ -87,7 +87,7 @@ class WeatherStore:
         """Delete runs older than `keep_days`. Returns how many went."""
         cut = now - dt.timedelta(days=keep_days)
         gone = 0
-        for source in sources.SPECS:
+        for source in (*sources.SPECS, sources.WEATHER_REFRESH):
             for run in self.runs(source):
                 if run < cut:
                     self._path(source, run).unlink(missing_ok=True)

@@ -345,6 +345,30 @@ def newest_run(source: str, now_utc: dt.datetime) -> dt.datetime:
     return dt.datetime.combine(day - dt.timedelta(days=3), dt.time(sp.run_hour), dt.UTC)
 
 
+#: The weather refresh: ECMWF's 12Z run (out about 9 hours later, early morning in Australia), read
+#: for the weather strip and weather entity only, its next WEATHER_REFRESH_H hours, weather fields
+#: only. Measured on the reference household (45 days): a newer run does not forecast a day's solar
+#: better than the evening-before run (daily error 14.4 % either way; the hourly shape under a point
+#: better, which the live correction already covers), so the solar forecast never reads it.
+WEATHER_REFRESH = "ecmwfwx"  # its store name
+WEATHER_REFRESH_HOUR = 12
+WEATHER_REFRESH_H = 48
+
+
+def newest_refresh_run(now_utc: dt.datetime) -> dt.datetime | None:
+    """The newest published 12Z ECMWF run (None in the hours before one is out)."""
+    lag = dt.timedelta(hours=SPECS["ecmwf"].publish_lag_h)
+    for back in range(2):
+        run = dt.datetime.combine(
+            now_utc.date() - dt.timedelta(days=back),
+            dt.time(WEATHER_REFRESH_HOUR),
+            dt.UTC,
+        )
+        if now_utc >= run + lag:
+            return run
+    return None
+
+
 def evening_before_run(source: str, day: dt.date) -> dt.datetime:
     """The run a day-ahead forecast for local `day` is made from: the day before, at the source's `run_hour`."""
     return dt.datetime.combine(

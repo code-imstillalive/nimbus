@@ -139,6 +139,16 @@ correction learned on other days than the ones scored):
 | 3 | 16.8 % | 16.6 % |
 | 4 | 13.7 % | 16.5 % |
 
+### Newer weather runs
+
+ECMWF also publishes runs at 06Z, 12Z and 18Z. Measured on the reference household (45 days, the
+same model fed each newer run instead of the evening-before one), none forecasts a day's solar
+better: daily error 14.4 % for the evening-before run, 14.4 % for the 12Z run (out about 06:00 in
+eastern Australia), 15.1 % for 06Z and 15.3 % for 18Z; the hour-by-hour shape is under a point
+better, which the live correction from your own panels already covers through the day. So the
+solar forecast stays on the evening-before run. The weather strip and `weather.nimbus_weather`
+do use the newest 12Z run for their next 48 hours, so the weather you see is the freshest.
+
 A new install has none of these older forecasts yet, so for its first ten days or so the days
 after tomorrow are shown but not planned on. If ECMWF and GEFS are ever unavailable, GFS alone
 carries the forecast with a wider likely range; that is never planned on.
@@ -157,11 +167,12 @@ carries the forecast with a wider likely range; that is never planned on.
 - Its first forecast comes once it has about a week of history (it fetches the weather
   itself; your PV Strings' recorded output comes from Home Assistant's recorder and long-term
   statistics).
-- It downloads about 190 MB a day in summer (less in winter): the three models' light and cloud
+- It downloads about 230 MB a day in summer (less in winter): the three models' light and cloud
   for the daylight hours (about 145 MB), plus ECMWF's rain, shower rain and storm energy day and
   night and its cloud and temperature at night for the weather strip and
-  `weather.nimbus_weather` (about 50 MB). The history it learns from
-  is daylight only: up to about 35 MB per day the first time.
+  `weather.nimbus_weather` (about 50 MB), plus ECMWF's newer 12Z run, weather only, for the next
+  48 hours (about 40 MB). The history it learns from is daylight only: up to about 35 MB per day
+  the first time.
 - It learns from your recorded output, so that output has to be honest:
   - gaps (a sensor unavailable, the recorder missing hours) are left out;
   - **curtailment is not detected yet**: hours when output was held back (export limits,
