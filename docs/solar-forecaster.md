@@ -85,6 +85,9 @@ It is the **Solar Lab** tab of the standard [Nimbus dashboard](dashboards.md), o
   forecast. The pictures move gently (the sun glows, rain falls, lightning flashes; still if your
   device asks for reduced motion); hover or tap one for its cloud, rain, storm energy and
   solar power. On a phone, neighbouring hours share a picture showing the worst of them;
+- the same weather is also `weather.nimbus_weather`, a standard Home Assistant weather entity
+  (now, every 3 hours, and per day), for the standard weather card and for automations such as
+  "thunderstorms in the next few hours" ([entities](entities.md));
 - a table of every day, the next two hours, and your PV Strings as it learned them;
 - its scoreboard: every scored day's evening-before forecast against what your panels made
   (in amber), with a summary.
@@ -142,7 +145,8 @@ carries the forecast with a wider likely range; that is never planned on.
   statistics).
 - It downloads about 190 MB a day in summer (less in winter): the three models' light and cloud
   for the daylight hours (about 145 MB), plus ECMWF's rain, shower rain and storm energy day and
-  night and its cloud at night for the weather strip (about 45 MB). The history it learns from
+  night and its cloud and temperature at night for the weather strip and
+  `weather.nimbus_weather` (about 50 MB). The history it learns from
   is daylight only: up to about 35 MB per day the first time.
 - It learns from your recorded output, so that output has to be honest:
   - gaps (a sensor unavailable, the recorder missing hours) are left out;

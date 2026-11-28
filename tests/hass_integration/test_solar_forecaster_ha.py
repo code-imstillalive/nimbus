@@ -26,6 +26,7 @@ from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.nimbus_load import solar_forecaster_ha
+from custom_components.nimbus_load import weather as nimbus_weather
 from custom_components.nimbus_load.const import (
     CONF_PV_STRING_AZIMUTH,
     CONF_PV_STRING_ENTITY,
@@ -168,6 +169,42 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
         )
         assert len(state.attributes["arrays"]) == 3
         assert "Copernicus/ECMWF" in state.attributes["attribution"]
+        # weather.nimbus_weather: the same ECMWF weather as a standard weather entity, present
+        # while the forecaster is on (no weather yet: unavailable)
+        assert hass.states.get("weather.nimbus_weather").state == "unavailable"
+        t = datetime(2026, 11, 28, 0, 0, tzinfo=UTC).timestamp()  # 10:00 in Brisbane
+        strip = [
+            {
+                "time": datetime.fromtimestamp(t + k * 10800, UTC).isoformat(),
+                "sky": sky,
+                "cloud": 50,
+                "rain": rain,
+                "temperature": 20 + k,
+                "sun_up": k < 3,
+            }
+            for k, (sky, rain) in enumerate(
+                [("clear", 0.0), ("storm", 2.0), ("partly_cloudy", 0.0)]
+                + [("clear_night", 0.0)] * 5
+            )
+        ]
+        assert nimbus_weather.now_entry(strip, t + 10800)["sky"] == "storm"
+        hourly = nimbus_weather.hourly(strip, t + 10800)
+        assert hourly[0]["condition"] == "lightning-rainy"
+        assert hourly[0]["native_precipitation"] == 6.0  # 2 mm/h for 3 hours
+        assert hourly[-1]["condition"] == "clear-night"
+        (today,) = nimbus_weather.daily(
+            strip, t, solar_forecaster_ha.dt_util.get_time_zone("Australia/Brisbane")
+        )
+        # the day's worst daytime weather, its range of temperature, its rain
+        assert (
+            (today["condition"], today["native_templow"], today["native_temperature"])
+            == (
+                "lightning-rainy",
+                20,
+                24,
+            )
+        )  # 10:00 to 22:00 local; the 29th has only 3 intervals here (cut-off, left out)
+        assert today["native_precipitation"] == 6.0
         cfg = hass.states.get("sensor.nimbus_solver_config").attributes
         assert (cfg["solar_forecaster_use"], cfg["solar_forecaster_sensor"]) == (
             "blend",

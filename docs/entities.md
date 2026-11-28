@@ -156,8 +156,18 @@ switched on (Configure → Solar forecaster). Its state is the expected PV power
 no weather covers now); its `forecast` attribute runs about four days ahead (all three models to 120 hours) as `[{time, value, lower, upper}]` (p50, p10, p90), the
 shape every Solver reader understands, with `days`, `arrays`, `score` and `status` beside it.
 `weather` is the Solar Lab card's weather strip: one entry per 3-hour ECMWF interval, day and night,
-`{time, cloud, low_cloud, rain, shower, cape, sun_up, sky}` (cloud in %, rain and shower rain in
-mm/h, CAPE in J/kg, `sky` the picture shown). The large attributes are not recorded.
+`{time, cloud, low_cloud, rain, shower, cape, temperature, sun_up, sky}` (cloud in %, rain and
+shower rain in mm/h, CAPE in J/kg, temperature in °C, `sky` the picture shown). The large
+attributes are not recorded.
+
+`weather.nimbus_weather` is the same ECMWF weather as a standard Home Assistant weather entity,
+also only while the solar forecaster is on: condition, temperature and cloud now (unavailable
+until the first weather arrives); `get_forecasts` gives `hourly` (one per 3-hour ECMWF interval,
+rain in mm for the interval) and `daily` (per local day: its worst daytime condition, highest and
+lowest temperature, rain in mm, average cloud). Its attributes add `rain_rate` and `shower_rate`
+(mm/h) and `storm_energy` (CAPE, J/kg) now. Conditions: `sunny`, `clear-night`, `partlycloudy`,
+`cloudy`, `rainy`, `pouring`, `lightning-rainy` (thunderstorms: CAPE of 800 J/kg or more with
+shower rain).
 
 ## Load forecast totals
 

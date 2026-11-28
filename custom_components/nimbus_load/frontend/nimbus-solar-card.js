@@ -703,6 +703,8 @@ class NimbusSolarCard extends HTMLElement {
     const { f, m } = this._wx;
     const inSpan = (r) => r.t >= cell.a0 && r.t < cell.a1;
     const lines = [`<b>${this._esc(fmt(cell.a0, true))}–${this._esc(fmt(cell.a1))}</b> · ${this._esc(NimbusSolarCard.SKY_WORDS[cell.sky] || cell.sky)}`];
+    const tm = vals("temperature");
+    if (tm.length) lines[0] += ` · ${Math.round(Math.min(...tm))}${Math.max(...tm) - Math.min(...tm) >= 1 ? "–" + Math.round(Math.max(...tm)) : ""} °C`;
     const cl = mean("cloud");
     const lc = mean("low_cloud");
     if (cl != null) lines.push(`cloud ${Math.round(cl)} %${lc != null ? ` (low ${Math.round(lc)} %)` : ""}`);

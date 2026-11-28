@@ -1897,6 +1897,11 @@
       "solver_p2p_block_3_start_hour": {
         "name": "P2P Block 3 From"
       }
+    },
+    "weather": {
+      "weather": {
+        "name": "Weather"
+      }
     }
   }
 }

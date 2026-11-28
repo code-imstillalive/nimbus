@@ -106,8 +106,8 @@ def _value(get: Getter, url: str, start: int, end, lat: float, lon: float) -> fl
 #: ECMWF fields read at each step: radiation, cloud and temperature for the forecast; total and
 #: convective (shower) precipitation and most-unstable CAPE for the weather strip on the card.
 ECMWF_PARAMS = ("ssrd", "tcc", "lcc", "2t", "tp", "cp", "mucape")
-#: At night only what the weather strip shows (no sun to forecast).
-ECMWF_NIGHT_PARAMS = ("tcc", "lcc", "tp", "cp", "mucape")
+#: At night only what the weather strip and weather.nimbus_weather show (no sun to forecast).
+ECMWF_NIGHT_PARAMS = ("tcc", "lcc", "2t", "tp", "cp", "mucape")
 
 
 def fetch_step(

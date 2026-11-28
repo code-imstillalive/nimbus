@@ -60,6 +60,8 @@ PLATFORMS: list[Platform] = [
     # Household, 11 Oct 2026: time-of-day settings (the reserve's window)
     # as clock times. See time.py.
     Platform.TIME,
+    # weather.nimbus_weather while the solar forecaster is on (weather.py)
+    Platform.WEATHER,
 ]
 
 # #244 (Mark): solve at :00:30, :05:30, ... -- 30 s past each NEM boundary, after the

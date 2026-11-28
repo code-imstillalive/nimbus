@@ -274,6 +274,7 @@ def _reads_weather_files():
         weather.classify(90, 2.0, 1.0, 1000.0, strip[0]["sun_up"]),
         weather.classify(95, 1.0, 0.0, 600.0, strip[1]["sun_up"]),
     ] and strip[0]["rain"] == 2.0
+    assert strip[0]["temperature"] == 20.0  # degrees C, for weather.nimbus_weather
     # night is never downloaded: only the steps touching daylight at the site (plus the ECMWF step
     # before dawn and whole NOAA 6-hour blocks), and two kept ECMWF steps either side of the night
     # are never averaged across it

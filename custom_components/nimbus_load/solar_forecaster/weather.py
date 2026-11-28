@@ -88,17 +88,18 @@ def strip(
         v = ecmwf.get(name)
         return np.asarray(v, dtype=float)[keep] if v is not None else None
 
-    cols = {n: col(n) for n in ("cloud", "low_cloud", "rain", "shower", "cape")}
+    cols = {n: col(n) for n in ("cloud", "low_cloud", "rain", "shower", "cape", "t2m")}
 
     def at(name, i):
         v = cols[name]
         if v is None or np.isnan(v[i]):
             return None
-        return round(float(v[i]), 2 if name in ("rain", "shower") else 0)
+        return round(float(v[i]), {"rain": 2, "shower": 2, "t2m": 1}.get(name, 0))
 
     out = []
     for i, ti in enumerate(t[keep]):
         e = {n: at(n, i) for n in cols}
+        e["temperature"] = e.pop("t2m")  # degrees C
         sun_up = bool(zen[i] < 90)
         out.append(
             {
