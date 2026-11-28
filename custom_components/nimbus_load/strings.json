@@ -384,13 +384,15 @@
           "solar_forecaster_enabled": "Turn on Nimbus's solar forecaster",
           "solar_forecaster_use": "What the plan does with it",
           "solar_forecaster_history_days": "Days of weather history to start from",
-          "find_panels": "Find my panels now (adds a PV String for each array it finds)"
+          "find_panels": "Find my panels now (adds a PV String for each array it finds)",
+          "solar_forecaster_energy_source": "Show it in the Energy dashboard for"
         },
         "data_description": {
           "solar_forecaster_enabled": "Publishes sensor.nimbus_solar_forecast. Its first forecast comes once it has a week of history (weather it fetches itself, and your PV Strings' recorded output).",
           "solar_forecaster_use": "Start with \"Forecast only\" and compare it with your other solar forecasts for a while.",
           "solar_forecaster_history_days": "More days learn more, and cost about 35 MB each once. 30 is a good start; it keeps learning every day after.",
-          "find_panels": "Looks for per-MPPT or per-string power sensors from your inverter's own integration. You tick which to add."
+          "find_panels": "Looks for per-MPPT or per-string power sensors from your inverter's own integration. You tick which to add.",
+          "solar_forecaster_energy_source": "Pick the Energy dashboard solar source it forecasts. It covers all your panels, so pick one, and untick other forecasts on that source so they do not add up. Home Assistant's Energy settings do not list Nimbus themselves, so Nimbus adds itself here and puts itself back whenever those settings are saved without it."
         }
       },
       "solar_forecaster_find": {
@@ -1094,6 +1096,10 @@
     "solar_forecaster_weather_failing": {
       "title": "Nimbus solar forecaster: no weather for over a day",
       "description": "The solar forecaster has not been able to download from any of its weather sources (ECMWF, NOAA GFS, NOAA GEFS) for more than a day, so its forecast is getting old. Check this Home Assistant can reach the internet (storage.googleapis.com and amazonaws.com). It retries every hour and this message clears itself."
+    },
+    "solar_forecaster_energy_source_gone": {
+      "title": "Nimbus solar forecast: its Energy dashboard source is gone",
+      "description": "Nimbus was set to show its solar forecast in the Energy dashboard for {source}, but the Energy dashboard no longer has that solar source. Pick another one under Nimbus → Configure → Solar forecaster (or \"Not in the Energy dashboard\"). This message clears itself."
     }
   },
   "exceptions": {

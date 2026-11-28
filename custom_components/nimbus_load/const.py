@@ -1906,7 +1906,7 @@ SOLVER_LOAD_FORECAST_SOURCE_POLICIES: Final = (
 
 
 # --- Nimbus's own solar forecaster (solar_forecaster/, solar_forecaster_ha.py) ------------------
-# Off by default: it downloads weather (~85 MB a day, ~35 MB per history day once) and trains a
+# Off by default: it downloads weather (~230 MB a day, ~35 MB per history day once) and trains a
 # model, so the household turns it on. `use` decides what the Solver does with it:
 #   forecast_only -- publish sensor.nimbus_solar_forecast, change nothing in the plan (compare first);
 #   blend         -- add it as one more member of the solar blend;
@@ -1928,3 +1928,9 @@ CONF_SOLAR_FORECASTER_HISTORY_DAYS: Final = "solar_forecaster_history_days"
 DEFAULT_SOLAR_FORECASTER_HISTORY_DAYS: Final = 30
 SOLAR_FORECASTER_MIN_TRAINING_DAYS: Final = 7
 SOLAR_FORECASTER_UNIQUE_ID_SUFFIX: Final = "solar_forecast"
+# The Energy dashboard's solar source (its energy sensor) Nimbus forecasts for. Home Assistant's
+# Energy settings offer only service-type integrations as forecasts, and Nimbus is a hub, so
+# Nimbus adds itself to that source and puts itself back whenever the Energy settings are saved
+# without it. "none": not in the Energy dashboard.
+CONF_SOLAR_FORECASTER_ENERGY_SOURCE: Final = "solar_forecaster_energy_source"
+SOLAR_FORECASTER_ENERGY_NONE: Final = "none"

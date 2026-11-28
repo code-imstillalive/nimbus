@@ -28,11 +28,13 @@ from ..const import (
     CONF_PV_STRING_LABEL,
     CONF_PV_STRING_TILT,
     CONF_SOLAR_FORECASTER_ENABLED,
+    CONF_SOLAR_FORECASTER_ENERGY_SOURCE,
     CONF_SOLAR_FORECASTER_HISTORY_DAYS,
     CONF_SOLAR_FORECASTER_USE,
     DEFAULT_SOLAR_FORECASTER_ENABLED,
     DEFAULT_SOLAR_FORECASTER_HISTORY_DAYS,
     DEFAULT_SOLAR_FORECASTER_USE,
+    SOLAR_FORECASTER_ENERGY_NONE,
     SOLAR_FORECASTER_USES,
     SUBENTRY_TYPE_PV_STRING,
 )
@@ -241,7 +243,43 @@ class SolarForecasterSteps:
             rows.append(f"- {s.title}: {where}")
         return "\n".join(rows) if rows else "- none yet"
 
-    def _solar_forecaster_schema(self, o: dict[str, Any]) -> vol.Schema:
+    async def _energy_solar_sources(self) -> list[dict[str, str]]:
+        """The Energy dashboard's solar sources, as choices (value: their energy sensor)."""
+        out = [
+            {
+                "value": SOLAR_FORECASTER_ENERGY_NONE,
+                "label": "Not in the Energy dashboard",
+            }
+        ]
+        try:
+            from homeassistant.components.energy.data import async_get_manager
+
+            manager = await async_get_manager(self.hass)
+        except Exception:  # noqa: BLE001 -- no Energy integration: only "not in it"
+            return out
+        for s in (manager.data or {}).get("energy_sources", []):
+            if s.get("type") != "solar" or not s.get("stat_energy_from"):
+                continue
+            eid = s["stat_energy_from"]
+            st = self.hass.states.get(eid)
+            name = st.attributes.get("friendly_name", eid) if st else eid
+            out.append({"value": eid, "label": f"{name} ({eid})"})
+        return out
+
+    def _solar_forecaster_schema(
+        self, o: dict[str, Any], energy: list[dict[str, str]] | None = None
+    ) -> vol.Schema:
+        energy = energy or [
+            {
+                "value": SOLAR_FORECASTER_ENERGY_NONE,
+                "label": "Not in the Energy dashboard",
+            }
+        ]
+        current = o.get(
+            CONF_SOLAR_FORECASTER_ENERGY_SOURCE, SOLAR_FORECASTER_ENERGY_NONE
+        )
+        if current not in {e["value"] for e in energy}:
+            current = SOLAR_FORECASTER_ENERGY_NONE
         return vol.Schema(
             {
                 vol.Required(
@@ -282,6 +320,13 @@ class SolarForecasterSteps:
                         unit_of_measurement="days",
                     )
                 ),
+                vol.Required(
+                    CONF_SOLAR_FORECASTER_ENERGY_SOURCE, default=current
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=energy, mode=selector.SelectSelectorMode.DROPDOWN
+                    )
+                ),
                 vol.Optional(
                     "find_panels", default=not self._pv_strings()
                 ): selector.BooleanSelector(),
@@ -302,7 +347,9 @@ class SolarForecasterSteps:
             return self._solar_save()
         return self.async_show_form(
             step_id="solar_forecaster",
-            data_schema=self._solar_forecaster_schema(dict(self.config_entry.options)),
+            data_schema=self._solar_forecaster_schema(
+                dict(self.config_entry.options), await self._energy_solar_sources()
+            ),
             description_placeholders={"strings": self._strings_summary()},
         )
 

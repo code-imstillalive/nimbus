@@ -50,10 +50,12 @@ from .const import (
     CONF_PV_STRING_LABEL,
     CONF_PV_STRING_TILT,
     CONF_SOLAR_FORECASTER_ENABLED,
+    CONF_SOLAR_FORECASTER_ENERGY_SOURCE,
     CONF_SOLAR_FORECASTER_HISTORY_DAYS,
     DEFAULT_SOLAR_FORECASTER_ENABLED,
     DEFAULT_SOLAR_FORECASTER_HISTORY_DAYS,
     DOMAIN,
+    SOLAR_FORECASTER_ENERGY_NONE,
     SOLAR_FORECASTER_MIN_TRAINING_DAYS,
     SUBENTRY_TYPE_PV_STRING,
 )
@@ -193,6 +195,7 @@ RAW_HISTORY_DAYS = (
 FAILING_REPAIR_AFTER = dt.timedelta(hours=26)
 ISSUE_NO_ARRAYS = "solar_forecaster_no_arrays"
 ISSUE_WEATHER_FAILING = "solar_forecaster_weather_failing"
+ISSUE_ENERGY_SOURCE_GONE = "solar_forecaster_energy_source_gone"
 
 _RUNTIMES: dict[str, SolarForecasterRuntime] = {}
 
@@ -317,6 +320,7 @@ class SolarForecasterRuntime:
             self._publish()
             return
         ir.async_delete_issue(self.hass, DOMAIN, ISSUE_NO_ARRAYS)
+        await self._async_energy_watch()
         await self.hass.async_add_executor_job(self._load_saved)
         self._unsubs.append(
             async_track_time_interval(
@@ -341,6 +345,70 @@ class SolarForecasterRuntime:
         self._task = self.hass.async_create_background_task(
             self._async_bootstrap(), "nimbus solar forecaster start"
         )
+
+    # --- the Energy dashboard -----------------------------------------------------------------
+    async def _async_energy_watch(self) -> None:
+        """Keep Nimbus on the chosen Energy solar source, now and whenever the Energy settings
+        change (their screen lists only service-type integrations, so saving it drops Nimbus)."""
+        if self._energy_wanted() is None:
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_ENERGY_SOURCE_GONE)
+            return
+        try:
+            from homeassistant.components.energy.data import async_get_manager
+
+            manager = await async_get_manager(self.hass)
+        except Exception as err:  # noqa: BLE001 -- no Energy integration: nothing to link
+            _LOGGER.debug("Nimbus solar forecaster: no Energy settings (%s)", err)
+            return
+        manager.async_listen_updates(self._async_energy_link)
+
+        def _forget() -> None:  # the Energy manager has no unsubscribe of its own
+            if self._async_energy_link in manager._update_listeners:
+                manager._update_listeners.remove(self._async_energy_link)
+
+        self._unsubs.append(_forget)
+        await self._async_energy_link()
+
+    def _energy_wanted(self) -> str | None:
+        want = self.entry.options.get(CONF_SOLAR_FORECASTER_ENERGY_SOURCE)
+        return None if not want or want == SOLAR_FORECASTER_ENERGY_NONE else want
+
+    async def _async_energy_link(self) -> None:
+        want = self._energy_wanted()
+        if want is None:
+            return
+        from homeassistant.components.energy.data import async_get_manager
+
+        manager = await async_get_manager(self.hass)
+        sources = list((manager.data or {}).get("energy_sources", []))
+        hit = next(
+            (
+                i
+                for i, s in enumerate(sources)
+                if s.get("type") == "solar" and s.get("stat_energy_from") == want
+            ),
+            None,
+        )
+        if hit is None:  # the source was removed from the Energy dashboard: say so
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                ISSUE_ENERGY_SOURCE_GONE,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key=ISSUE_ENERGY_SOURCE_GONE,
+                translation_placeholders={"source": want},
+            )
+            return
+        ir.async_delete_issue(self.hass, DOMAIN, ISSUE_ENERGY_SOURCE_GONE)
+        ids = list(sources[hit].get("config_entry_solar_forecast") or [])
+        if self.entry.entry_id in ids:
+            return
+        sources[hit] = {
+            **sources[hit],
+            "config_entry_solar_forecast": [*ids, self.entry.entry_id],
+        }
+        await manager.async_update({"energy_sources": sources})
 
     @callback
     def async_stop(self) -> None:

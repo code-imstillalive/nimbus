@@ -163,9 +163,12 @@ attributes are not recorded.
 `sensor.nimbus_solar_forecast_today`, `sensor.nimbus_solar_forecast_today_remaining` and
 `sensor.nimbus_solar_forecast_tomorrow` give the same forecast as energy (kWh, p50; `p10` and
 `p90` beside it): today's total (made so far plus the rest), the rest of today, and tomorrow. The
-forecast is also a solar forecast source for Home Assistant's Energy dashboard (Settings →
-Dashboards → Energy → your solar panels → *Forecast production* → Nimbus): expected Wh per hour,
-with today's earlier hours kept as they were forecast.
+forecast can also be the solar forecast line on Home Assistant's Energy dashboard: expected Wh
+per hour, with today's earlier hours kept as they were forecast. Home Assistant's Energy settings
+list only service-type integrations as forecasts, and Nimbus is a hub, so you choose the solar
+source under Configure → Solar forecaster → *Show it in the Energy dashboard for*; Nimbus adds
+itself there and puts itself back whenever the Energy settings are saved without it (a Repair
+says so if that solar source is deleted).
 
 `weather.nimbus_weather` is the same ECMWF weather as a standard Home Assistant weather entity,
 also only while the solar forecaster is on: condition, temperature and cloud now (unavailable

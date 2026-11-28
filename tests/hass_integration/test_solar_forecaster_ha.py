@@ -33,6 +33,7 @@ from custom_components.nimbus_load.const import (
     CONF_PV_STRING_ENTITY,
     CONF_PV_STRING_TILT,
     CONF_SOLAR_FORECASTER_ENABLED,
+    CONF_SOLAR_FORECASTER_ENERGY_SOURCE,
     CONF_SOLAR_FORECASTER_HISTORY_DAYS,
     CONF_SOLAR_FORECASTER_USE,
     DOMAIN,
@@ -180,6 +181,38 @@ async def test_solar_forecaster_from_setup_to_the_solver(hass: HomeAssistant) ->
             assert st is not None and st.attributes["unit_of_measurement"] == "kWh"
         assert (
             await nimbus_energy.async_get_solar_forecast(hass, entry.entry_id) is None
+        )
+        # the Energy dashboard: its settings screen lists only service-type integrations, so
+        # Nimbus adds itself to the chosen solar source and puts itself back when dropped
+        from homeassistant.components.energy.data import async_get_manager
+
+        manager = await async_get_manager(hass)
+        solar = {"type": "solar", "stat_energy_from": "sensor.daily_pv_inv1"}
+        await manager.async_update({"energy_sources": [solar]})
+        hass.config_entries.async_update_entry(
+            entry,
+            options={
+                **entry.options,
+                CONF_SOLAR_FORECASTER_ENERGY_SOURCE: "sensor.daily_pv_inv1",
+            },
+        )
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+        def linked() -> list:
+            (src,) = manager.data["energy_sources"]
+            return src.get("config_entry_solar_forecast") or []
+
+        assert linked() == [entry.entry_id]
+        await manager.async_update({"energy_sources": [solar]})  # saved without it
+        await hass.async_block_till_done()
+        assert linked() == [entry.entry_id]
+        await manager.async_update(
+            {"energy_sources": []}
+        )  # the source deleted: a Repair
+        await hass.async_block_till_done()
+        assert ir.async_get(hass).async_get_issue(
+            DOMAIN, solar_forecaster_ha.ISSUE_ENERGY_SOURCE_GONE
         )
         t = datetime(2026, 11, 28, 0, 0, tzinfo=UTC).timestamp()  # 10:00 in Brisbane
         strip = [
