@@ -21,7 +21,7 @@ import numpy as np
 
 from . import sources
 
-COLUMNS = ("t", "ghi", "cloud", "low_cloud", "t2m", "ghi_sd")
+COLUMNS = ("t", "ghi", "cloud", "low_cloud", "t2m", "ghi_sd", "rain", "shower", "cape")
 
 
 class WeatherStore:

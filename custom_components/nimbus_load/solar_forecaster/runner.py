@@ -20,6 +20,7 @@ import numpy as np
 
 from . import model as M
 from . import sources
+from . import weather as W
 from .site import SLOT_S, Array, Site, clear_power, fit, local_day, local_offset
 from .store import WeatherStore
 
@@ -92,9 +93,23 @@ def fetch_weather(
                 lat,
                 lon,
             )
-            got = sources.fetch_run(source, run, steps, lat, lon, get)
-            if len(got) < 0.8 * len(steps):
-                rep.failed[source] = f"{len(got)} of {len(steps)} files"
+            night = []
+            if (
+                source == "ecmwf"
+            ):  # the weather strip shows rain and storms at night too
+                every = sources.steps_for(
+                    source,
+                    run,
+                    now.timestamp() - 3 * 3600,
+                    run.timestamp() + sp.horizon_h * 3600,
+                )
+                night = [s for s in every if s not in steps]
+            got = sources.fetch_run(
+                source, run, steps, lat, lon, get, night_steps=night
+            )
+            day_got = sum(s in got for s in steps)
+            if day_got < 0.8 * len(steps):
+                rep.failed[source] = f"{day_got} of {len(steps)} files"
             else:
                 store.save(source, run, sources.series(source, run, got))
                 rep.fetched.append(f"{source} {run:%Y-%m-%d %H}Z")
@@ -292,6 +307,8 @@ class Forecast:
     # the plan may use the forecast up to here (UTC seconds; None: not at all): the slots from now
     # on until the first one a tier in model.NOT_FOR_PLAN (or no tier) covers
     plan_until: float | None = None
+    # the weather strip: one picture per 3-hour ECMWF interval from a day back to the horizon
+    weather: list[dict] = field(default_factory=list)
 
 
 def _most(tiers) -> str:
@@ -319,7 +336,8 @@ def forecast(
     # predicted from 30 minutes back, so each recent reading is compared with what was forecast
     # for that same moment; only the rows from now on are published
     t_all = np.arange(t0 - LIVE_WINDOW_S, t0 + hours * 3600, SLOT_S)
-    lo, mid, hi, tier = M.predict(trained, site, arrays, t_all, store.latest(), tz)
+    wx = store.latest()
+    lo, mid, hi, tier = M.predict(trained, site, arrays, t_all, wx, tz)
     past = t_all < t0
     t_past, mid_past = t_all[past], mid[past]
     t, lo, mid, hi, tier = t_all[~past], lo[~past], mid[~past], hi[~past], tier[~past]
@@ -422,6 +440,9 @@ def forecast(
         if len(first)
         else "",  # the models behind the forecast now
         plan_until=plan_until,
+        weather=W.strip(
+            wx.get("ecmwf"), site.lat, site.lon, t0 - 24 * 3600, t0 + hours * 3600
+        ),
         live_ratio=None if ratio is None else round(ratio, 3),
         now_kw=round(float(mid[0]), 3)
         if ok[0]

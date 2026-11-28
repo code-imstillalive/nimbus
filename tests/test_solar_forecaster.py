@@ -29,6 +29,7 @@ from nimbus_load.solar_forecaster import (
     site,
     sources,
     store,
+    weather,
 )
 
 # --- tiny GRIB2 writer (test side only) -------------------------------------
@@ -226,6 +227,53 @@ def _reads_weather_files():
     }
     s = sources.series("ecmwf", run, ec_steps)
     assert np.allclose(s["ghi"], [360.0, 720.0]) and np.allclose(s["cloud"], 50.0)
+    # the weather strip: rain and shower rain (accumulated metres -> mm per hour) and CAPE, also
+    # at night, where only the weather fields are read (no radiation: ghi left empty, not zero)
+    wet = {
+        0: {
+            "ssrd": 0.0,
+            "tcc": 0.9,
+            "lcc": 0.6,
+            "2t": 293.15,
+            "tp": 0.0,
+            "cp": 0.0,
+            "mucape": 900.0,
+        },
+        3: {
+            "ssrd": 3.9e6,
+            "tcc": 0.9,
+            "lcc": 0.6,
+            "2t": 293.15,
+            "tp": 0.006,
+            "cp": 0.003,
+            "mucape": 1100.0,
+        },
+        6: {
+            "tcc": 1.0,
+            "lcc": 0.8,
+            "tp": 0.009,
+            "cp": 0.003,
+            "mucape": 100.0,
+        },  # night step
+    }
+    s = sources.series("ecmwf", run, wet)
+    assert np.allclose(s["rain"], [2.0, 1.0]) and np.allclose(s["shower"], [1.0, 0.0])
+    assert np.allclose(s["cape"], [1000.0, 600.0])
+    assert s["ghi"][0] > 0 and np.isnan(s["ghi"][1])  # dark interval: no radiation read
+    assert weather.classify(95, 2.0, 1.0, 1000.0) == "storm"  # unstable air and showers
+    assert (
+        weather.classify(95, 2.0, 0.0, 1000.0) == "rain"
+    )  # CAPE alone stays dry of thunder
+    assert weather.classify(30, 0.3, 0.3, 0) == "showers_sun"
+    assert weather.classify(90, 0.3, 0.0, 0) == "sprinkle"
+    assert weather.classify(10, None, None, None) == "clear"
+    assert weather.classify(10, 0, 0, 0, sun_up=False) == "clear_night"
+    assert weather.classify(80, 5.0, 0.0, 0, sun_up=False) == "heavy_rain"
+    strip = weather.strip(s, -27.5, 153.0, s["t"][0] - 1, s["t"][-1] + 1)
+    assert [e["sky"] for e in strip] == [
+        weather.classify(90, 2.0, 1.0, 1000.0, strip[0]["sun_up"]),
+        weather.classify(95, 1.0, 0.0, 600.0, strip[1]["sun_up"]),
+    ] and strip[0]["rain"] == 2.0
     # night is never downloaded: only the steps touching daylight at the site (plus the ECMWF step
     # before dawn and whole NOAA 6-hour blocks), and two kept ECMWF steps either side of the night
     # are never averaged across it

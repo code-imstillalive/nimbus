@@ -1859,7 +1859,7 @@ FEATURES: tuple[tuple[str, str, str | tuple[str, ...] | None], ...] = (
             "learned about each array as `arrays`, and its own honest score "
             "(`score`: daily error on weeks it was not trained on).\n\n"
             "**Limits.** It needs about a week of history before its first "
-            "forecast; it downloads about 145 MB a day (plus about 35 MB per history "
+            "forecast; it downloads about 190 MB a day (plus about 35 MB per history "
             "day the first time); cloud timing on stormy days cannot be known the "
             "evening before, by it or anyone."
         ),

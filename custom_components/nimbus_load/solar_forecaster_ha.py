@@ -904,6 +904,8 @@ class SolarForecasterRuntime:
             "forecast": fc.rows if fc else [],
             "days": [d for d in fc.days if not d.get("partial")] if fc else [],
             "made_at": self.made_at,
+            # the weather strip under the chart (sky picture, cloud %, rain mm/h, CAPE per 3 h)
+            "weather": fc.weather if fc else [],
             # how far ahead the plan may use it (the rest is shown, not planned on)
             "plan_until": (
                 dt_util.utc_from_timestamp(fc.plan_until).isoformat()

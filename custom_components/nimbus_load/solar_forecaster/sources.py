@@ -103,12 +103,27 @@ def _value(get: Getter, url: str, start: int, end, lat: float, lon: float) -> fl
     return grib.at_point(field, lats, lons, lat, lon)
 
 
+#: ECMWF fields read at each step: radiation, cloud and temperature for the forecast; total and
+#: convective (shower) precipitation and most-unstable CAPE for the weather strip on the card.
+ECMWF_PARAMS = ("ssrd", "tcc", "lcc", "2t", "tp", "cp", "mucape")
+#: At night only what the weather strip shows (no sun to forecast).
+ECMWF_NIGHT_PARAMS = ("tcc", "lcc", "tp", "cp", "mucape")
+
+
 def fetch_step(
-    source: str, run: dt.datetime, step: int, lat: float, lon: float, get: Getter
+    source: str,
+    run: dt.datetime,
+    step: int,
+    lat: float,
+    lon: float,
+    get: Getter,
+    params: tuple[str, ...] | None = None,
 ) -> dict:
-    """The site's values in one forecast file (one step of one run)."""
+    """The site's values in one forecast file (one step of one run). `params`: ECMWF fields to read
+    (default ECMWF_PARAMS)."""
     out: dict = {}
     if source == "ecmwf":
+        wanted = params or ECMWF_PARAMS
         url = _ecmwf_url(run, step)
         index = [
             json.loads(x)
@@ -117,11 +132,7 @@ def fetch_step(
         ]
         for rec in index:
             p = rec.get("param")
-            if (
-                rec.get("levtype") == "sfc"
-                and p in ("ssrd", "tcc", "lcc", "2t")
-                and p not in out
-            ):
+            if rec.get("levtype") == "sfc" and p in wanted and p not in out:
                 end = rec["_offset"] + rec["_length"] - 1
                 out[p] = _value(get, url + ".grib2", rec["_offset"], end, lat, lon)
         return out
@@ -193,11 +204,23 @@ def steps_for(
     return [s for s in steps if (s - 1) // 6 in blocks]
 
 
-def fetch_run(source, run, steps, lat, lon, get, workers=6) -> dict[int, dict]:
-    """Every step of one run, in parallel. A failed step is left out (the series has a gap there)."""
+def fetch_run(
+    source, run, steps, lat, lon, get, workers=6, night_steps=()
+) -> dict[int, dict]:
+    """Every step of one run, in parallel. A failed step is left out (the series has a gap there).
+    `night_steps` (ECMWF): read only the weather fields there."""
     out = {}
     with cf.ThreadPoolExecutor(workers) as ex:
         futs = {ex.submit(fetch_step, source, run, s, lat, lon, get): s for s in steps}
+        futs.update(
+            {
+                ex.submit(
+                    fetch_step, source, run, s, lat, lon, get, ECMWF_NIGHT_PARAMS
+                ): s
+                for s in night_steps
+                if s not in steps
+            }
+        )
         for f in cf.as_completed(futs):
             try:
                 out[futs[f]] = f.result()
@@ -215,7 +238,8 @@ def series(
 
     def add(centre, value, **kw):
         t.append(centre)
-        ghi.append(max(float(value), 0.0))
+        v = float(value)
+        ghi.append(v if np.isnan(v) else max(v, 0.0))
         for k, v in kw.items():
             extra.setdefault(k, []).append(np.nan if v is None else float(v))
 
@@ -223,22 +247,37 @@ def series(
     if source == "ecmwf":
         for a, b in itertools.pairwise(ks):
             sa, sb = steps[a], steps[b]
-            if "ssrd" not in sa or "ssrd" not in sb or b - a > SPECS["ecmwf"].step_h:
-                continue  # a gap (a missing file, or the night left out) is no interval
-            mean = (sb["ssrd"] - sa["ssrd"]) / (
-                (b - a) * 3600.0
-            )  # accumulated J/m2 -> W/m2
-            lcc = (
-                (sa["lcc"] + sb["lcc"]) / 2 * 100
-                if "lcc" in sa and "lcc" in sb
-                else None
-            )
+            if b - a > SPECS["ecmwf"].step_h or "tcc" not in sa or "tcc" not in sb:
+                continue  # a gap (a missing file) is no interval
+
+            hours = b - a
+
+            def both(k, f, sa=sa, sb=sb):
+                return f(sa[k], sb[k]) if k in sa and k in sb else None
+
+            def per_hour(
+                k, sa=sa, sb=sb, hours=hours
+            ):  # accumulated metres -> mm per hour
+                return (
+                    max(sb[k] - sa[k], 0.0) * 1000 / hours
+                    if k in sa and k in sb
+                    else None
+                )
+
+            # at night only the weather fields are read: no radiation there (ghi left empty)
+            mean = both(
+                "ssrd", lambda x, y, h=hours: (y - x) / (h * 3600.0)
+            )  # J/m2 -> W/m2
             add(
                 r0 + (a + b) / 2 * 3600,
-                mean,
+                float("nan") if mean is None else mean,
                 cloud=(sa["tcc"] + sb["tcc"]) / 2 * 100,
-                low_cloud=lcc,
-                t2m=(sa["2t"] + sb["2t"]) / 2 - 273.15,
+                low_cloud=both("lcc", lambda x, y: (x + y) / 2 * 100),
+                t2m=both("2t", lambda x, y: (x + y) / 2 - 273.15),
+                # rain and shower rain in mm per hour; CAPE (J/kg) at the interval's middle
+                rain=per_hour("tp"),
+                shower=per_hour("cp"),
+                cape=both("mucape", lambda x, y: (x + y) / 2),
             )
     elif source == "gfs":
         # Each file holds the average since the last 6-hourly reset, window (a, b). With the previous

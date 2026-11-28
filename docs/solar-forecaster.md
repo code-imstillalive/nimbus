@@ -79,6 +79,12 @@ It is the **Solar Lab** tab of the standard [Nimbus dashboard](dashboards.md), o
 
 - today (made so far and the rest), tomorrow, the days ahead and its own day-ahead error;
 - the forecast for every day with its likely range, the clear-sky line and today's measured output;
+- under it, on the same time line, the weather every 3 hours, day and night (from ECMWF): sun,
+  cloud, light rain, showers, rain, heavy rain and thunderstorms, with rain as bars and night
+  shaded. Thunderstorms need both unstable air (CAPE of 800 J/kg or more) and shower rain
+  forecast. The pictures move gently (the sun glows, rain falls, lightning flashes; still if your
+  device asks for reduced motion); hover or tap one for its cloud, rain, storm energy and
+  solar power. On a phone, neighbouring hours share a picture showing the worst of them;
 - a table of every day, the next two hours, and your PV Strings as it learned them;
 - its scoreboard: every scored day's evening-before forecast against what your panels made
   (in amber), with a summary.
@@ -134,8 +140,10 @@ carries the forecast with a wider likely range; that is never planned on.
 - Its first forecast comes once it has about a week of history (it fetches the weather
   itself; your PV Strings' recorded output comes from Home Assistant's recorder and long-term
   statistics).
-- It downloads about 145 MB a day in summer (measured; less in winter, as it never downloads the
-  night), plus up to about 35 MB per day of history the first time.
+- It downloads about 190 MB a day in summer (less in winter): the three models' light and cloud
+  for the daylight hours (about 145 MB), plus ECMWF's rain, shower rain and storm energy day and
+  night and its cloud at night for the weather strip (about 45 MB). The history it learns from
+  is daylight only: up to about 35 MB per day the first time.
 - It learns from your recorded output, so that output has to be honest:
   - gaps (a sensor unavailable, the recorder missing hours) are left out;
   - **curtailment is not detected yet**: hours when output was held back (export limits,

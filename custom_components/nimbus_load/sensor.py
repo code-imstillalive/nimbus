@@ -4957,6 +4957,7 @@ class NimbusSolarForecastSensor(SensorEntity):
             "arrays",
             "score",
             "weather_runs",
+            "weather",
             "attribution",
         }
     )

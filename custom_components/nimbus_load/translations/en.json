@@ -379,7 +379,7 @@
       },
       "solar_forecaster": {
         "title": "Solar forecaster",
-        "description": "Nimbus forecasts your panels itself, from three free global weather models (ECMWF, NOAA GFS and NOAA's 31-run GEFS ensemble), learning each array's size, its shading and how much scattered light it gets from your own measured output. No account or key; your location is never sent anywhere. It downloads about 145 MB a day (less in winter), plus about 35 MB per day of history the first time.\n\nIt forecasts these PV Strings (add or edit them on the Nimbus hub's device page):\n{strings}",
+        "description": "Nimbus forecasts your panels itself, from three free global weather models (ECMWF, NOAA GFS and NOAA's 31-run GEFS ensemble), learning each array's size, its shading and how much scattered light it gets from your own measured output. No account or key; your location is never sent anywhere. It downloads about 190 MB a day (less in winter), plus about 35 MB per day of history the first time.\n\nIt forecasts these PV Strings (add or edit them on the Nimbus hub's device page):\n{strings}",
         "data": {
           "solar_forecaster_enabled": "Turn on Nimbus's solar forecaster",
           "solar_forecaster_use": "What the plan does with it",
