@@ -161,10 +161,12 @@ class NimbusSolarCard extends HTMLElement {
     const need = 7;
     const have = +a.history_days || 0;
     const progress = a.status === "fetching_history" || a.status === "learning"
-      ? `${Math.min(have, need)} of ${need} days in${have >= need ? ", learning your panels" : ""}`
+      ? (have >= need ? "learning your panels" : `${have} of ${need} days of weather downloaded`)
       : "";
     this._waiting = progress
-      ? `Getting ready: ${Math.min(have, need)} of ${need} days of weather history in${have >= need ? "; now learning your panels" : " (about 3 days every 6 minutes)"}. The first forecast follows.`
+      ? (have >= need
+          ? `Getting ready: all ${need} days of weather history downloaded; now learning your panels. The first forecast follows in a minute or two.`
+          : `Getting ready: ${have} of ${need} days of weather history downloaded. About 3 more days every 6 minutes; first forecast in about ${Math.max(5, Math.ceil(((need - have) / 3) * 6) + 3)} minutes.`)
       : "";
 
     // header strip
